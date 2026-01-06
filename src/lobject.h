@@ -63,6 +63,8 @@ typedef union Value {
 */
 
 #define TValuefields	Value value_; lu_byte tt_
+
+// Tagged Pointer，对于Number和Boolean直接存储值，对于其他类型存储指针
 typedef struct TValue {
   TValuefields;
 } TValue;

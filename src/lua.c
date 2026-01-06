@@ -260,9 +260,11 @@ static int handle_script (lua_State *L, char **argv) {
   const char *fname = argv[0];
   if (strcmp(fname, "-") == 0 && strcmp(argv[-1], "--") != 0)
     fname = NULL;  /* stdin */
+  // handle_script复用lua本身的库
   status = luaL_loadfile(L, fname);
   if (status == LUA_OK) {
     int n = pushargs(L);  /* push arguments to script */
+    // docall才是正式执行的位置
     status = docall(L, n, LUA_MULTRET);
   }
   return report(L, status);
@@ -709,6 +711,7 @@ static int pmain (lua_State *L) {
   int optlim = (script > 0) ? script : argc; /* first argv not an option */
   luaL_checkversion(L);  /* check that interpreter has correct version */
   if (args == has_error) {  /* bad arg? */
+    fprintf(stderr,"bad args!\n");
     print_usage(argv[script]);  /* 'script' has index of bad arg. */
     return 0;
   }
@@ -729,6 +732,8 @@ static int pmain (lua_State *L) {
   if (!runargs(L, argv, optlim))  /* execute arguments -e, -l, and -W */
     return 0;  /* something failed */
   if (script > 0) {  /* execute main script (if there is one) */
+      fprintf(stderr,"Executing main script!\n");
+      // 运行lua脚本时走的是这个函数
     if (handle_script(L, argv + script) != LUA_OK)
       return 0;  /* interrupt in case of error */
   }
@@ -739,7 +744,10 @@ static int pmain (lua_State *L) {
       print_version();
       doREPL(L);  /* do read-eval-print loop */
     }
-    else dofile(L, NULL);  /* executes stdin as a file */
+    else{
+        fprintf(stderr,"Using stdin as a file!\n");
+        dofile(L, NULL);
+    }  /* executes stdin as a file */
   }
   lua_pushboolean(L, 1);  /* signal no errors */
   return 1;
@@ -763,4 +771,3 @@ int main (int argc, char **argv) {
   lua_close(L);
   return (result && status == LUA_OK) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-

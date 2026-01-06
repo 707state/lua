@@ -1125,6 +1125,7 @@ static void f_parser (lua_State *L, void *ud) {
   struct SParser *p = cast(struct SParser *, ud);
   const char *mode = p->mode ? p->mode : "bt";
   int c = zgetc(p->z);  /* read first character */
+  // 判断是不是二进制，如果是二进制就直接总luaU_undump变为一个Closure，否则就进行parsing变为Closure
   if (c == LUA_SIGNATURE[0]) {
     int fixed = 0;
     if (strchr(mode, 'B') != NULL)
@@ -1160,5 +1161,3 @@ TStatus luaD_protectedparser (lua_State *L, ZIO *z, const char *name,
   decnny(L);
   return status;
 }
-
-
