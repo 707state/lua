@@ -283,6 +283,7 @@ static int io_open (lua_State *L) {
 static int io_pclose (lua_State *L) {
   LStream *p = tolstream(L);
   errno = 0;
+  fprintf(stderr,"Executed this io_pclose!");
   return luaL_execresult(L, l_pclose(L, p->f));
 }
 
@@ -838,4 +839,3 @@ LUAMOD_API int luaopen_io (lua_State *L) {
   createstdfile(L, stderr, NULL, "stderr");
   return 1;
 }
-

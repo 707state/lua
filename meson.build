@@ -1,5 +1,8 @@
 project('lua', 'c')
-
+cmake = import('cmake')
+raylib_proj = cmake.subproject('raylib')
+raylib_dep = raylib_proj.dependency('raylib')
+add_project_arguments(['-DLUA_USE_DLOPEN','-DLUA_USE_POSIX'], language: ['c', 'cpp'])
 lua_lib = static_library(
   'lua',
   sources: [
@@ -40,3 +43,11 @@ lua_lib = static_library(
 
 lua_exe = executable('lua', sources: ['src/lua.c'], link_with: lua_lib)
 luac_exe = executable('luac', sources: ['src/luac.c'], link_with: lua_lib)
+
+lua_raylib_lib = library(
+  'raylib',
+  sources: ['raylib/lraylib.c'],
+  link_with: lua_lib,
+  dependencies: [raylib_dep],
+  include_directories: include_directories('src/'),
+)

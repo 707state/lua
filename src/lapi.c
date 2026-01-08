@@ -887,6 +887,7 @@ LUA_API void lua_settable (lua_State *L, int idx) {
   TValue *t;
   int hres;
   lua_lock(L);
+  // 确保栈上有两个操作数
   api_checkpop(L, 2);
   t = index2value(L, idx);
   luaV_fastset(t, s2v(L->top.p - 2), s2v(L->top.p - 1), hres, luaH_pset);

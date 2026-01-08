@@ -722,6 +722,7 @@ static int pmain (lua_State *L) {
     lua_setfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
   }
   luai_openlibs(L);  /* open standard libraries */
+  // 这里创建了一个叫做arg的全局table，存储了command line arg
   createargtable(L, argv, argc, script);  /* create table 'arg' */
   lua_gc(L, LUA_GCRESTART);  /* start GC... */
   lua_gc(L, LUA_GCGEN);  /* ...in generational mode */

@@ -1,1 +1,4 @@
-print(1)
+package.cpath = "./build/?.dylib;" .. package.cpath
+
+local rl = require('libraylib')
+rl.hello()
