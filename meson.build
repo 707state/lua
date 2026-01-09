@@ -1,7 +1,16 @@
 project('lua', 'c')
 cmake = import('cmake')
-raylib_proj = cmake.subproject('raylib')
+
+raylib_opts = cmake.subproject_options()
+raylib_opts.add_cmake_defines({
+  'WITH_PIC': 'ON',                       # raylib 自己提供的开关（关键）
+  'CMAKE_POSITION_INDEPENDENT_CODE': 'ON' # 通用 CMake 开关（保险）
+})
+
+raylib_proj = cmake.subproject('raylib',options: raylib_opts)
 raylib_dep = raylib_proj.dependency('raylib')
+
+add_project_link_arguments('-lm', language: 'c')
 add_project_arguments(['-DLUA_USE_DLOPEN','-DLUA_USE_POSIX'], language: ['c', 'cpp'])
 lua_lib = static_library(
   'lua',
@@ -50,4 +59,5 @@ lua_raylib_lib = library(
   link_with: lua_lib,
   dependencies: [raylib_dep],
   include_directories: include_directories('src/'),
+  pic: true
 )
