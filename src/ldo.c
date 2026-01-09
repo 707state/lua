@@ -652,6 +652,7 @@ l_sinline int precallC (lua_State *L, StkId func, unsigned status,
     luaD_hook(L, LUA_HOOKCALL, -1, 1, narg);
   }
   lua_unlock(L);
+  // 这里的n是函数返回值的个数
   n = (*f)(L);  /* do the actual call */
   lua_lock(L);
   api_checknelems(L, n);
@@ -710,8 +711,7 @@ int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
 ** are on the stack, right after the function.  Returns the CallInfo
 ** to be executed, if it was a Lua function. Otherwise (a C function)
 ** returns NULL, with all the results on the stack, starting at the
-** original function position.
-*/
+** original function position.*/
 CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
   unsigned status = cast_uint(nresults + 1);
   lua_assert(status <= MAXRESULTS + 1);

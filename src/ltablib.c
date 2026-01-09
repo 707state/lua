@@ -403,6 +403,12 @@ static int sort (lua_State *L) {
   return 0;
 }
 
+// reimplement the deprecated getn
+static int getn(lua_State *L){
+    lua_Integer n=aux_getn(L, 1, TAB_R);
+    lua_pushinteger(L, n);
+    return 1;
+}
 /* }====================================================== */
 
 
@@ -415,6 +421,9 @@ static const luaL_Reg tab_funcs[] = {
   {"remove", tremove},
   {"move", tmove},
   {"sort", sort},
+#ifdef LUA_COMPAT_GLOBAL
+  {"getn",getn},
+#endif
   {NULL, NULL}
 };
 
@@ -423,4 +432,3 @@ LUAMOD_API int luaopen_table (lua_State *L) {
   luaL_newlib(L, tab_funcs);
   return 1;
 }
-
