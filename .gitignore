@@ -1,0 +1,9 @@
+/doc
+/build
+/builddir
+/.cache
+/.zed
+/.continue
+/subprojects/libffi*
+/subprojects/packagecache
+!/subprojects/libffi.wrap
