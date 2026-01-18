@@ -13,7 +13,7 @@
   OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
   CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 --]]
-local ffi=require('ffi')
+local ffi = require('ffi')
 local C = ffi.C
 
 local rl = {}
@@ -2144,54 +2144,73 @@ void DetachAudioStreamProcessor(AudioStream stream, AudioCallback processor); //
 void AttachAudioMixedProcessor(AudioCallback processor); // Attach audio stream processor to the entire audio pipeline, receives the samples as 'float'
 void DetachAudioMixedProcessor(AudioCallback processor); // Detach audio stream processor from the entire audio pipeline
 
+// rcamera
+ Vector3 GetCameraForward(Camera *camera);
+ Vector3 GetCameraUp(Camera *camera);
+ Vector3 GetCameraRight(Camera *camera);
+
+// Camera movement
+ void CameraMoveForward(Camera *camera, float distance, bool moveInWorldPlane);
+ void CameraMoveUp(Camera *camera, float distance);
+ void CameraMoveRight(Camera *camera, float distance, bool moveInWorldPlane);
+ void CameraMoveToTarget(Camera *camera, float delta);
+
+// Camera rotation
+ void CameraYaw(Camera *camera, float angle, bool rotateAroundTarget);
+ void CameraPitch(Camera *camera, float angle, bool lockView, bool rotateAroundTarget, bool rotateUp);
+ void CameraRoll(Camera *camera, float angle);
+
+ Matrix GetCameraViewMatrix(Camera *camera);
+ Matrix GetCameraProjectionMatrix(Camera* camera, float aspect);
+
 ]]
 
 
 -- colors
 local function new_color(r, g, b, a)
-  return ffi.new("Color", r, g, b, a)
+    return ffi.new("Color", r, g, b, a)
 end
 
-rl.Rectangle=function(x,y,width,height)
-    return ffi.new("Rectangle",x,y,width,height)
+rl.Rectangle = function(x, y, width, height)
+    return ffi.new("Rectangle", x, y, width, height)
 end
-rl.toCRectangle=function(t)
-    local rect=ffi.typeof("Rectangle")
-    if type(t)=="table" then
-        return ffi.new("Rectangle",t.x,t.y,t.width,t.height)
-    elseif ffi.istype(rect,t) then
+rl.toCRectangle = function(t)
+    local rect = ffi.typeof("Rectangle")
+    if type(t) == "table" then
+        return ffi.new("Rectangle", t.x, t.y, t.width, t.height)
+    elseif ffi.istype(rect, t) then
         return t
     end
     error("This is not a rectangle!")
 end
 
-rl.Color=function(r,g,b,a)
-    return ffi.new("Color",r,g,b,a)
+rl.Color = function(r, g, b, a)
+    return ffi.new("Color", r, g, b, a)
 end
-rl.toCColor=function(t)
-    local color=ffi.typeof("Color")
-    if type(t)=="table" then
-        return ffi.new("Color",t.r,t.g,t.b,t.a)
-    elseif ffi.istype(color,t)then
+rl.toCColor = function(t)
+    local color = ffi.typeof("Color")
+    if type(t) == "table" then
+        return ffi.new("Color", t.r, t.g, t.b, t.a)
+    elseif ffi.istype(color, t) then
         return t
     end
     error("This is not a Color!")
 end
 
-rl.Vector2=function(x,y)
-    return ffi.new("Vector2",x,y)
+rl.Vector2 = function(x, y)
+    return ffi.new("Vector2", x, y)
 end
-rl.Vector3=function(x,y,z)
-    return ffi.new("Vector3",x,y,z)
+rl.Vector3 = function(x, y, z)
+    return ffi.new("Vector3", x, y, z)
 end
-rl.Vector4=function(x,y,z,w)
-    return ffi.new("Vector4",x,y,z,w)
+rl.Vector4 = function(x, y, z, w)
+    return ffi.new("Vector4", x, y, z, w)
 end
-rl.Camera2D=function(offset,target,rotation,zoom)
-    return ffi.new("Camera2D",offset,target,rotation,zoom)
+rl.Camera2D = function(offset, target, rotation, zoom)
+    return ffi.new("Camera2D", offset, target, rotation, zoom)
 end
-rl.Camera3D=function(position,target,up,fovy,projection)
-    return ffi.new("Camera3D",position,target,up,fovy,projection)
+rl.Camera3D = function(position, target, up, fovy, projection)
+    return ffi.new("Camera3D", position, target, up, fovy, projection)
 end
 
 
@@ -2227,7 +2246,7 @@ rl.SHADER_LOC_MAP_SPECULAR = C.SHADER_LOC_MAP_METALNESS
 rl.MATERIAL_MAP_DIFFUSE = C.MATERIAL_MAP_ALBEDO
 rl.MATERIAL_MAP_SPECULAR = C.MATERIAL_MAP_METALNESS
 
-
+rl.DEG2RAD = (math.pi / 180.0)
 function rl.ref(obj)
     return ffi.cast(ffi.typeof("$ *", obj), obj)
 end
@@ -2301,7 +2320,7 @@ local function drop_multi(map, cb)
     return cb
 end
 
-local exports={
+local exports = {
     "InitWindow",
     "WindowShouldClose",
     "BeginDrawing",
@@ -2323,17 +2342,21 @@ local exports={
     "DrawRectangleRec",
     "DrawCube",
     "DrawCubeWires",
+    "DrawPlane",
     "DrawGrid",
     "DrawLine",
     "Fade",
     "DrawRectangleLines",
     "UpdateCamera",
     "DisableCursor",
+    "TextFormat",
+    "CameraYaw",
+    "CameraPitch"
 }
-package.cpath = './build/subprojects/raylib/?.dylib;'..'./build/subprojects/raylib/?.so;' .. package.cpath
+package.cpath = './build/subprojects/raylib/?.dylib;' .. './build/subprojects/raylib/?.so;' .. package.cpath
 local c_raylib = ffi.load('libraylib')
-for _,name in ipairs(exports) do
-    rl[name]=c_raylib[name]
+for _, name in ipairs(exports) do
+    rl[name] = c_raylib[name]
 end
 
 local TraceLogCallback = ffi.typeof("TraceLogCallback")
@@ -2403,11 +2426,11 @@ end
 
 rl.new = ffi.new
 
-rl.__index = function (self, key)
+rl.__index = function(self, key)
     return C[key]
 end
 
-rl.__newindex = function ()
+rl.__newindex = function()
     error "rl table is readonly"
 end
 
