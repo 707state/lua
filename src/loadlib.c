@@ -39,6 +39,19 @@
 #define LUA_LSUBSEP		LUA_DIRSEP
 #endif
 
+/*
+** Default suffix for C modules. Override at compile time when needed.
+*/
+#if !defined(LUA_CMOD_SUFFIX)
+#if defined(_WIN32)
+#define LUA_CMOD_SUFFIX   ".dll"
+#elif defined(__APPLE__)
+#define LUA_CMOD_SUFFIX   ".dylib"
+#else
+#define LUA_CMOD_SUFFIX   ".so"
+#endif
+#endif
+
 
 /* prefix for open functions in C libraries */
 #define LUA_POF		"luaopen_"
@@ -405,6 +418,18 @@ static int lookforfunc (lua_State *L, const char *path, const char *sym) {
 static int ll_loadlib (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   const char *init = luaL_checkstring(L, 2);
+  const char *basename = path;
+  const char *slash = strrchr(path, '/');
+#if defined(_WIN32)
+  const char *bslash = strrchr(path, '\\');
+  if (bslash != NULL && (slash == NULL || bslash > slash))
+    slash = bslash;
+#endif
+  if (slash != NULL)
+    basename = slash + 1;
+  /* allow package.loadlib("mylib", ...) */
+  if (strchr(basename, '.') == NULL)
+    path = lua_pushfstring(L, "%s%s", path, LUA_CMOD_SUFFIX);
   int stat = lookforfunc(L, path, init);
   if (l_likely(stat == 0))  /* no errors? */
     return 1;  /* return the loaded function */
@@ -432,6 +457,22 @@ static int readable (const char *filename) {
   return 1;
 }
 
+
+/*
+** whether the final path component has an extension
+*/
+static int hasextension (const char *filename) {
+  const char *basename = filename;
+  const char *slash = strrchr(filename, '/');
+#if defined(_WIN32)
+  const char *bslash = strrchr(filename, '\\');
+  if (bslash != NULL && (slash == NULL || bslash > slash))
+    slash = bslash;
+#endif
+  if (slash != NULL)
+    basename = slash + 1;
+  return (strchr(basename, '.') != NULL);
+}
 
 /*
 ** Get the next name in '*path' = 'name1;name2;name3;...', changing
@@ -475,7 +516,8 @@ static void pusherrornotfound (lua_State *L, const char *path) {
 static const char *searchpath (lua_State *L, const char *name,
                                              const char *path,
                                              const char *sep,
-                                             const char *dirsep) {
+                                             const char *dirsep,
+                                             const char *suffix) {
   luaL_Buffer buff;
   char *pathname;  /* path with name inserted */
   char *endpathname;  /* its end */
@@ -490,8 +532,13 @@ static const char *searchpath (lua_State *L, const char *name,
   pathname = luaL_buffaddr(&buff);  /* writable list of file names */
   endpathname = pathname + luaL_bufflen(&buff) - 1;
   while ((filename = getnextfilename(&pathname, endpathname)) != NULL) {
-    if (readable(filename))  /* does file exist and is readable? */
-      return lua_pushstring(L, filename);  /* save and return name */
+    const char *cand = filename;
+    if (suffix != NULL && !hasextension(filename))
+      cand = lua_pushfstring(L, "%s%s", filename, suffix);
+    if (readable(cand))  /* does file exist and is readable? */
+      return ((cand == filename) ? lua_pushstring(L, filename) : cand);
+    if (cand != filename)
+      lua_pop(L, 1);  /* pop temporary suffixed candidate */
   }
   luaL_pushresult(&buff);  /* push path to create error message */
   pusherrornotfound(L, lua_tostring(L, -1));  /* create error message */
@@ -503,7 +550,8 @@ static int ll_searchpath (lua_State *L) {
   const char *f = searchpath(L, luaL_checkstring(L, 1),
                                 luaL_checkstring(L, 2),
                                 luaL_optstring(L, 3, "."),
-                                luaL_optstring(L, 4, LUA_DIRSEP));
+                                luaL_optstring(L, 4, LUA_DIRSEP),
+                                luaL_optstring(L, 5, NULL));
   if (f != NULL) return 1;
   else {  /* error message is on top of the stack */
     luaL_pushfail(L);
@@ -517,11 +565,14 @@ static const char *findfile (lua_State *L, const char *name,
                                            const char *pname,
                                            const char *dirsep) {
   const char *path;
+  const char *suffix = NULL;
   lua_getfield(L, lua_upvalueindex(1), pname);
   path = lua_tostring(L, -1);
   if (l_unlikely(path == NULL))
     luaL_error(L, "'package.%s' must be a string", pname);
-  return searchpath(L, name, path, ".", dirsep);
+  if (strcmp(pname, "cpath") == 0)
+    suffix = LUA_CMOD_SUFFIX;
+  return searchpath(L, name, path, ".", dirsep, suffix);
 }
 
 
@@ -745,4 +796,3 @@ LUAMOD_API int luaopen_package (lua_State *L) {
   lua_pop(L, 1);  /* pop global table */
   return 1;  /* return 'package' table */
 }
-
