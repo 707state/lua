@@ -1,7 +1,10 @@
+#![feature(portable_simd)]
+
 use std::ffi::{c_char, c_int, c_uint};
 use std::mem::size_of;
 use std::ptr;
-
+use std::simd::Simd;
+use std::simd::num::SimdFloat;
 #[allow(non_camel_case_types)]
 type lua_Integer = i64;
 #[allow(non_camel_case_types)]
@@ -32,6 +35,7 @@ type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
 const LUA_VERSION_NUM: lua_Number = 505.0;
 const LUAL_NUMSIZES: usize = size_of::<lua_Integer>() * 16 + size_of::<lua_Number>();
 const LUA_TNUMBER: c_int = 3;
+const LUA_TTABLE: c_int = 5;
 const LUA_OPLT: c_int = 1;
 const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 const LUA_MININTEGER: lua_Integer = i64::MIN;
@@ -43,6 +47,7 @@ const I2D_SCALE: lua_Number = 1.0 / ((1_u64 << FIGS) as lua_Number);
 
 const FIELD_ADD: &[u8] = b"add\0";
 const FIELD_FACTORIAL: &[u8] = b"factorial\0";
+const FIELD_SIMD: &[u8] = b"simd\0";
 const FIELD_VERSION: &[u8] = b"version\0";
 const VERSION_TEXT: &[u8] = b"0.1.0\0";
 
@@ -75,11 +80,18 @@ const FIELD_PI: &[u8] = b"pi\0";
 const FIELD_HUGE: &[u8] = b"huge\0";
 const FIELD_MAXINTEGER: &[u8] = b"maxinteger\0";
 const FIELD_MININTEGER: &[u8] = b"mininteger\0";
+const NAME_F64X4_ADD: &[u8] = b"f64x4_add\0";
+const NAME_F64X4_MUL: &[u8] = b"f64x4_mul\0";
+const NAME_F64X4_DOT: &[u8] = b"f64x4_dot\0";
+const NAME_I32X4_ADD: &[u8] = b"i32x4_add\0";
 const STR_INTEGER: &[u8] = b"integer\0";
 const STR_FLOAT: &[u8] = b"float\0";
 const ERR_WRONG_NUMBER_OF_ARGUMENTS: &[u8] = b"wrong number of arguments\0";
 const ERR_INTERVAL_EMPTY: &[u8] = b"interval is empty\0";
 const ERR_ZERO: &[u8] = b"zero\0";
+const ERR_EXPECTED_VECTOR_TABLE: &[u8] = b"expected a Lua array table\0";
+const ERR_EXPECTED_4_LANES: &[u8] = b"expected exactly 4 lanes\0";
+const ERR_I32_RANGE: &[u8] = b"lane value is out of i32 range\0";
 
 static RUST_FFI_REGS: [luaL_Reg; 4] = [
     luaL_Reg {
@@ -214,6 +226,29 @@ static RANDFUNCS: [luaL_Reg; 3] = [
     },
 ];
 
+static SIMD_REGS: [luaL_Reg; 5] = [
+    luaL_Reg {
+        name: NAME_F64X4_ADD.as_ptr().cast(),
+        func: Some(simd_f64x4_add),
+    },
+    luaL_Reg {
+        name: NAME_F64X4_MUL.as_ptr().cast(),
+        func: Some(simd_f64x4_mul),
+    },
+    luaL_Reg {
+        name: NAME_F64X4_DOT.as_ptr().cast(),
+        func: Some(simd_f64x4_dot),
+    },
+    luaL_Reg {
+        name: NAME_I32X4_ADD.as_ptr().cast(),
+        func: Some(simd_i32x4_add),
+    },
+    luaL_Reg {
+        name: ptr::null(),
+        func: None,
+    },
+];
+
 unsafe extern "C" {
     fn luaL_checkversion_(state: *mut lua_State, version: lua_Number, sizes: usize);
     fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number;
@@ -239,9 +274,15 @@ unsafe extern "C" {
     fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char;
     fn lua_pushboolean(state: *mut lua_State, b: c_int);
     fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
-    fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int)
-        -> *mut std::ffi::c_void;
+    fn lua_newuserdatauv(
+        state: *mut lua_State,
+        size: usize,
+        nuvalue: c_int,
+    ) -> *mut std::ffi::c_void;
     fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
+    fn lua_geti(state: *mut lua_State, index: c_int, n: lua_Integer) -> c_int;
+    fn lua_seti(state: *mut lua_State, index: c_int, n: lua_Integer);
+    fn lua_rawlen(state: *mut lua_State, index: c_int) -> usize;
     fn lua_error(state: *mut lua_State) -> c_int;
 }
 
@@ -339,13 +380,87 @@ fn project(mut random: lua_Unsigned, n: lua_Unsigned, state: &mut RanState) -> l
     }
 }
 
-unsafe fn setseed(state: *mut lua_State, ran_state: &mut RanState, n1: lua_Unsigned, n2: lua_Unsigned) {
+unsafe fn setseed(
+    state: *mut lua_State,
+    ran_state: &mut RanState,
+    n1: lua_Unsigned,
+    n2: lua_Unsigned,
+) {
     ran_state.s = [n1, 0xff, n2, 0];
     for _ in 0..16 {
         let _ = next_random_value(&mut ran_state.s);
     }
     unsafe { lua_pushinteger(state, n1 as lua_Integer) };
     unsafe { lua_pushinteger(state, n2 as lua_Integer) };
+}
+
+unsafe fn raise_argerror(state: *mut lua_State, arg: c_int, message: &[u8]) -> ! {
+    let _ = unsafe { luaL_argerror(state, arg, message.as_ptr().cast()) };
+    unsafe { std::hint::unreachable_unchecked() }
+}
+
+unsafe fn check_vector_table(state: *mut lua_State, arg: c_int, lanes: usize) {
+    if unsafe { lua_type(state, arg) } != LUA_TTABLE {
+        unsafe { raise_argerror(state, arg, ERR_EXPECTED_VECTOR_TABLE) };
+    }
+
+    if unsafe { lua_rawlen(state, arg) } != lanes {
+        unsafe { raise_argerror(state, arg, ERR_EXPECTED_4_LANES) };
+    }
+}
+
+unsafe fn read_f64x4(state: *mut lua_State, arg: c_int) -> Simd<f64, 4> {
+    unsafe { check_vector_table(state, arg, 4) };
+
+    let mut values = [0.0; 4];
+    for lane in 0..4 {
+        unsafe { lua_geti(state, arg, (lane + 1) as lua_Integer) };
+        values[lane] = unsafe { luaL_checknumber(state, -1) };
+        unsafe { lua_pop(state, 1) };
+    }
+
+    Simd::from_array(values)
+}
+
+unsafe fn read_i32x4(state: *mut lua_State, arg: c_int) -> Simd<i32, 4> {
+    unsafe { check_vector_table(state, arg, 4) };
+
+    let mut values = [0_i32; 4];
+    for lane in 0..4 {
+        unsafe { lua_geti(state, arg, (lane + 1) as lua_Integer) };
+        let value = unsafe { luaL_checkinteger(state, -1) };
+        unsafe { lua_pop(state, 1) };
+
+        if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
+            unsafe { raise_argerror(state, arg, ERR_I32_RANGE) };
+        }
+
+        values[lane] = value as i32;
+    }
+
+    Simd::from_array(values)
+}
+
+unsafe fn push_f64x4(state: *mut lua_State, value: Simd<f64, 4>) {
+    let lanes = value.to_array();
+    unsafe { lua_createtable(state, lanes.len() as c_int, 0) };
+    for (index, lane) in lanes.iter().copied().enumerate() {
+        unsafe { lua_pushnumber(state, lane) };
+        unsafe { lua_seti(state, -2, (index + 1) as lua_Integer) };
+    }
+}
+
+unsafe fn push_i32x4(state: *mut lua_State, value: Simd<i32, 4>) {
+    let lanes = value.to_array();
+    unsafe { lua_createtable(state, lanes.len() as c_int, 0) };
+    for (index, lane) in lanes.iter().copied().enumerate() {
+        unsafe { lua_pushinteger(state, lane as lua_Integer) };
+        unsafe { lua_seti(state, -2, (index + 1) as lua_Integer) };
+    }
+}
+
+unsafe fn create_simd_library(state: *mut lua_State) {
+    unsafe { create_library(state, &SIMD_REGS) };
 }
 
 unsafe extern "C" fn rust_add(state: *mut lua_State) -> c_int {
@@ -369,6 +484,34 @@ unsafe extern "C" fn rust_factorial(state: *mut lua_State) -> c_int {
 
 unsafe extern "C" fn rust_version(state: *mut lua_State) -> c_int {
     unsafe { lua_pushstring(state, VERSION_TEXT.as_ptr().cast()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_add(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs + rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_mul(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs * rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_dot(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { lua_pushnumber(state, (lhs * rhs).reduce_sum()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_add(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs + rhs) };
     1
 }
 
@@ -473,9 +616,17 @@ unsafe extern "C" fn math_modf(state: *mut lua_State) -> c_int {
         unsafe { lua_pushnumber(state, 0.0) };
     } else {
         let value = unsafe { luaL_checknumber(state, 1) };
-        let integer_part = if value < 0.0 { value.ceil() } else { value.floor() };
+        let integer_part = if value < 0.0 {
+            value.ceil()
+        } else {
+            value.floor()
+        };
         unsafe { pushnumint(state, integer_part) };
-        let fraction = if value == integer_part { 0.0 } else { value - integer_part };
+        let fraction = if value == integer_part {
+            0.0
+        } else {
+            value - integer_part
+        };
         unsafe { lua_pushnumber(state, fraction) };
     }
     2
@@ -610,8 +761,17 @@ unsafe extern "C" fn math_random(state: *mut lua_State) -> c_int {
             if low > up {
                 return unsafe { luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast()) };
             }
-            let projected = project(random, (up as lua_Unsigned).wrapping_sub(low as lua_Unsigned), ran_state);
-            unsafe { lua_pushinteger(state, projected.wrapping_add(low as lua_Unsigned) as lua_Integer) };
+            let projected = project(
+                random,
+                (up as lua_Unsigned).wrapping_sub(low as lua_Unsigned),
+                ran_state,
+            );
+            unsafe {
+                lua_pushinteger(
+                    state,
+                    projected.wrapping_add(low as lua_Unsigned) as lua_Integer,
+                )
+            };
             1
         }
         2 => {
@@ -620,8 +780,17 @@ unsafe extern "C" fn math_random(state: *mut lua_State) -> c_int {
             if low > up {
                 return unsafe { luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast()) };
             }
-            let projected = project(random, (up as lua_Unsigned).wrapping_sub(low as lua_Unsigned), ran_state);
-            unsafe { lua_pushinteger(state, projected.wrapping_add(low as lua_Unsigned) as lua_Integer) };
+            let projected = project(
+                random,
+                (up as lua_Unsigned).wrapping_sub(low as lua_Unsigned),
+                ran_state,
+            );
+            unsafe {
+                lua_pushinteger(
+                    state,
+                    projected.wrapping_add(low as lua_Unsigned) as lua_Integer,
+                )
+            };
             1
         }
         _ => {
@@ -660,6 +829,8 @@ unsafe fn setrandfunc(state: *mut lua_State) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_ffi_open(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &RUST_FFI_REGS) };
+    unsafe { create_simd_library(state) };
+    unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };
     1
 }
 
