@@ -1,4 +1,4 @@
-project('lua', ['c', 'cpp'])
+project('lua', ['c', 'cpp','rust'])
 cmake = import('cmake')
 raylib_var = cmake.subproject_options()
 raylib_var.add_cmake_defines(
@@ -47,7 +47,6 @@ lua_lib = static_library(
     'src/linit.c',
     'src/liolib.c',
     'src/llex.c',
-    'src/lmathlib.c',
     'src/lmem.c',
     'src/loadlib.c',
     'src/lobject.c',
@@ -83,13 +82,27 @@ lua_lib = static_library(
 )
 dependencies += raylib_dep
 
+rust_ffi_lib = static_library(
+  'rust_ffi_core',
+  sources: 'rust_ffi/src/lib.rs',
+  rust_abi: 'c',
+)
+
+rust_ffi_module = shared_module(
+  'rust_ffi',
+  sources: 'rust_ffi/module.c',
+  include_directories: include_directories('src/'),
+  link_with: [lua_lib, rust_ffi_lib],
+  name_prefix: '',
+)
+
 lua_exe = executable(
   'lua',
   sources: ['src/lua.c'],
-  link_with: [lua_lib],
+  link_with: [lua_lib, rust_ffi_lib],
   dependencies: [raylib_dep],
 )
-luac_exe = executable('luac', sources: ['src/luac.c'], link_with: lua_lib)
+luac_exe = executable('luac', sources: ['src/luac.c'], link_with: [lua_lib, rust_ffi_lib])
 
 executable(
   'simple_game',

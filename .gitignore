@@ -7,3 +7,5 @@
 /subprojects/libffi*
 /subprojects/packagecache
 !/subprojects/libffi.wrap
+**/target
+**/Cargo.lock
