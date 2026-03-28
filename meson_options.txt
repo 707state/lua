@@ -1,1 +1,0 @@
-option('OPENGL',type: 'string', value: 'OFF',description : 'OpenGL VERSION')

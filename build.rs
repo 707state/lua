@@ -50,11 +50,18 @@ fn main() {
     }
     lua_core.compile("lua_core");
 
-    build_cli("src/lua.c", "lua_cli_main", "lua_cli");
-    build_cli("src/luac.c", "luac_cli_main", "luac_cli");
+    let mut luavm_bridge = cc::Build::new();
+    luavm_bridge
+        .include("src")
+        .warnings(true)
+        .define("LUA_USE_DLOPEN", None)
+        .define("LUA_USE_POSIX", None)
+        .file("src/luavm_bridge.c")
+        .compile("luavm_bridge");
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=lua_core");
+    println!("cargo:rustc-link-lib=static=luavm_bridge");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     match target_os.as_str() {
@@ -74,16 +81,4 @@ fn main() {
         }
         _ => {}
     }
-}
-
-fn build_cli(source: &str, renamed_main: &str, output: &str) {
-    let mut build = cc::Build::new();
-    build
-        .include("src")
-        .warnings(true)
-        .define("LUA_USE_DLOPEN", None)
-        .define("LUA_USE_POSIX", None)
-        .define("main", Some(renamed_main))
-        .file(source)
-        .compile(output);
 }
