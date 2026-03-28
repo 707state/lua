@@ -11,7 +11,7 @@ unsafe extern "C" {
 }
 
 fn main() -> ExitCode {
-    let _ = rust_ffi::link_anchor as fn();
+    let _ = math_rs::link_anchor as fn();
     run(lua_cli_main)
 }
 

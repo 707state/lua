@@ -1,7 +1,7 @@
-package.cpath = "./target/debug/lib?.so;./target/debug/?.so;" .. package.cpath
+package.cpath = "./target/debug/lib?;" .. package.cpath
 
-local rust = require("rust_ffi")
-local simd = rust.simd
+local math_rs = require("math_rs")
+local simd = math_rs.simd
 
 local function assert_array_eq(actual, expected)
   assert(#actual == #expected, "array length mismatch")
@@ -23,4 +23,4 @@ local ok2, err2 = pcall(simd.i32x4_add, {1, 2, 3, 2147483648}, {0, 0, 0, 0})
 assert(not ok2)
 assert(err2:match("out of i32 range"))
 
-print("rust_ffi simd ok")
+print("math_rs simd ok")

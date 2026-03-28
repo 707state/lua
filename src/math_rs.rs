@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 use std::ffi::{c_char, c_int, c_uint};
 use std::mem::size_of;
 use std::ptr;
@@ -93,7 +91,7 @@ const ERR_EXPECTED_VECTOR_TABLE: &[u8] = b"expected a Lua array table\0";
 const ERR_EXPECTED_4_LANES: &[u8] = b"expected exactly 4 lanes\0";
 const ERR_I32_RANGE: &[u8] = b"lane value is out of i32 range\0";
 
-static RUST_FFI_REGS: [luaL_Reg; 4] = [
+static MATH_RS_REGS: [luaL_Reg; 4] = [
     luaL_Reg {
         name: FIELD_ADD.as_ptr().cast(),
         func: Some(rust_add),
@@ -829,13 +827,13 @@ unsafe fn setrandfunc(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn rust_ffi_open(state: *mut lua_State) -> c_int {
-    unsafe { luaopen_rust_ffi(state) }
+pub unsafe extern "C" fn math_rs_open(state: *mut lua_State) -> c_int {
+    unsafe { luaopen_math_rs(state) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_rust_ffi(state: *mut lua_State) -> c_int {
-    unsafe { create_library(state, &RUST_FFI_REGS) };
+pub unsafe extern "C" fn luaopen_math_rs(state: *mut lua_State) -> c_int {
+    unsafe { create_library(state, &MATH_RS_REGS) };
     unsafe { create_simd_library(state) };
     unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };
     1

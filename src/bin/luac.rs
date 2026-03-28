@@ -11,7 +11,7 @@ unsafe extern "C" {
 }
 
 fn main() -> ExitCode {
-    let _ = rust_ffi::link_anchor as fn();
+    let _ = math_rs::link_anchor as fn();
     let args = env::args_os()
         .map(|arg| CString::new(arg.as_encoded_bytes()).expect("argv contains NUL byte"))
         .collect::<Vec<_>>();
