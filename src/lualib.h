@@ -54,10 +54,6 @@ LUAMOD_API int (luaopen_table) (lua_State *L);
 #define LUA_UTF8LIBK	(LUA_TABLIBK << 1)
 LUAMOD_API int (luaopen_utf8) (lua_State *L);
 
-#define LUA_FFILIBNAME "ffi"
-#define LUA_FFILIBK (LUA_UTF8LIBK << 1)
-LUAMOD_API int (luaopen_cffi)(lua_State *l);
-
 
 /* open selected libraries */
 LUALIB_API void (luaL_openselectedlibs) (lua_State *L, int load, int preload);

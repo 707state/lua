@@ -1,0 +1,21 @@
+[package]
+name = "lua"
+version = "5.5.0"
+edition = "2024"
+build = "build.rs"
+
+[lib]
+name = "rust_ffi"
+path = "rust_ffi/src/lib.rs"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "lua"
+path = "src/bin/lua.rs"
+
+[[bin]]
+name = "luac"
+path = "src/bin/luac.rs"
+
+[build-dependencies]
+cc = "1.2"

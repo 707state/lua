@@ -1,4 +1,4 @@
-package.cpath = "./build/?;" .. package.cpath
+package.cpath = "./target/debug/lib?.so;./target/debug/?.so;" .. package.cpath
 
 local rust = require("rust_ffi")
 local simd = rust.simd

@@ -249,6 +249,8 @@ static SIMD_REGS: [luaL_Reg; 5] = [
     },
 ];
 
+pub fn link_anchor() {}
+
 unsafe extern "C" {
     fn luaL_checkversion_(state: *mut lua_State, version: lua_Number, sizes: usize);
     fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number;
@@ -828,6 +830,11 @@ unsafe fn setrandfunc(state: *mut lua_State) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_ffi_open(state: *mut lua_State) -> c_int {
+    unsafe { luaopen_rust_ffi(state) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn luaopen_rust_ffi(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &RUST_FFI_REGS) };
     unsafe { create_simd_library(state) };
     unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };

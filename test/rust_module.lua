@@ -1,6 +1,6 @@
-package.cpath = "./build/?;" .. package.cpath
+package.cpath = "./target/debug/lib?.so;./target/debug/?.so;" .. package.cpath
 
-local open_rust = assert(package.loadlib("./build/rust_ffi", "luaopen_rust_ffi"))
+local open_rust = assert(package.loadlib("./target/debug/librust_ffi.so", "luaopen_rust_ffi"))
 local rust_from_loadlib = open_rust()
 
 local rust = require("rust_ffi")
