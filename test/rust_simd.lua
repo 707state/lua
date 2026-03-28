@@ -1,4 +1,5 @@
-LUA_CMOD_SUFFIX="./build"
+package.cpath = "./build/?;" .. package.cpath
+
 local rust = require("rust_ffi")
 local simd = rust.simd
 

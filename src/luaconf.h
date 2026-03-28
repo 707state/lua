@@ -232,9 +232,9 @@
 
 #if !defined(LUA_CPATH_DEFAULT)
 #define LUA_CPATH_DEFAULT \
-		LUA_CDIR"?.dll;" \
-		LUA_CDIR"..\\lib\\lua\\" LUA_VDIR "\\?.dll;" \
-		LUA_CDIR"loadall.dll;" ".\\?.dll"
+		LUA_CDIR"?;" \
+		LUA_CDIR"..\\lib\\lua\\" LUA_VDIR "\\?;" \
+		LUA_CDIR"loadall;" ".\\?"
 #endif
 
 #else			/* }{ */
@@ -252,7 +252,7 @@
 
 #if !defined(LUA_CPATH_DEFAULT)
 #define LUA_CPATH_DEFAULT \
-		LUA_CDIR"?.so;" LUA_CDIR"loadall.so;" "./?.so"
+		LUA_CDIR"?;" LUA_CDIR"loadall;" "./?"
 #endif
 
 #endif			/* } */
@@ -742,4 +742,3 @@
 
 
 #endif
-
