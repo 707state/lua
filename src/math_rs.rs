@@ -1,8 +1,10 @@
-use std::ffi::{c_char, c_int, c_uint};
-use std::mem::size_of;
-use std::ptr;
+use core::ffi::{c_char, c_int, c_uint};
+use core::mem::size_of;
+use core::ptr;
 use std::simd::Simd;
-use std::simd::num::SimdFloat;
+use std::simd::StdFloat;
+use std::simd::cmp::{SimdOrd, SimdPartialEq, SimdPartialOrd};
+use std::simd::num::{SimdFloat, SimdInt};
 #[allow(non_camel_case_types)]
 type lua_Integer = i64;
 #[allow(non_camel_case_types)]
@@ -33,21 +35,19 @@ type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
 const LUA_VERSION_NUM: lua_Number = 505.0;
 const LUAL_NUMSIZES: usize = size_of::<lua_Integer>() * 16 + size_of::<lua_Number>();
 const LUA_TNUMBER: c_int = 3;
-const LUA_TTABLE: c_int = 5;
 const LUA_OPLT: c_int = 1;
 const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 const LUA_MININTEGER: lua_Integer = i64::MIN;
 const LUA_MAXINTEGER: lua_Integer = i64::MAX;
-const PI: lua_Number = std::f64::consts::PI;
+const PI: lua_Number = core::f64::consts::PI;
 const FIGS: u32 = 53;
 const I2D_SHIFT: u32 = 64 - FIGS;
 const I2D_SCALE: lua_Number = 1.0 / ((1_u64 << FIGS) as lua_Number);
-
-const FIELD_ADD: &[u8] = b"add\0";
-const FIELD_FACTORIAL: &[u8] = b"factorial\0";
-const FIELD_SIMD: &[u8] = b"simd\0";
-const FIELD_VERSION: &[u8] = b"version\0";
-const VERSION_TEXT: &[u8] = b"0.1.0\0";
+const F64_SIGN_MASK: u64 = 1_u64 << 63;
+const F64_EXP_MASK: u64 = 0x7ff_u64 << 52;
+const F64_FRAC_MASK: u64 = (1_u64 << 52) - 1;
+const F64_MANTISSA_BITS: i32 = 52;
+const F64_EXP_BIAS: i32 = 1023;
 
 const NAME_ABS: &[u8] = b"abs\0";
 const NAME_ACOS: &[u8] = b"acos\0";
@@ -74,14 +74,43 @@ const NAME_TAN: &[u8] = b"tan\0";
 const NAME_TYPE: &[u8] = b"type\0";
 const NAME_RANDOM: &[u8] = b"random\0";
 const NAME_RANDOMSEED: &[u8] = b"randomseed\0";
+const FIELD_SIMD: &[u8] = b"simd\0";
+const FIELD_F64X4: &[u8] = b"f64x4\0";
+const FIELD_I32X4: &[u8] = b"i32x4\0";
 const FIELD_PI: &[u8] = b"pi\0";
 const FIELD_HUGE: &[u8] = b"huge\0";
 const FIELD_MAXINTEGER: &[u8] = b"maxinteger\0";
 const FIELD_MININTEGER: &[u8] = b"mininteger\0";
-const NAME_F64X4_ADD: &[u8] = b"f64x4_add\0";
-const NAME_F64X4_MUL: &[u8] = b"f64x4_mul\0";
-const NAME_F64X4_DOT: &[u8] = b"f64x4_dot\0";
-const NAME_I32X4_ADD: &[u8] = b"i32x4_add\0";
+const FIELD_LANES: &[u8] = b"lanes\0";
+const NAME_ADD: &[u8] = b"add\0";
+const NAME_SUB: &[u8] = b"sub\0";
+const NAME_MUL: &[u8] = b"mul\0";
+const NAME_DIV: &[u8] = b"div\0";
+const NAME_DOT: &[u8] = b"dot\0";
+const NAME_SUM: &[u8] = b"sum\0";
+const NAME_PRODUCT: &[u8] = b"product\0";
+const NAME_SPLAT: &[u8] = b"splat\0";
+const NAME_NEG: &[u8] = b"neg\0";
+const NAME_EQ: &[u8] = b"eq\0";
+const NAME_NE: &[u8] = b"ne\0";
+const NAME_LT: &[u8] = b"lt\0";
+const NAME_LE: &[u8] = b"le\0";
+const NAME_GT: &[u8] = b"gt\0";
+const NAME_GE: &[u8] = b"ge\0";
+const NAME_FLOOR_VEC: &[u8] = b"floor\0";
+const NAME_CEIL_VEC: &[u8] = b"ceil\0";
+const NAME_ROUND_VEC: &[u8] = b"round\0";
+const NAME_TRUNC_VEC: &[u8] = b"trunc\0";
+const NAME_RECIP: &[u8] = b"recip\0";
+const NAME_BITAND: &[u8] = b"bitand\0";
+const NAME_BITOR: &[u8] = b"bitor\0";
+const NAME_BITXOR: &[u8] = b"bitxor\0";
+const NAME_SHL: &[u8] = b"shl\0";
+const NAME_SHR: &[u8] = b"shr\0";
+const NAME_SIMD_MIN: &[u8] = b"min\0";
+const NAME_SIMD_MAX: &[u8] = b"max\0";
+const NAME_SIMD_SQRT: &[u8] = b"sqrt\0";
+const NAME_ABS_VEC: &[u8] = b"abs\0";
 const STR_INTEGER: &[u8] = b"integer\0";
 const STR_FLOAT: &[u8] = b"float\0";
 const ERR_WRONG_NUMBER_OF_ARGUMENTS: &[u8] = b"wrong number of arguments\0";
@@ -90,25 +119,6 @@ const ERR_ZERO: &[u8] = b"zero\0";
 const ERR_EXPECTED_VECTOR_TABLE: &[u8] = b"expected a Lua array table\0";
 const ERR_EXPECTED_4_LANES: &[u8] = b"expected exactly 4 lanes\0";
 const ERR_I32_RANGE: &[u8] = b"lane value is out of i32 range\0";
-
-static MATH_RS_REGS: [luaL_Reg; 4] = [
-    luaL_Reg {
-        name: FIELD_ADD.as_ptr().cast(),
-        func: Some(rust_add),
-    },
-    luaL_Reg {
-        name: FIELD_FACTORIAL.as_ptr().cast(),
-        func: Some(rust_factorial),
-    },
-    luaL_Reg {
-        name: FIELD_VERSION.as_ptr().cast(),
-        func: Some(rust_version),
-    },
-    luaL_Reg {
-        name: ptr::null(),
-        func: None,
-    },
-];
 
 static MATHLIB_REGS: [luaL_Reg; 24] = [
     luaL_Reg {
@@ -224,22 +234,193 @@ static RANDFUNCS: [luaL_Reg; 3] = [
     },
 ];
 
-static SIMD_REGS: [luaL_Reg; 5] = [
+static SIMD_F64X4_REGS: [luaL_Reg; 25] = [
     luaL_Reg {
-        name: NAME_F64X4_ADD.as_ptr().cast(),
+        name: NAME_SPLAT.as_ptr().cast(),
+        func: Some(simd_f64x4_splat),
+    },
+    luaL_Reg {
+        name: NAME_ADD.as_ptr().cast(),
         func: Some(simd_f64x4_add),
     },
     luaL_Reg {
-        name: NAME_F64X4_MUL.as_ptr().cast(),
+        name: NAME_SUB.as_ptr().cast(),
+        func: Some(simd_f64x4_sub),
+    },
+    luaL_Reg {
+        name: NAME_MUL.as_ptr().cast(),
         func: Some(simd_f64x4_mul),
     },
     luaL_Reg {
-        name: NAME_F64X4_DOT.as_ptr().cast(),
+        name: NAME_DIV.as_ptr().cast(),
+        func: Some(simd_f64x4_div),
+    },
+    luaL_Reg {
+        name: NAME_DOT.as_ptr().cast(),
         func: Some(simd_f64x4_dot),
     },
     luaL_Reg {
-        name: NAME_I32X4_ADD.as_ptr().cast(),
+        name: NAME_SUM.as_ptr().cast(),
+        func: Some(simd_f64x4_sum),
+    },
+    luaL_Reg {
+        name: NAME_PRODUCT.as_ptr().cast(),
+        func: Some(simd_f64x4_product),
+    },
+    luaL_Reg {
+        name: NAME_SIMD_MIN.as_ptr().cast(),
+        func: Some(simd_f64x4_min),
+    },
+    luaL_Reg {
+        name: NAME_SIMD_MAX.as_ptr().cast(),
+        func: Some(simd_f64x4_max),
+    },
+    luaL_Reg {
+        name: NAME_SIMD_SQRT.as_ptr().cast(),
+        func: Some(simd_f64x4_sqrt),
+    },
+    luaL_Reg {
+        name: NAME_ABS_VEC.as_ptr().cast(),
+        func: Some(simd_f64x4_abs),
+    },
+    luaL_Reg {
+        name: NAME_NEG.as_ptr().cast(),
+        func: Some(simd_f64x4_neg),
+    },
+    luaL_Reg {
+        name: NAME_FLOOR_VEC.as_ptr().cast(),
+        func: Some(simd_f64x4_floor),
+    },
+    luaL_Reg {
+        name: NAME_CEIL_VEC.as_ptr().cast(),
+        func: Some(simd_f64x4_ceil),
+    },
+    luaL_Reg {
+        name: NAME_ROUND_VEC.as_ptr().cast(),
+        func: Some(simd_f64x4_round),
+    },
+    luaL_Reg {
+        name: NAME_TRUNC_VEC.as_ptr().cast(),
+        func: Some(simd_f64x4_trunc),
+    },
+    luaL_Reg {
+        name: NAME_RECIP.as_ptr().cast(),
+        func: Some(simd_f64x4_recip),
+    },
+    luaL_Reg {
+        name: NAME_EQ.as_ptr().cast(),
+        func: Some(simd_f64x4_eq),
+    },
+    luaL_Reg {
+        name: NAME_NE.as_ptr().cast(),
+        func: Some(simd_f64x4_ne),
+    },
+    luaL_Reg {
+        name: NAME_LT.as_ptr().cast(),
+        func: Some(simd_f64x4_lt),
+    },
+    luaL_Reg {
+        name: NAME_LE.as_ptr().cast(),
+        func: Some(simd_f64x4_le),
+    },
+    luaL_Reg {
+        name: NAME_GT.as_ptr().cast(),
+        func: Some(simd_f64x4_gt),
+    },
+    luaL_Reg {
+        name: NAME_GE.as_ptr().cast(),
+        func: Some(simd_f64x4_ge),
+    },
+    luaL_Reg {
+        name: ptr::null(),
+        func: None,
+    },
+];
+
+static SIMD_I32X4_REGS: [luaL_Reg; 22] = [
+    luaL_Reg {
+        name: NAME_SPLAT.as_ptr().cast(),
+        func: Some(simd_i32x4_splat),
+    },
+    luaL_Reg {
+        name: NAME_ADD.as_ptr().cast(),
         func: Some(simd_i32x4_add),
+    },
+    luaL_Reg {
+        name: NAME_SUB.as_ptr().cast(),
+        func: Some(simd_i32x4_sub),
+    },
+    luaL_Reg {
+        name: NAME_MUL.as_ptr().cast(),
+        func: Some(simd_i32x4_mul),
+    },
+    luaL_Reg {
+        name: NAME_SUM.as_ptr().cast(),
+        func: Some(simd_i32x4_sum),
+    },
+    luaL_Reg {
+        name: NAME_PRODUCT.as_ptr().cast(),
+        func: Some(simd_i32x4_product),
+    },
+    luaL_Reg {
+        name: NAME_SIMD_MIN.as_ptr().cast(),
+        func: Some(simd_i32x4_min),
+    },
+    luaL_Reg {
+        name: NAME_SIMD_MAX.as_ptr().cast(),
+        func: Some(simd_i32x4_max),
+    },
+    luaL_Reg {
+        name: NAME_ABS_VEC.as_ptr().cast(),
+        func: Some(simd_i32x4_abs),
+    },
+    luaL_Reg {
+        name: NAME_NEG.as_ptr().cast(),
+        func: Some(simd_i32x4_neg),
+    },
+    luaL_Reg {
+        name: NAME_BITAND.as_ptr().cast(),
+        func: Some(simd_i32x4_bitand),
+    },
+    luaL_Reg {
+        name: NAME_BITOR.as_ptr().cast(),
+        func: Some(simd_i32x4_bitor),
+    },
+    luaL_Reg {
+        name: NAME_BITXOR.as_ptr().cast(),
+        func: Some(simd_i32x4_bitxor),
+    },
+    luaL_Reg {
+        name: NAME_SHL.as_ptr().cast(),
+        func: Some(simd_i32x4_shl),
+    },
+    luaL_Reg {
+        name: NAME_SHR.as_ptr().cast(),
+        func: Some(simd_i32x4_shr),
+    },
+    luaL_Reg {
+        name: NAME_EQ.as_ptr().cast(),
+        func: Some(simd_i32x4_eq),
+    },
+    luaL_Reg {
+        name: NAME_NE.as_ptr().cast(),
+        func: Some(simd_i32x4_ne),
+    },
+    luaL_Reg {
+        name: NAME_LT.as_ptr().cast(),
+        func: Some(simd_i32x4_lt),
+    },
+    luaL_Reg {
+        name: NAME_LE.as_ptr().cast(),
+        func: Some(simd_i32x4_le),
+    },
+    luaL_Reg {
+        name: NAME_GT.as_ptr().cast(),
+        func: Some(simd_i32x4_gt),
+    },
+    luaL_Reg {
+        name: NAME_GE.as_ptr().cast(),
+        func: Some(simd_i32x4_ge),
     },
     luaL_Reg {
         name: ptr::null(),
@@ -266,7 +447,7 @@ unsafe extern "C" {
     fn lua_isinteger(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
-    fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut std::ffi::c_void;
+    fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut core::ffi::c_void;
     fn lua_compare(state: *mut lua_State, left: c_int, right: c_int, op: c_int) -> c_int;
     fn lua_pushnil(state: *mut lua_State);
     fn lua_pushnumber(state: *mut lua_State, n: lua_Number);
@@ -278,19 +459,12 @@ unsafe extern "C" {
         state: *mut lua_State,
         size: usize,
         nuvalue: c_int,
-    ) -> *mut std::ffi::c_void;
+    ) -> *mut core::ffi::c_void;
     fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
     fn lua_geti(state: *mut lua_State, index: c_int, n: lua_Integer) -> c_int;
     fn lua_seti(state: *mut lua_State, index: c_int, n: lua_Integer);
     fn lua_rawlen(state: *mut lua_State, index: c_int) -> usize;
     fn lua_error(state: *mut lua_State) -> c_int;
-}
-
-#[link(name = "m")]
-unsafe extern "C" {
-    fn fmod(x: lua_Number, y: lua_Number) -> lua_Number;
-    fn frexp(x: lua_Number, exp: *mut c_int) -> lua_Number;
-    fn ldexp(x: lua_Number, exp: c_int) -> lua_Number;
 }
 
 #[inline]
@@ -394,18 +568,89 @@ unsafe fn setseed(
     unsafe { lua_pushinteger(state, n2 as lua_Integer) };
 }
 
-unsafe fn raise_argerror(state: *mut lua_State, arg: c_int, message: &[u8]) -> ! {
-    let _ = unsafe { luaL_argerror(state, arg, message.as_ptr().cast()) };
-    unsafe { std::hint::unreachable_unchecked() }
+#[inline]
+fn fmod(lhs: lua_Number, rhs: lua_Number) -> lua_Number {
+    lhs % rhs
+}
+
+#[inline]
+fn frexp(value: lua_Number, exponent: &mut c_int) -> lua_Number {
+    if value == 0.0 || !value.is_finite() {
+        *exponent = 0;
+        return value;
+    }
+
+    let bits = value.to_bits();
+    let sign = bits & F64_SIGN_MASK;
+    let fraction = bits & F64_FRAC_MASK;
+    let exp_bits = ((bits & F64_EXP_MASK) >> F64_MANTISSA_BITS) as i32;
+
+    if exp_bits == 0 {
+        let scaled = value * ((1_u64 << 54) as lua_Number);
+        let scaled_bits = scaled.to_bits();
+        let scaled_exp = ((scaled_bits & F64_EXP_MASK) >> F64_MANTISSA_BITS) as i32;
+        let scaled_frac = scaled_bits & F64_FRAC_MASK;
+        *exponent = (scaled_exp - (F64_EXP_BIAS - 1) - 54) as c_int;
+        return lua_Number::from_bits(
+            sign | (((F64_EXP_BIAS - 1) as u64) << F64_MANTISSA_BITS) | scaled_frac,
+        );
+    }
+
+    *exponent = (exp_bits - (F64_EXP_BIAS - 1)) as c_int;
+    lua_Number::from_bits(sign | (((F64_EXP_BIAS - 1) as u64) << F64_MANTISSA_BITS) | fraction)
+}
+
+#[inline]
+fn pow2(exp: i32) -> lua_Number {
+    if exp < -1074 {
+        0.0
+    } else if exp < -1022 {
+        lua_Number::from_bits(1_u64 << (exp + 1074))
+    } else if exp <= 1023 {
+        lua_Number::from_bits(((exp + F64_EXP_BIAS) as u64) << F64_MANTISSA_BITS)
+    } else {
+        lua_Number::INFINITY
+    }
+}
+
+#[inline]
+fn ldexp(value: lua_Number, exponent: c_int) -> lua_Number {
+    if value == 0.0 || !value.is_finite() {
+        return value;
+    }
+
+    let mut base_exp = 0;
+    let mantissa = frexp(value, &mut base_exp);
+    let total_exp = base_exp.saturating_add(exponent);
+
+    if total_exp > 1024 {
+        return if value.is_sign_negative() {
+            lua_Number::NEG_INFINITY
+        } else {
+            lua_Number::INFINITY
+        };
+    }
+
+    if total_exp < -1073 {
+        return value.copysign(0.0);
+    }
+
+    if total_exp == 1024 {
+        return (mantissa * pow2(1023)) * 2.0;
+    }
+
+    mantissa * pow2(total_exp)
 }
 
 unsafe fn check_vector_table(state: *mut lua_State, arg: c_int, lanes: usize) {
-    if unsafe { lua_type(state, arg) } != LUA_TTABLE {
-        unsafe { raise_argerror(state, arg, ERR_EXPECTED_VECTOR_TABLE) };
+    if unsafe { lua_type(state, arg) } != 5 {
+        let _ = unsafe { luaL_argerror(state, arg, ERR_EXPECTED_VECTOR_TABLE.as_ptr().cast()) };
+        unsafe { core::hint::unreachable_unchecked() }
     }
 
     if unsafe { lua_rawlen(state, arg) } != lanes {
-        unsafe { raise_argerror(state, arg, ERR_EXPECTED_4_LANES) };
+        let _ = unsafe { luaL_argerror(state, arg, ERR_EXPECTED_4_LANES.as_ptr().cast()) };
+        unsafe { core::hint::unreachable_unchecked() }
     }
 }
 
@@ -432,7 +677,8 @@ unsafe fn read_i32x4(state: *mut lua_State, arg: c_int) -> Simd<i32, 4> {
         unsafe { lua_pop(state, 1) };
 
         if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
-            unsafe { raise_argerror(state, arg, ERR_I32_RANGE) };
+            let _ = unsafe { luaL_argerror(state, arg, ERR_I32_RANGE.as_ptr().cast()) };
+            unsafe { core::hint::unreachable_unchecked() }
         }
 
         values[lane] = value as i32;
@@ -459,38 +705,48 @@ unsafe fn push_i32x4(state: *mut lua_State, value: Simd<i32, 4>) {
     }
 }
 
-unsafe fn create_simd_library(state: *mut lua_State) {
-    unsafe { create_library(state, &SIMD_REGS) };
-}
-
-unsafe extern "C" fn rust_add(state: *mut lua_State) -> c_int {
-    let lhs = unsafe { luaL_checknumber(state, 1) };
-    let rhs = unsafe { luaL_checknumber(state, 2) };
-    unsafe { lua_pushnumber(state, lhs + rhs) };
-    1
-}
-
-unsafe extern "C" fn rust_factorial(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checkinteger(state, 1) };
-    let mut result = 1_i64;
-
-    for item in 2..=value {
-        result = result.saturating_mul(item);
+unsafe fn push_boolx4(state: *mut lua_State, value: [bool; 4]) {
+    unsafe { lua_createtable(state, value.len() as c_int, 0) };
+    for (index, lane) in value.iter().copied().enumerate() {
+        unsafe { lua_pushboolean(state, lane as c_int) };
+        unsafe { lua_seti(state, -2, (index + 1) as lua_Integer) };
     }
-
-    unsafe { lua_pushinteger(state, result) };
-    1
 }
 
-unsafe extern "C" fn rust_version(state: *mut lua_State) -> c_int {
-    unsafe { lua_pushstring(state, VERSION_TEXT.as_ptr().cast()) };
-    1
+unsafe fn create_simd_library(state: *mut lua_State) {
+    unsafe { lua_createtable(state, 0, 3) };
+
+    unsafe { create_library(state, &SIMD_F64X4_REGS) };
+    unsafe { lua_pushinteger(state, 4) };
+    unsafe { lua_setfield(state, -2, FIELD_LANES.as_ptr().cast()) };
+    unsafe { lua_setfield(state, -2, FIELD_F64X4.as_ptr().cast()) };
+
+    unsafe { create_library(state, &SIMD_I32X4_REGS) };
+    unsafe { lua_pushinteger(state, 4) };
+    unsafe { lua_setfield(state, -2, FIELD_LANES.as_ptr().cast()) };
+    unsafe { lua_setfield(state, -2, FIELD_I32X4.as_ptr().cast()) };
+
+    unsafe { lua_pushinteger(state, 4) };
+    unsafe { lua_setfield(state, -2, FIELD_LANES.as_ptr().cast()) };
 }
 
 unsafe extern "C" fn simd_f64x4_add(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs + rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_splat(state: *mut lua_State) -> c_int {
+    let value = unsafe { luaL_checknumber(state, 1) };
+    unsafe { push_f64x4(state, Simd::splat(value)) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_sub(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs - rhs) };
     1
 }
 
@@ -501,6 +757,13 @@ unsafe extern "C" fn simd_f64x4_mul(state: *mut lua_State) -> c_int {
     1
 }
 
+unsafe extern "C" fn simd_f64x4_div(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs / rhs) };
+    1
+}
+
 unsafe extern "C" fn simd_f64x4_dot(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
@@ -508,10 +771,264 @@ unsafe extern "C" fn simd_f64x4_dot(state: *mut lua_State) -> c_int {
     1
 }
 
+unsafe extern "C" fn simd_f64x4_sum(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { lua_pushnumber(state, value.reduce_sum()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_product(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { lua_pushnumber(state, value.reduce_product()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_min(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs.simd_min(rhs)) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_max(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_f64x4(state, lhs.simd_max(rhs)) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_sqrt(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.sqrt()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_abs(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.abs()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_neg(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, -value) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_floor(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.floor()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_ceil(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.ceil()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_round(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.round()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_trunc(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.trunc()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_recip(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_f64x4(state, 1) };
+    unsafe { push_f64x4(state, value.recip()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_eq(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_eq(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_ne(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_ne(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_lt(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_lt(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_le(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_le(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_gt(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_gt(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_f64x4_ge(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_f64x4(state, 1) };
+    let rhs = unsafe { read_f64x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_ge(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_splat(state: *mut lua_State) -> c_int {
+    let value = unsafe { luaL_checkinteger(state, 1) };
+    if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
+        return unsafe { luaL_argerror(state, 1, ERR_I32_RANGE.as_ptr().cast()) };
+    }
+    unsafe { push_i32x4(state, Simd::splat(value as i32)) };
+    1
+}
+
 unsafe extern "C" fn simd_i32x4_add(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs + rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_sub(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs - rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_mul(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs * rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_sum(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    unsafe { lua_pushinteger(state, value.reduce_sum() as lua_Integer) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_product(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    unsafe { lua_pushinteger(state, value.reduce_product() as lua_Integer) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_min(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs.simd_min(rhs)) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_max(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs.simd_max(rhs)) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_abs(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    unsafe { push_i32x4(state, value.abs()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_neg(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    unsafe { push_i32x4(state, -value) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_bitand(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs & rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_bitor(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs | rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_bitxor(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_i32x4(state, lhs ^ rhs) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_shl(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    let amount = unsafe { luaL_checkinteger(state, 2) };
+    unsafe { push_i32x4(state, value << Simd::splat(amount as i32)) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_shr(state: *mut lua_State) -> c_int {
+    let value = unsafe { read_i32x4(state, 1) };
+    let amount = unsafe { luaL_checkinteger(state, 2) };
+    unsafe { push_i32x4(state, value >> Simd::splat(amount as i32)) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_eq(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_eq(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_ne(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_ne(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_lt(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_lt(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_le(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_le(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_gt(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_gt(rhs).to_array()) };
+    1
+}
+
+unsafe extern "C" fn simd_i32x4_ge(state: *mut lua_State) -> c_int {
+    let lhs = unsafe { read_i32x4(state, 1) };
+    let rhs = unsafe { read_i32x4(state, 2) };
+    unsafe { push_boolx4(state, lhs.simd_ge(rhs).to_array()) };
     1
 }
 
@@ -680,7 +1197,7 @@ unsafe extern "C" fn math_rad(state: *mut lua_State) -> c_int {
 unsafe extern "C" fn math_frexp(state: *mut lua_State) -> c_int {
     let value = unsafe { luaL_checknumber(state, 1) };
     let mut exponent = 0;
-    let mantissa = unsafe { frexp(value, &mut exponent) };
+    let mantissa = frexp(value, &mut exponent);
     unsafe { lua_pushnumber(state, mantissa) };
     unsafe { lua_pushinteger(state, exponent as lua_Integer) };
     2
@@ -827,21 +1344,10 @@ unsafe fn setrandfunc(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn math_rs_open(state: *mut lua_State) -> c_int {
-    unsafe { luaopen_math_rs(state) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_math_rs(state: *mut lua_State) -> c_int {
-    unsafe { create_library(state, &MATH_RS_REGS) };
-    unsafe { create_simd_library(state) };
-    unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };
-    1
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaopen_math(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &MATHLIB_REGS) };
+    unsafe { create_simd_library(state) };
+    unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };
     unsafe { lua_pushnumber(state, PI) };
     unsafe { lua_setfield(state, -2, FIELD_PI.as_ptr().cast()) };
     unsafe { lua_pushnumber(state, lua_Number::INFINITY) };
