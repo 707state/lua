@@ -1,4 +1,4 @@
-use crate::math_rs::lua_State;
+use crate::lua_module::lua_State;
 use std::ffi::{c_char, c_int};
 use std::fmt::Write as _;
 

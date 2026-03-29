@@ -1,12 +1,11 @@
-use crate::math_rs::lua_State;
+use crate::lua_module::lua_State;
 use std::ffi::{c_char, c_int, c_void};
 
 pub type LuaInteger = i64;
 pub type LuaNumber = f64;
 pub type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
 pub type LuaKContext = isize;
-pub type LuaKFunction =
-    Option<unsafe extern "C" fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
+pub type LuaKFunction = Option<unsafe extern "C" fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
 pub type LuaWriter =
     Option<unsafe extern "C" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 
@@ -59,11 +58,8 @@ unsafe extern "C" {
         level: c_int,
     );
     pub fn luaL_openselectedlibs(state: *mut lua_State, load: c_int, preload: c_int);
-    pub fn luaL_tolstring(
-        state: *mut lua_State,
-        index: c_int,
-        length: *mut usize,
-    ) -> *const c_char;
+    pub fn luaL_tolstring(state: *mut lua_State, index: c_int, length: *mut usize)
+    -> *const c_char;
     pub fn luaL_len(state: *mut lua_State, index: c_int) -> LuaInteger;
     pub fn luaL_checkstack(state: *mut lua_State, size: c_int, message: *const c_char);
     pub fn lua_pcallk(
@@ -106,11 +102,7 @@ unsafe extern "C" {
     pub fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char;
     pub fn lua_tolstring(state: *mut lua_State, index: c_int, len: *mut usize) -> *const c_char;
     pub fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
-    pub fn lua_tointegerx(
-        state: *mut lua_State,
-        index: c_int,
-        isnum: *mut c_int,
-    ) -> LuaInteger;
+    pub fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> LuaInteger;
     pub fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut c_void;
     pub fn lua_getglobal(state: *mut lua_State, name: *const c_char) -> c_int;
     pub fn lua_setglobal(state: *mut lua_State, name: *const c_char);
@@ -133,7 +125,12 @@ pub unsafe fn lua_pushcfunction(state: *mut lua_State, function: LuaCFunction) {
     unsafe { lua_pushcclosure(state, function, 0) };
 }
 
-pub unsafe fn lua_pcall(state: *mut lua_State, nargs: c_int, nresults: c_int, errfunc: c_int) -> c_int {
+pub unsafe fn lua_pcall(
+    state: *mut lua_State,
+    nargs: c_int,
+    nresults: c_int,
+    errfunc: c_int,
+) -> c_int {
     unsafe { lua_pcallk(state, nargs, nresults, errfunc, 0, None) }
 }
 

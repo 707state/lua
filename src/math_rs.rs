@@ -1,42 +1,23 @@
-use core::ffi::{c_char, c_int, c_uint};
+use crate::lua_module::{
+    create_library, lua_Integer, lua_Number, lua_State, lua_Unsigned, lua_createtable, lua_error,
+    lua_gettop, lua_pop, lua_pushboolean, lua_pushinteger, lua_pushnumber, lua_pushstring,
+    lua_pushvalue, lua_setfield, lua_settop, lua_upvalueindex, luaL_Reg, luaL_argerror,
+    luaL_setfuncs, push_fail,
+};
+use core::ffi::{c_int, c_uint};
 use core::mem::size_of;
 use core::ptr;
 use std::simd::Simd;
 use std::simd::StdFloat;
 use std::simd::cmp::{SimdOrd, SimdPartialEq, SimdPartialOrd};
 use std::simd::num::{SimdFloat, SimdInt};
-#[allow(non_camel_case_types)]
-type lua_Integer = i64;
-#[allow(non_camel_case_types)]
-type lua_Number = f64;
-#[allow(non_camel_case_types)]
-type lua_Unsigned = u64;
-
-#[repr(C)]
-pub struct lua_State {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct luaL_Reg {
-    name: *const c_char,
-    func: LuaCFunction,
-}
-
-unsafe impl Sync for luaL_Reg {}
 
 #[repr(C)]
 struct RanState {
     s: [u64; 4],
 }
-
-type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
-
-const LUA_VERSION_NUM: lua_Number = 505.0;
-const LUAL_NUMSIZES: usize = size_of::<lua_Integer>() * 16 + size_of::<lua_Number>();
 const LUA_TNUMBER: c_int = 3;
 const LUA_OPLT: c_int = 1;
-const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 const LUA_MININTEGER: lua_Integer = i64::MIN;
 const LUA_MAXINTEGER: lua_Integer = i64::MAX;
 const PI: lua_Number = core::f64::consts::PI;
@@ -428,70 +409,27 @@ static SIMD_I32X4_REGS: [luaL_Reg; 22] = [
     },
 ];
 
-pub fn link_anchor() {}
-
 unsafe extern "C" {
-    fn luaL_checkversion_(state: *mut lua_State, version: lua_Number, sizes: usize);
     fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number;
     fn luaL_optnumber(state: *mut lua_State, arg: c_int, def: lua_Number) -> lua_Number;
     fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer;
     fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer;
     fn luaL_checkany(state: *mut lua_State, arg: c_int);
-    fn luaL_argerror(state: *mut lua_State, arg: c_int, extra: *const c_char) -> c_int;
     fn luaL_makeseed(state: *mut lua_State) -> c_uint;
-    fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int);
 
-    fn lua_gettop(state: *mut lua_State) -> c_int;
-    fn lua_settop(state: *mut lua_State, index: c_int);
-    fn lua_pushvalue(state: *mut lua_State, index: c_int);
     fn lua_isinteger(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
     fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut core::ffi::c_void;
     fn lua_compare(state: *mut lua_State, left: c_int, right: c_int, op: c_int) -> c_int;
-    fn lua_pushnil(state: *mut lua_State);
-    fn lua_pushnumber(state: *mut lua_State, n: lua_Number);
-    fn lua_pushinteger(state: *mut lua_State, n: lua_Integer);
-    fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char;
-    fn lua_pushboolean(state: *mut lua_State, b: c_int);
-    fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
     fn lua_newuserdatauv(
         state: *mut lua_State,
         size: usize,
         nuvalue: c_int,
     ) -> *mut core::ffi::c_void;
-    fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
     fn lua_geti(state: *mut lua_State, index: c_int, n: lua_Integer) -> c_int;
     fn lua_seti(state: *mut lua_State, index: c_int, n: lua_Integer);
     fn lua_rawlen(state: *mut lua_State, index: c_int) -> usize;
-    fn lua_error(state: *mut lua_State) -> c_int;
-}
-
-#[inline]
-fn lua_upvalueindex(index: c_int) -> c_int {
-    LUA_REGISTRYINDEX - index
-}
-
-#[inline]
-unsafe fn lua_pop(state: *mut lua_State, count: c_int) {
-    unsafe { lua_settop(state, -count - 1) };
-}
-
-#[inline]
-unsafe fn push_fail(state: *mut lua_State) {
-    unsafe { lua_pushnil(state) };
-}
-
-#[inline]
-unsafe fn checkversion(state: *mut lua_State) {
-    unsafe { luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
-}
-
-#[inline]
-unsafe fn create_library(state: *mut lua_State, regs: &[luaL_Reg]) {
-    unsafe { checkversion(state) };
-    unsafe { lua_createtable(state, 0, (regs.len() - 1) as c_int) };
-    unsafe { luaL_setfuncs(state, regs.as_ptr(), 0) };
 }
 
 #[inline]

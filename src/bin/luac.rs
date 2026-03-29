@@ -1,5 +1,5 @@
 use math_rs::luaffi::*;
-use math_rs::{link_anchor, luavm, math_rs::lua_State};
+use math_rs::{link_anchor, lua_module::lua_State, luavm};
 use std::env;
 use std::ffi::{CStr, CString, c_void};
 use std::fs::File;
@@ -33,7 +33,10 @@ struct Luac {
 
 impl Luac {
     fn new(args: Vec<String>) -> Result<Self, String> {
-        let progname = args.first().cloned().unwrap_or_else(|| PROGNAME.to_string());
+        let progname = args
+            .first()
+            .cloned()
+            .unwrap_or_else(|| PROGNAME.to_string());
         Ok(Self {
             args,
             progname,
@@ -52,7 +55,10 @@ impl Luac {
         }
         let state = unsafe { luaL_newstate() };
         if state.is_null() {
-            return Err(format!("{}: cannot create state: not enough memory", self.progname));
+            return Err(format!(
+                "{}: cannot create state: not enough memory",
+                self.progname
+            ));
         }
         let result = self.compile(state, &files);
         unsafe { lua_close(state) };
@@ -79,7 +85,11 @@ impl Luac {
                 "-l" => self.listing += 1,
                 "-o" => {
                     i += 1;
-                    let output = self.args.get(i).cloned().ok_or_else(|| self.usage("'-o' needs argument"))?;
+                    let output = self
+                        .args
+                        .get(i)
+                        .cloned()
+                        .ok_or_else(|| self.usage("'-o' needs argument"))?;
                     if output.is_empty() || (output.starts_with('-') && output != "-") {
                         return Err(self.usage("'-o' needs argument"));
                     }
@@ -108,7 +118,10 @@ impl Luac {
     fn usage(&self, message: &str) -> String {
         let mut out = String::new();
         if message.starts_with('-') {
-            out.push_str(&format!("{}: unrecognized option '{}'\n", self.progname, message));
+            out.push_str(&format!(
+                "{}: unrecognized option '{}'\n",
+                self.progname, message
+            ));
         } else {
             out.push_str(&format!("{}: {}\n", self.progname, message));
         }
@@ -130,16 +143,25 @@ Available options are:\n\
     fn compile(&self, state: *mut lua_State, files: &[String]) -> Result<(), String> {
         unsafe { luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
         if files.len() == 1 {
-            let filename = if files[0] == "-" { None } else { Some(files[0].as_str()) };
+            let filename = if files[0] == "-" {
+                None
+            } else {
+                Some(files[0].as_str())
+            };
             let name = filename.map(cstr);
             let status = unsafe {
-                luaL_loadfilex(state, name.as_ref().map_or(ptr::null(), |it| it.as_ptr()), ptr::null())
+                luaL_loadfilex(
+                    state,
+                    name.as_ref().map_or(ptr::null(), |it| it.as_ptr()),
+                    ptr::null(),
+                )
             };
             if status != LUA_OK {
                 return Err(format!(
                     "{}: {}",
                     self.progname,
-                    unsafe { lua_to_string(state, -1) }.unwrap_or_else(|| "compile failed".to_string())
+                    unsafe { lua_to_string(state, -1) }
+                        .unwrap_or_else(|| "compile failed".to_string())
                 ));
             }
         } else {
@@ -158,7 +180,8 @@ Available options are:\n\
                 return Err(format!(
                     "{}: {}",
                     self.progname,
-                    unsafe { lua_to_string(state, -1) }.unwrap_or_else(|| "compile failed".to_string())
+                    unsafe { lua_to_string(state, -1) }
+                        .unwrap_or_else(|| "compile failed".to_string())
                 ));
             }
         }
@@ -272,7 +295,11 @@ unsafe fn lua_to_string(state: *mut lua_State, index: i32) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 

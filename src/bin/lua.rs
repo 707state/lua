@@ -1,5 +1,5 @@
 use math_rs::luaffi::*;
-use math_rs::{link_anchor, math_rs::lua_State};
+use math_rs::{link_anchor, lua_module::lua_State};
 use std::env;
 use std::ffi::{CStr, CString};
 use std::io::{self, IsTerminal, Write};
@@ -65,7 +65,11 @@ impl LuaRuntime {
         let (arg_mask, script) = self.collect_args();
         unsafe { luaL_checkversion_(self.state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
         if arg_mask == HAS_ERROR {
-            let bad = self.args.get(script.max(0) as usize).map(String::as_str).unwrap_or("");
+            let bad = self
+                .args
+                .get(script.max(0) as usize)
+                .map(String::as_str)
+                .unwrap_or("");
             self.print_usage(bad);
             return false;
         }
@@ -88,7 +92,11 @@ impl LuaRuntime {
         if arg_mask & HAS_E_CAP == 0 && self.handle_lua_init() != LUA_OK {
             return false;
         }
-        let optlim = if script > 0 { script as usize } else { self.args.len() };
+        let optlim = if script > 0 {
+            script as usize
+        } else {
+            self.args.len()
+        };
         if !self.run_args(optlim) {
             return false;
         }
@@ -131,7 +139,14 @@ impl LuaRuntime {
                     if arg.len() != 2 {
                         return (HAS_ERROR, i as i32);
                     }
-                    return (args, if i + 1 < self.args.len() { (i + 1) as i32 } else { 0 });
+                    return (
+                        args,
+                        if i + 1 < self.args.len() {
+                            (i + 1) as i32
+                        } else {
+                            0
+                        },
+                    );
                 }
                 0 => return (args, i as i32),
                 b'E' => {
@@ -341,7 +356,11 @@ impl LuaRuntime {
                 return 0;
             }
             let n = luaL_len(self.state, -1) as i32;
-            luaL_checkstack(self.state, n + 3, cstr("too many arguments to script").as_ptr());
+            luaL_checkstack(
+                self.state,
+                n + 3,
+                cstr("too many arguments to script").as_ptr(),
+            );
             for i in 1..=n {
                 lua_rawgeti(self.state, -i, i as i64);
             }
@@ -394,7 +413,12 @@ impl LuaRuntime {
         print!("{prompt}");
         let _ = io::stdout().flush();
         let mut line = String::new();
-        if io::stdin().read_line(&mut line).ok().filter(|it| *it > 0).is_none() {
+        if io::stdin()
+            .read_line(&mut line)
+            .ok()
+            .filter(|it| *it > 0)
+            .is_none()
+        {
             return false;
         }
         if line.ends_with('\n') {
@@ -449,7 +473,13 @@ impl LuaRuntime {
             let mut len = 0;
             let line_ptr = unsafe { lua_tolstring(self.state, 1, &mut len) };
             let status = unsafe {
-                luaL_loadbufferx(self.state, line_ptr, len, cstr("=stdin").as_ptr(), ptr::null())
+                luaL_loadbufferx(
+                    self.state,
+                    line_ptr,
+                    len,
+                    cstr("=stdin").as_ptr(),
+                    ptr::null(),
+                )
             };
             if !self.incomplete(status) || !self.push_line(false) {
                 return status;
@@ -487,7 +517,11 @@ impl LuaRuntime {
             return;
         }
         unsafe {
-            luaL_checkstack(self.state, LUA_MINSTACK, cstr("too many results to print").as_ptr());
+            luaL_checkstack(
+                self.state,
+                LUA_MINSTACK,
+                cstr("too many results to print").as_ptr(),
+            );
             lua_getglobal(self.state, cstr("print").as_ptr());
             lua_insert(self.state, 1);
             if lua_pcall(self.state, n, 0, 0) != LUA_OK {
@@ -528,7 +562,9 @@ unsafe extern "C" fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");
-        if unsafe { luaL_callmeta(state, 1, event.as_ptr()) } != 0 && unsafe { lua_type(state, -1) } == LUA_TSTRING {
+        if unsafe { luaL_callmeta(state, 1, event.as_ptr()) } != 0
+            && unsafe { lua_type(state, -1) } == LUA_TSTRING
+        {
             return 1;
         }
         msg = NON_STRING_ERROR.as_ptr().cast();
@@ -542,7 +578,11 @@ unsafe fn lua_to_string(state: *mut lua_State, index: i32) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 
