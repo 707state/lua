@@ -172,7 +172,6 @@ unsafe extern "C" {
 
 #[cfg(any(
     target_os = "linux",
-    target_os = "android",
     target_os = "freebsd",
     target_os = "dragonfly",
     target_os = "netbsd",
@@ -180,6 +179,11 @@ unsafe extern "C" {
 ))]
 unsafe extern "C" {
     fn __errno_location() -> *mut c_int;
+}
+
+#[cfg(target_os = "android")]
+unsafe extern "C" {
+    fn __errno() -> *mut c_int;
 }
 
 #[inline]
@@ -190,7 +194,6 @@ unsafe fn errno_ptr() -> *mut c_int {
     }
     #[cfg(any(
         target_os = "linux",
-        target_os = "android",
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "netbsd",
@@ -198,6 +201,10 @@ unsafe fn errno_ptr() -> *mut c_int {
     ))]
     {
         unsafe { __errno_location() }
+    }
+    #[cfg(target_os = "android")]
+    {
+        unsafe { __errno() }
     }
 }
 

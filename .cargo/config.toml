@@ -1,0 +1,11 @@
+[target.aarch64-linux-android]
+linker = "scripts/android-linker-aarch64-linux-android.sh"
+
+[target.armv7-linux-androideabi]
+linker = "scripts/android-linker-armv7-linux-androideabi.sh"
+
+[target.x86_64-linux-android]
+linker = "scripts/android-linker-x86_64-linux-android.sh"
+
+[target.i686-linux-android]
+linker = "scripts/android-linker-i686-linux-android.sh"

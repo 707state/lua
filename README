@@ -4,3 +4,18 @@ This is Lua 5.5.0, released on 15 Dec 2025.
 For installation instructions, license details, and
 further information about Lua, see doc/readme.html.
 
+Android NDK cross build:
+  Set `ANDROID_NDK_HOME`.
+  If you want your current local NDK as the default, use:
+  `export ANDROID_NDK_HOME=~/Android/Sdk/ndk/28.2.13676358`
+  Optionally set `ANDROID_API_LEVEL` (defaults to `21`).
+  `ANDROID_PLATFORM=android-24` also works; `ANDROID_API_LEVEL` takes precedence.
+  `.cargo/config.toml` uses a small linker wrapper that reads `ANDROID_NDK_HOME`.
+  You can build directly with Cargo, for example:
+  `cargo build --target aarch64-linux-android`
+  To select a different API level:
+  `ANDROID_API_LEVEL=24 cargo build --target aarch64-linux-android`
+  To override the linker without editing the repo:
+  `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=/path/to/aarch64-linux-android21-clang cargo build --target aarch64-linux-android`
+  Use `scripts/build-android.sh <target-triple> [cargo args...]`.
+  Example: `scripts/build-android.sh aarch64-linux-android --lib --release`
