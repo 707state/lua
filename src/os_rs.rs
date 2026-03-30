@@ -1,3 +1,7 @@
+use crate::aux_rs::{
+    luaL_checkinteger, luaL_checklstring, luaL_checktype, luaL_execresult, luaL_fileresult,
+    luaL_optinteger, luaL_optlstring,
+};
 use crate::lua_module::{
     create_library, lua_Integer, lua_Number, lua_State, lua_createtable, lua_error, lua_pop,
     lua_pushboolean, lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_pushstring,
@@ -129,19 +133,6 @@ static SYSLIB: [luaL_Reg; 12] = [
 ];
 
 unsafe extern "C" {
-    fn luaL_checklstring(state: *mut lua_State, arg: c_int, len: *mut usize) -> *const c_char;
-    fn luaL_optlstring(
-        state: *mut lua_State,
-        arg: c_int,
-        default: *const c_char,
-        len: *mut usize,
-    ) -> *const c_char;
-    fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer;
-    fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer;
-    fn luaL_checktype(state: *mut lua_State, arg: c_int, t: c_int);
-    fn luaL_fileresult(state: *mut lua_State, stat: c_int, fname: *const c_char) -> c_int;
-    fn luaL_execresult(state: *mut lua_State, stat: c_int) -> c_int;
-
     fn lua_getfield(state: *mut lua_State, index: c_int, key: *const c_char) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
@@ -615,4 +606,17 @@ unsafe extern "C" fn os_exit(state: *mut lua_State) -> c_int {
 pub unsafe extern "C" fn luaopen_os(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &SYSLIB) };
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::run_lua_test;
+
+    #[test]
+    fn os_builtin_script() {
+        run_lua_test(
+            "test/os_builtin.lua",
+            include_str!("../test/os_builtin.lua"),
+        );
+    }
 }

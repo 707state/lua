@@ -1,9 +1,12 @@
+use crate::aux_rs::{
+    luaL_checkinteger, luaL_checktype, luaL_len, luaL_makeseed, luaL_optinteger, luaL_optlstring,
+};
 use crate::lua_module::{
     argcheck, create_library, lua_Integer, lua_State, lua_Unsigned, lua_gettop, lua_pop,
     lua_pushinteger, lua_pushlstring, lua_pushnil, lua_pushstring, lua_pushvalue, lua_setfield,
     lua_settop, luaL_Reg,
 };
-use core::ffi::{c_char, c_int, c_uint};
+use core::ffi::{c_char, c_int};
 use core::ptr;
 
 const LUA_TNIL: c_int = 0;
@@ -90,18 +93,6 @@ static TAB_FUNCS: [luaL_Reg; 10] = [
 ];
 
 unsafe extern "C" {
-    fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer;
-    fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer;
-    fn luaL_optlstring(
-        state: *mut lua_State,
-        arg: c_int,
-        default: *const c_char,
-        len: *mut usize,
-    ) -> *const c_char;
-    fn luaL_checktype(state: *mut lua_State, arg: c_int, tag: c_int);
-    fn luaL_len(state: *mut lua_State, index: c_int) -> lua_Integer;
-    fn luaL_makeseed(state: *mut lua_State) -> c_uint;
-
     fn lua_callk(
         state: *mut lua_State,
         nargs: c_int,
@@ -178,8 +169,22 @@ unsafe fn aux_getn(state: *mut lua_State, n: c_int, what: c_int) -> lua_Integer 
 unsafe extern "C" fn tcreate(state: *mut lua_State) -> c_int {
     let sizeseq = unsafe { luaL_checkinteger(state, 1) } as lua_Unsigned;
     let sizerest = unsafe { luaL_optinteger(state, 2, 0) } as lua_Unsigned;
-    unsafe { argcheck(state, sizeseq <= i32::MAX as lua_Unsigned, 1, ERR_OUT_OF_RANGE) };
-    unsafe { argcheck(state, sizerest <= i32::MAX as lua_Unsigned, 2, ERR_OUT_OF_RANGE) };
+    unsafe {
+        argcheck(
+            state,
+            sizeseq <= i32::MAX as lua_Unsigned,
+            1,
+            ERR_OUT_OF_RANGE,
+        )
+    };
+    unsafe {
+        argcheck(
+            state,
+            sizerest <= i32::MAX as lua_Unsigned,
+            2,
+            ERR_OUT_OF_RANGE,
+        )
+    };
     unsafe { crate::lua_module::lua_createtable(state, sizeseq as c_int, sizerest as c_int) };
     1
 }
@@ -197,14 +202,7 @@ unsafe extern "C" fn tinsert(state: *mut lua_State) -> c_int {
         }
         3 => {
             pos = unsafe { luaL_checkinteger(state, 2) };
-            unsafe {
-                argcheck(
-                    state,
-                    pos >= 1 && pos <= e,
-                    2,
-                    ERR_POSITION_OUT_OF_BOUNDS,
-                )
-            };
+            unsafe { argcheck(state, pos >= 1 && pos <= e, 2, ERR_POSITION_OUT_OF_BOUNDS) };
             let mut i = e;
             while i > pos {
                 unsafe { lua_geti(state, 1, i - 1) };
@@ -433,7 +431,12 @@ fn choose_pivot(lo: IdxT, up: IdxT, rnd: u32) -> IdxT {
     (rnd ^ lo ^ up) % (r4 * 2) + (lo + r4)
 }
 
-unsafe fn auxsort(state: *mut lua_State, mut lo: IdxT, mut up: IdxT, mut rnd: u32) -> Result<(), c_int> {
+unsafe fn auxsort(
+    state: *mut lua_State,
+    mut lo: IdxT,
+    mut up: IdxT,
+    mut rnd: u32,
+) -> Result<(), c_int> {
     while lo < up {
         unsafe { lua_geti(state, 1, lo as lua_Integer) };
         unsafe { lua_geti(state, 1, up as lua_Integer) };
@@ -521,10 +524,12 @@ pub unsafe extern "C" fn luaopen_table(state: *mut lua_State) -> c_int {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
     use crate::luaffi::{
-        LUA_OK, LUAL_NUMSIZES, LUA_VERSION_NUM, luaL_checkversion_, luaL_loadbufferx,
-        luaL_newstate, luaL_openselectedlibs, lua_close, lua_pcall, lua_tolstring,
+        LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring,
+        luaL_openselectedlibs,
     };
+    use crate::test_support::run_lua_test;
     use std::ptr;
 
     fn load_and_run(state: *mut lua_State, source: &str) -> Result<(), String> {
@@ -603,5 +608,13 @@ mod tests {
         if let Err(err) = result {
             panic!("{err}");
         }
+    }
+
+    #[test]
+    fn table_builtin_script() {
+        run_lua_test(
+            "test/table_builtin.lua",
+            include_str!("../test/table_builtin.lua"),
+        );
     }
 }

@@ -1,10 +1,14 @@
+use crate::aux_rs::{
+    luaL_checkany, luaL_checkinteger, luaL_checknumber, luaL_makeseed, luaL_optinteger,
+    luaL_optnumber,
+};
 use crate::lua_module::{
     create_library, lua_Integer, lua_Number, lua_State, lua_Unsigned, lua_createtable, lua_error,
     lua_gettop, lua_pop, lua_pushboolean, lua_pushinteger, lua_pushnumber, lua_pushstring,
     lua_pushvalue, lua_setfield, lua_settop, lua_upvalueindex, luaL_Reg, luaL_argerror,
     luaL_setfuncs, push_fail,
 };
-use core::ffi::{c_int, c_uint};
+use core::ffi::c_int;
 use core::mem::size_of;
 use core::ptr;
 use std::simd::Simd;
@@ -410,13 +414,6 @@ static SIMD_I32X4_REGS: [luaL_Reg; 22] = [
 ];
 
 unsafe extern "C" {
-    fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number;
-    fn luaL_optnumber(state: *mut lua_State, arg: c_int, def: lua_Number) -> lua_Number;
-    fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer;
-    fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer;
-    fn luaL_checkany(state: *mut lua_State, arg: c_int);
-    fn luaL_makeseed(state: *mut lua_State) -> c_uint;
-
     fn lua_isinteger(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
@@ -1296,4 +1293,22 @@ pub unsafe extern "C" fn luaopen_math(state: *mut lua_State) -> c_int {
     unsafe { lua_setfield(state, -2, FIELD_MININTEGER.as_ptr().cast()) };
     unsafe { setrandfunc(state) };
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::run_lua_test;
+
+    #[test]
+    fn math_builtin_script() {
+        run_lua_test(
+            "test/math_builtin.lua",
+            include_str!("../test/math_builtin.lua"),
+        );
+    }
+
+    #[test]
+    fn math_simd_script() {
+        run_lua_test("test/math_simd.lua", include_str!("../test/math_simd.lua"));
+    }
 }

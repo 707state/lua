@@ -10,8 +10,6 @@
 
 #include "lua.h"
 
-#include "lmem.h"
-
 
 #define EOZ	(-1)			/* end of stream */
 
@@ -26,8 +24,6 @@ typedef struct Mbuffer {
   size_t buffsize;
 } Mbuffer;
 
-#define luaZ_initbuffer(L, buff) ((buff)->buffer = NULL, (buff)->buffsize = 0)
-
 #define luaZ_buffer(buff)	((buff)->buffer)
 #define luaZ_sizebuffer(buff)	((buff)->buffsize)
 #define luaZ_bufflen(buff)	((buff)->n)
@@ -35,20 +31,16 @@ typedef struct Mbuffer {
 #define luaZ_buffremove(buff,i)	((buff)->n -= cast_sizet(i))
 #define luaZ_resetbuffer(buff) ((buff)->n = 0)
 
-
-#define luaZ_resizebuffer(L, buff, size) \
-	((buff)->buffer = luaM_reallocvchar(L, (buff)->buffer, \
-				(buff)->buffsize, size), \
-	(buff)->buffsize = size)
-
-#define luaZ_freebuffer(L, buff)	luaZ_resizebuffer(L, buff, 0)
+void luaZ_initbuffer (lua_State *L, Mbuffer *buff);
+void luaZ_resizebuffer (lua_State *L, Mbuffer *buff, size_t size);
+void luaZ_freebuffer (lua_State *L, Mbuffer *buff);
 
 
-LUAI_FUNC void luaZ_init (lua_State *L, ZIO *z, lua_Reader reader,
+void luaZ_init (lua_State *L, ZIO *z, lua_Reader reader,
                                         void *data);
-LUAI_FUNC size_t luaZ_read (ZIO* z, void *b, size_t n);	/* read next n bytes */
+size_t luaZ_read (ZIO* z, void *b, size_t n);	/* read next n bytes */
 
-LUAI_FUNC const void *luaZ_getaddr (ZIO* z, size_t n);
+const void *luaZ_getaddr (ZIO* z, size_t n);
 
 
 /* --------- Private Part ------------------ */
@@ -62,6 +54,6 @@ struct Zio {
 };
 
 
-LUAI_FUNC int luaZ_fill (ZIO *z);
+int luaZ_fill (ZIO *z);
 
 #endif

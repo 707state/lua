@@ -8,32 +8,14 @@ fn main() {
 
     let common_sources = [
         "src/lapi.c",
-        "src/lauxlib.c",
-        "src/lbaselib.c",
         "src/lcode.c",
-        "src/lcorolib.c",
-        "src/lctype.c",
-        "src/ldblib.c",
         "src/ldebug.c",
         "src/ldo.c",
-        "src/ldump.c",
-        "src/lfunc.c",
         "src/lgc.c",
-        "src/linit.c",
         "src/llex.c",
-        "src/lmem.c",
-        "src/loadlib.c",
-        "src/lobject.c",
-        "src/lopcodes.c",
         "src/lparser.c",
-        "src/lstate.c",
-        "src/lstring.c",
-        "src/lstrlib.c",
         "src/ltable.c",
-        "src/ltm.c",
-        "src/lundump.c",
         "src/lvm.c",
-        "src/lzio.c",
     ];
 
     let mut lua_core = cc::Build::new();

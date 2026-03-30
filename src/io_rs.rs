@@ -1,3 +1,8 @@
+use crate::aux_rs::{
+    luaL_checkany, luaL_checkinteger, luaL_checklstring, luaL_checkoption, luaL_checkstack,
+    luaL_checkudata, luaL_execresult, luaL_fileresult, luaL_newmetatable, luaL_optinteger,
+    luaL_optlstring, luaL_setfuncs, luaL_setmetatable, luaL_testudata,
+};
 use crate::lua_module::{
     LUA_REGISTRYINDEX, LuaCFunction, create_library, lua_Integer, lua_State, lua_createtable,
     lua_gettop, lua_pop, lua_pushboolean, lua_pushcclosure, lua_pushinteger, lua_pushnil,
@@ -184,32 +189,7 @@ static METAMETH: [luaL_Reg; 5] = [
 ];
 
 unsafe extern "C" {
-    fn luaL_checkany(state: *mut lua_State, arg: c_int);
-    fn luaL_checkstack(state: *mut lua_State, sz: c_int, msg: *const c_char);
-    fn luaL_checklstring(state: *mut lua_State, arg: c_int, len: *mut usize) -> *const c_char;
-    fn luaL_optlstring(
-        state: *mut lua_State,
-        arg: c_int,
-        def: *const c_char,
-        len: *mut usize,
-    ) -> *const c_char;
-    fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer;
-    fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer;
-    fn luaL_newmetatable(state: *mut lua_State, tname: *const c_char) -> c_int;
-    fn luaL_setmetatable(state: *mut lua_State, tname: *const c_char);
-    fn luaL_testudata(state: *mut lua_State, ud: c_int, tname: *const c_char) -> *mut c_void;
-    fn luaL_checkudata(state: *mut lua_State, ud: c_int, tname: *const c_char) -> *mut c_void;
     fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
-    fn luaL_checkoption(
-        state: *mut lua_State,
-        arg: c_int,
-        def: *const c_char,
-        lst: *const *const c_char,
-    ) -> c_int;
-    fn luaL_fileresult(state: *mut lua_State, stat: c_int, fname: *const c_char) -> c_int;
-    fn luaL_execresult(state: *mut lua_State, stat: c_int) -> c_int;
-    fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int);
-
     fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void;
     fn lua_copy(state: *mut lua_State, from: c_int, to: c_int);
     fn lua_getfield(state: *mut lua_State, index: c_int, key: *const c_char) -> c_int;
@@ -1034,4 +1014,17 @@ pub unsafe extern "C" fn luaopen_io(state: *mut lua_State) -> c_int {
     unsafe { createstdfile(state, stdout_file, Some(IO_OUTPUT), NAME_STDOUT) };
     unsafe { createstdfile(state, stderr_file, None, NAME_STDERR) };
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::run_lua_test;
+
+    #[test]
+    fn io_builtin_script() {
+        run_lua_test(
+            "test/io_builtin.lua",
+            include_str!("../test/io_builtin.lua"),
+        );
+    }
 }

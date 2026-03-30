@@ -1,5 +1,8 @@
-use core::ffi::{c_char, c_int};
+use core::ffi::{VaList, c_char, c_int};
 use core::mem::size_of;
+
+use crate::aux_rs::luaL_where;
+pub use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
 
 #[allow(non_camel_case_types)]
 pub type lua_Integer = i64;
@@ -31,10 +34,6 @@ pub const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 pub fn link_anchor() {}
 
 unsafe extern "C" {
-    pub fn luaL_checkversion_(state: *mut lua_State, version: lua_Number, sizes: usize);
-    pub fn luaL_argerror(state: *mut lua_State, arg: c_int, extra: *const c_char) -> c_int;
-    pub fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int);
-
     pub fn lua_gettop(state: *mut lua_State) -> c_int;
     pub fn lua_settop(state: *mut lua_State, index: c_int);
     pub fn lua_pushvalue(state: *mut lua_State, index: c_int);
@@ -43,11 +42,25 @@ unsafe extern "C" {
     pub fn lua_pushinteger(state: *mut lua_State, n: lua_Integer);
     pub fn lua_pushlstring(state: *mut lua_State, s: *const c_char, len: usize) -> *const c_char;
     pub fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char;
+    pub fn lua_pushvfstring(
+        state: *mut lua_State,
+        fmt: *const c_char,
+        argp: VaList<'_>,
+    ) -> *const c_char;
     pub fn lua_pushboolean(state: *mut lua_State, b: c_int);
     pub fn lua_pushcclosure(state: *mut lua_State, function: LuaCFunction, n: c_int);
     pub fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
+    pub fn lua_concat(state: *mut lua_State, n: c_int);
     pub fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
     pub fn lua_error(state: *mut lua_State) -> c_int;
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn luaL_error(state: *mut lua_State, fmt: *const c_char, argp: ...) -> c_int {
+    unsafe { luaL_where(state, 1) };
+    unsafe { lua_pushvfstring(state, fmt, argp) };
+    unsafe { lua_concat(state, 2) };
+    unsafe { lua_error(state) }
 }
 
 #[inline]
@@ -100,4 +113,72 @@ pub unsafe fn raise_error(state: *mut lua_State, message: &'static [u8]) -> c_in
 #[inline]
 pub unsafe fn push_cfunction(state: *mut lua_State, function: LuaCFunction) {
     unsafe { lua_pushcclosure(state, function, 0) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lua_State;
+    use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx};
+    use crate::luaffi::{
+        LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_pushcclosure,
+        lua_setglobal, lua_tolstring, luaL_newstate, luaL_openselectedlibs,
+    };
+    use core::ffi::{c_char, c_int};
+    use std::ptr;
+
+    unsafe extern "C" {
+        fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
+    }
+
+    unsafe extern "C" fn boom(state: *mut lua_State) -> c_int {
+        unsafe { luaL_error(state, c"broken %s %d".as_ptr(), c"item".as_ptr(), 7) }
+    }
+
+    fn error_string(state: *mut lua_State) -> String {
+        unsafe {
+            let mut len = 0usize;
+            let ptr = lua_tolstring(state, -1, &mut len);
+            assert!(!ptr.is_null(), "expected string error");
+            String::from_utf8_lossy(core::slice::from_raw_parts(ptr.cast::<u8>(), len)).into()
+        }
+    }
+
+    #[test]
+    fn lua_l_error_is_served_by_rust_bridge() {
+        let state = unsafe { luaL_newstate() };
+        assert!(!state.is_null(), "failed to create Lua state");
+
+        let result = (|| unsafe {
+            luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
+            luaL_openselectedlibs(state, !0, 0);
+
+            lua_pushcclosure(state, Some(boom), 0);
+            lua_setglobal(state, c"boom".as_ptr());
+
+            let chunk = c"boom()";
+            let name = c"@lua_module_variadic_error.lua";
+            let status = luaL_loadbufferx(
+                state,
+                chunk.as_ptr(),
+                chunk.to_bytes().len(),
+                name.as_ptr(),
+                ptr::null(),
+            );
+            assert_eq!(
+                status,
+                LUA_OK,
+                "failed to load chunk: {}",
+                error_string(state)
+            );
+
+            let status = lua_pcall(state, 0, 0, 0);
+            assert_ne!(status, LUA_OK, "chunk should fail");
+
+            let err = error_string(state);
+            assert_eq!(err, "lua_module_variadic_error.lua:1: broken item 7");
+        })();
+
+        unsafe { lua_close(state) };
+        result
+    }
 }

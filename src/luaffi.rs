@@ -1,5 +1,5 @@
 use crate::lua_module::lua_State;
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_uchar, c_void};
 
 pub type LuaInteger = i64;
 pub type LuaNumber = f64;
@@ -9,9 +9,28 @@ pub type LuaKFunction = Option<unsafe extern "C" fn(*mut lua_State, c_int, LuaKC
 pub type LuaWriter =
     Option<unsafe extern "C" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 
+const LUA_IDSIZE: usize = 60;
+
 #[repr(C)]
 pub struct LuaDebug {
-    _private: [u8; 0],
+    pub event: c_int,
+    pub name: *const c_char,
+    pub namewhat: *const c_char,
+    pub what: *const c_char,
+    pub source: *const c_char,
+    pub srclen: usize,
+    pub currentline: c_int,
+    pub linedefined: c_int,
+    pub lastlinedefined: c_int,
+    pub nups: c_uchar,
+    pub nparams: c_uchar,
+    pub isvararg: c_char,
+    pub extraargs: c_uchar,
+    pub istailcall: c_char,
+    pub ftransfer: c_int,
+    pub ntransfer: c_int,
+    pub short_src: [c_char; LUA_IDSIZE],
+    pub i_ci: *mut c_void,
 }
 
 pub const LUA_OK: c_int = 0;
@@ -113,6 +132,13 @@ unsafe extern "C" {
     pub fn lua_concat(state: *mut lua_State, n: c_int);
     pub fn lua_warning(state: *mut lua_State, message: *const c_char, tocont: c_int);
     pub fn lua_gc(state: *mut lua_State, what: c_int, ...) -> c_int;
+    pub fn lua_getstack(state: *mut lua_State, level: c_int, ar: *mut LuaDebug) -> c_int;
+    pub fn lua_getinfo(state: *mut lua_State, what: *const c_char, ar: *mut LuaDebug) -> c_int;
+    pub fn lua_gethook(
+        state: *mut lua_State,
+    ) -> Option<unsafe extern "C" fn(*mut lua_State, *mut LuaDebug)>;
+    pub fn lua_gethookmask(state: *mut lua_State) -> c_int;
+    pub fn lua_gethookcount(state: *mut lua_State) -> c_int;
     pub fn lua_sethook(
         state: *mut lua_State,
         function: Option<unsafe extern "C" fn(*mut lua_State, *mut LuaDebug)>,
