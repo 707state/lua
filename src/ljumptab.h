@@ -5,6 +5,7 @@
 */
 
 
+#include "lopcodes.h"
 #undef vmdispatch
 #undef vmcase
 #undef vmbreak

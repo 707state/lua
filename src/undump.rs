@@ -23,10 +23,10 @@ const LUA_VFALSE: u8 = 1;
 const LUA_VTRUE: u8 = 17;
 const LUA_VNUMINT: u8 = 3;
 const LUA_VNUMFLT: u8 = 19;
-const LUA_VSHRSTR: u8 = 68;
-const LUA_VLNGSTR: u8 = 84;
-const LUA_VLCL: u8 = 70;
-const LUA_VTABLE: u8 = 69;
+const LUA_VSHRSTR: u8 = 4;
+const LUA_VLNGSTR: u8 = 20;
+const LUA_VLCL: u8 = 6;
+const LUA_VTABLE: u8 = 5;
 
 const WHITEBITS: u8 = 0b11;
 const BLACKBIT: u8 = 5;
