@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn mbuffer_resize_and_free_round_trip() {
-        let state = unsafe { luaL_newstate() };
+        let state = luaL_newstate();
         assert!(!state.is_null());
 
         let mut buffer = Mbuffer {

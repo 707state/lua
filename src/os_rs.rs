@@ -206,12 +206,12 @@ unsafe fn reset_errno() {
 
 #[inline]
 unsafe fn l_checkstring(state: *mut lua_State, arg: c_int) -> *const c_char {
-    unsafe { luaL_checklstring(state, arg, ptr::null_mut()) }
+    luaL_checklstring(state, arg, ptr::null_mut())
 }
 
 #[inline]
 unsafe fn l_optstring(state: *mut lua_State, arg: c_int) -> *const c_char {
-    unsafe { luaL_optlstring(state, arg, ptr::null(), ptr::null_mut()) }
+    luaL_optlstring(state, arg, ptr::null(), ptr::null_mut())
 }
 
 unsafe fn push_dynamic_error(state: *mut lua_State, message: &str) -> c_int {
@@ -224,7 +224,7 @@ unsafe fn push_dynamic_error(state: *mut lua_State, message: &str) -> c_int {
 
 unsafe fn push_dynamic_argerror(state: *mut lua_State, arg: c_int, message: &str) -> c_int {
     let cstring = CString::new(message).expect("message contains no NUL");
-    unsafe { crate::lua_module::luaL_argerror(state, arg, cstring.as_ptr()) }
+    crate::lua_module::luaL_argerror(state, arg, cstring.as_ptr())
 }
 
 #[inline]
@@ -337,7 +337,7 @@ fn checkoption(conv: &[u8]) -> bool {
 }
 
 unsafe fn l_checktime(state: *mut lua_State, arg: c_int) -> Result<time_t, c_int> {
-    let t = unsafe { luaL_checkinteger(state, arg) };
+    let t = { luaL_checkinteger(state, arg) };
     let narrowed = t as time_t;
     if narrowed as lua_Integer != t {
         Err(unsafe { push_dynamic_argerror(state, arg, "time out-of-bounds") })
@@ -351,7 +351,7 @@ unsafe extern "C" fn os_execute(state: *mut lua_State) -> c_int {
     unsafe { reset_errno() };
     let stat = unsafe { system(cmd) };
     if !cmd.is_null() {
-        unsafe { luaL_execresult(state, stat) }
+        luaL_execresult(state, stat)
     } else {
         unsafe { lua_pushboolean(state, stat) };
         1
@@ -404,7 +404,7 @@ unsafe extern "C" fn os_clock(state: *mut lua_State) -> c_int {
 
 unsafe extern "C" fn os_date(state: *mut lua_State) -> c_int {
     let mut slen = 0usize;
-    let s = unsafe { luaL_optlstring(state, 1, b"%c\0".as_ptr().cast(), &mut slen) };
+    let s = { luaL_optlstring(state, 1, b"%c\0".as_ptr().cast(), &mut slen) };
     let mut format = unsafe { slice::from_raw_parts(s.cast::<u8>(), slen) };
 
     let default_time = unsafe { time(ptr::null_mut()) };
@@ -489,7 +489,9 @@ unsafe extern "C" fn os_time(state: *mut lua_State) -> c_int {
         unsafe { time(ptr::null_mut()) }
     } else {
         let mut ts = unsafe { mem::zeroed::<Tm>() };
-        unsafe { luaL_checktype(state, 1, LUA_TTABLE) };
+        {
+            luaL_checktype(state, 1, LUA_TTABLE)
+        };
         unsafe { lua_settop(state, 1) };
 
         ts.tm_year = match unsafe { getfield(state, KEY_YEAR, -1, 1900) } {
@@ -564,7 +566,7 @@ unsafe extern "C" fn os_setlocale(state: *mut lua_State) -> c_int {
 
     let locale = unsafe { l_optstring(state, 1) };
     let mut len = 0usize;
-    let category_ptr = unsafe { luaL_optlstring(state, 2, CAT_ALL.as_ptr().cast(), &mut len) };
+    let category_ptr = { luaL_optlstring(state, 2, CAT_ALL.as_ptr().cast(), &mut len) };
     let category = unsafe { slice::from_raw_parts(category_ptr.cast::<u8>(), len) };
     let mut selected = None;
     for (index, candidate) in CAT_NAMES.iter().enumerate() {
@@ -593,7 +595,7 @@ unsafe extern "C" fn os_exit(state: *mut lua_State) -> c_int {
             EXIT_FAILURE_CODE
         }
     } else {
-        unsafe { luaL_optinteger(state, 1, lua_Integer::from(EXIT_SUCCESS_CODE)) as c_int }
+        luaL_optinteger(state, 1, lua_Integer::from(EXIT_SUCCESS_CODE)) as c_int
     };
 
     if unsafe { lua_toboolean(state, 2) } != 0 {

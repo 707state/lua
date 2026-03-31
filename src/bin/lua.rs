@@ -1,5 +1,10 @@
-use math_rs::luaffi::*;
-use math_rs::{link_anchor, lua_module::lua_State};
+use lua_rs::aux_rs::{
+    luaL_callmeta, luaL_checkstack, luaL_checkversion_, luaL_len, luaL_loadbufferx, luaL_loadfilex,
+    luaL_newstate, luaL_tolstring, luaL_traceback,
+};
+use lua_rs::init::luaL_openselectedlibs;
+use lua_rs::luaffi::*;
+use lua_rs::{link_anchor, lua_module::lua_State};
 use std::env;
 use std::ffi::{CStr, CString};
 use std::io::{self, IsTerminal, Write};
@@ -22,7 +27,7 @@ const HAS_E_CAP: i32 = 16;
 fn main() -> std::process::ExitCode {
     let _ = link_anchor as fn();
     let args = env::args().collect::<Vec<_>>();
-    let state = unsafe { luaL_newstate() };
+    let state = luaL_newstate();
     if state.is_null() {
         eprintln!(
             "{}: cannot create state: not enough memory",
@@ -63,7 +68,7 @@ impl LuaRuntime {
 
     fn run(&mut self) -> bool {
         let (arg_mask, script) = self.collect_args();
-        unsafe { luaL_checkversion_(self.state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
+        luaL_checkversion_(self.state, LUA_VERSION_NUM, LUAL_NUMSIZES);
         if arg_mask == HAS_ERROR {
             let bad = self
                 .args
@@ -117,7 +122,7 @@ impl LuaRuntime {
     }
 
     fn open_libs(&mut self) {
-        unsafe { luaL_openselectedlibs(self.state, !0, 0) };
+        luaL_openselectedlibs(self.state, !0, 0);
     }
 
     fn collect_args(&mut self) -> (i32, i32) {
@@ -262,21 +267,19 @@ impl LuaRuntime {
     fn do_file(&mut self, name: Option<&str>) -> i32 {
         let filename = name.map(cstr);
         let ptr = filename.as_ref().map_or(ptr::null(), |it| it.as_ptr());
-        self.do_chunk(unsafe { luaL_loadfilex(self.state, ptr, ptr::null()) })
+        self.do_chunk(luaL_loadfilex(self.state, ptr, ptr::null()))
     }
 
     fn do_string(&mut self, source: &str, name: &str) -> i32 {
         let source = source.as_bytes();
         let name = cstr(name);
-        self.do_chunk(unsafe {
-            luaL_loadbufferx(
-                self.state,
-                source.as_ptr().cast(),
-                source.len(),
-                name.as_ptr(),
-                ptr::null(),
-            )
-        })
+        self.do_chunk(luaL_loadbufferx(
+            self.state,
+            source.as_ptr().cast(),
+            source.len(),
+            name.as_ptr(),
+            ptr::null(),
+        ))
     }
 
     fn do_library(&mut self, spec: &str) -> i32 {
@@ -375,13 +378,11 @@ impl LuaRuntime {
             fname = None;
         }
         let filename = fname.map(cstr);
-        let status = unsafe {
-            luaL_loadfilex(
-                self.state,
-                filename.as_ref().map_or(ptr::null(), |it| it.as_ptr()),
-                ptr::null(),
-            )
-        };
+        let status = luaL_loadfilex(
+            self.state,
+            filename.as_ref().map_or(ptr::null(), |it| it.as_ptr()),
+            ptr::null(),
+        );
         let status = if status == LUA_OK {
             let nargs = self.push_args();
             self.do_call(nargs, LUA_MULTRET)
@@ -449,15 +450,13 @@ impl LuaRuntime {
     fn add_return(&mut self) -> i32 {
         let line = unsafe { lua_to_string(self.state, -1) }.unwrap_or_default();
         let source = format!("return {line};");
-        let status = unsafe {
-            luaL_loadbufferx(
-                self.state,
-                source.as_ptr().cast(),
-                source.len(),
-                cstr("=stdin").as_ptr(),
-                ptr::null(),
-            )
-        };
+        let status = luaL_loadbufferx(
+            self.state,
+            source.as_ptr().cast(),
+            source.len(),
+            cstr("=stdin").as_ptr(),
+            ptr::null(),
+        );
         unsafe {
             if status == LUA_OK {
                 lua_remove(self.state, -2);
@@ -472,15 +471,13 @@ impl LuaRuntime {
         loop {
             let mut len = 0;
             let line_ptr = unsafe { lua_tolstring(self.state, 1, &mut len) };
-            let status = unsafe {
-                luaL_loadbufferx(
-                    self.state,
-                    line_ptr,
-                    len,
-                    cstr("=stdin").as_ptr(),
-                    ptr::null(),
-                )
-            };
+            let status = luaL_loadbufferx(
+                self.state,
+                line_ptr,
+                len,
+                cstr("=stdin").as_ptr(),
+                ptr::null(),
+            );
             if !self.incomplete(status) || !self.push_line(false) {
                 return status;
             }
@@ -562,14 +559,14 @@ unsafe extern "C" fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");
-        if unsafe { luaL_callmeta(state, 1, event.as_ptr()) } != 0
+        if luaL_callmeta(state, 1, event.as_ptr()) != 0
             && unsafe { lua_type(state, -1) } == LUA_TSTRING
         {
             return 1;
         }
         msg = NON_STRING_ERROR.as_ptr().cast();
     }
-    unsafe { luaL_traceback(state, state, msg, 1) };
+    luaL_traceback(state, state, msg, 1);
     1
 }
 

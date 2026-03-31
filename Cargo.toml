@@ -5,7 +5,7 @@ edition = "2024"
 build = "build.rs"
 
 [lib]
-name = "math_rs"
+name = "lua_rs"
 path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 

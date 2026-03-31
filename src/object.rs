@@ -154,8 +154,12 @@ unsafe extern "C" {
     fn luaS_newlstr(state: *mut lua_State, s: *const c_char, len: usize) -> *mut c_void;
     fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
     fn luaD_rawrunprotected(state: *mut lua_State, f: Pfunc, ud: *mut c_void) -> u8;
-    fn luaM_realloc_(state: *mut lua_State, block: *mut c_void, oldsize: usize, size: usize)
-    -> *mut c_void;
+    fn luaM_realloc_(
+        state: *mut lua_State,
+        block: *mut c_void,
+        oldsize: usize,
+        size: usize,
+    ) -> *mut c_void;
     fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
 
     fn strtod(s: *const c_char, endp: *mut *mut c_char) -> lua_Number;
@@ -309,7 +313,12 @@ fn intop_bnot(v1: lua_Integer) -> lua_Integer {
     (!(v1 as u64)) as lua_Integer
 }
 
-unsafe fn intarith(state: *mut lua_State, op: c_int, v1: lua_Integer, v2: lua_Integer) -> lua_Integer {
+unsafe fn intarith(
+    state: *mut lua_State,
+    op: c_int,
+    v1: lua_Integer,
+    v2: lua_Integer,
+) -> lua_Integer {
     match op {
         LUA_OPADD => intop_add(v1, v2),
         LUA_OPSUB => intop_sub(v1, v2),
@@ -430,7 +439,9 @@ pub unsafe extern "C" fn luaO_rawarith(
             if unsafe { ttisinteger(p1) } && unsafe { ttisinteger(p2) } {
                 unsafe { setivalue(res, intarith(state, op, ivalue(p1), ivalue(p2))) };
                 1
-            } else if unsafe { number_to_float(p1, &mut n1) } && unsafe { number_to_float(p2, &mut n2) } {
+            } else if unsafe { number_to_float(p1, &mut n1) }
+                && unsafe { number_to_float(p2, &mut n2) }
+            {
                 unsafe { setfltvalue(res, numarith(state, op, n1, n2)) };
                 1
             } else {
@@ -481,12 +492,7 @@ fn is_neg(bytes: &[u8], index: &mut usize) -> bool {
 
 fn str2dloc(s: &CStr, result: &mut lua_Number, mode: u8) -> Option<usize> {
     let mut endptr = ptr::null_mut();
-    *result = unsafe {
-        strtod(
-            s.as_ptr(),
-            &mut endptr,
-        )
-    };
+    *result = unsafe { strtod(s.as_ptr(), &mut endptr) };
     if endptr == s.as_ptr() as *mut c_char {
         return None;
     }
@@ -622,10 +628,7 @@ fn tostringbuff_float(n: lua_Number, buff: *mut c_char) -> c_int {
         len = unsafe { snprintf(buff, LUA_N2SBUFFSZ, LUA_NUMBER_FMT_N.as_ptr().cast(), n) };
     }
     let out = unsafe { CStr::from_ptr(buff) }.to_bytes();
-    if out
-        .iter()
-        .all(|&b| matches!(b, b'-' | b'0'..=b'9'))
-    {
+    if out.iter().all(|&b| matches!(b, b'-' | b'0'..=b'9')) {
         let locale = unsafe { localeconv() };
         let point = if locale.is_null() || unsafe { (*locale).decimal_point }.is_null() {
             b'.'
@@ -645,7 +648,14 @@ fn tostringbuff_float(n: lua_Number, buff: *mut c_char) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     let len = if unsafe { ttisinteger(obj) } {
-        unsafe { snprintf(buff, LUA_N2SBUFFSZ, LUA_INTEGER_FMT.as_ptr().cast(), ivalue(obj)) }
+        unsafe {
+            snprintf(
+                buff,
+                LUA_N2SBUFFSZ,
+                LUA_INTEGER_FMT.as_ptr().cast(),
+                ivalue(obj),
+            )
+        }
     } else {
         tostringbuff_float(unsafe { fltvalue(obj) }, buff)
     };
@@ -733,13 +743,8 @@ unsafe fn addstr2buff(buff: *mut BuffFS, str_ptr: *const c_char, slen: usize) {
             if (*buff).b == (*buff).space.as_mut_ptr() {
                 luaM_realloc_((*buff).l, ptr::null_mut(), 0, newsize).cast::<c_char>()
             } else {
-                luaM_realloc_(
-                    (*buff).l,
-                    (*buff).b.cast(),
-                    (*buff).buffsize,
-                    newsize,
-                )
-                .cast::<c_char>()
+                luaM_realloc_((*buff).l, (*buff).b.cast(), (*buff).buffsize, newsize)
+                    .cast::<c_char>()
             }
         };
         if newb.is_null() {
@@ -788,7 +793,11 @@ pub unsafe extern "C" fn luaO_pushvfstring(
         match spec {
             b's' => {
                 let s = unsafe { argp.arg::<*const c_char>() };
-                let s = if s.is_null() { NULL_STRING.as_ptr().cast() } else { s };
+                let s = if s.is_null() {
+                    NULL_STRING.as_ptr().cast()
+                } else {
+                    s
+                };
                 let len = unsafe { CStr::from_ptr(s) }.to_bytes().len();
                 unsafe { addstr2buff(buff, s, len) };
             }
@@ -815,7 +824,9 @@ pub unsafe extern "C" fn luaO_pushvfstring(
             b'p' => {
                 let p = unsafe { argp.arg::<*mut c_void>() };
                 let mut tmp = [0 as c_char; LUA_N2SBUFFSZ];
-                let len = unsafe { snprintf(tmp.as_mut_ptr(), tmp.len(), POINTER_FMT.as_ptr().cast(), p) };
+                let len = unsafe {
+                    snprintf(tmp.as_mut_ptr(), tmp.len(), POINTER_FMT.as_ptr().cast(), p)
+                };
                 unsafe { addstr2buff(buff, tmp.as_ptr(), len as usize) };
             }
             b'U' => {
@@ -839,7 +850,7 @@ pub unsafe extern "C" fn luaO_pushvfstring(
 pub unsafe extern "C" fn luaO_pushfstring(
     state: *mut lua_State,
     fmt: *const c_char,
-    argp: ...,
+    argp: ...
 ) -> *const c_char {
     let msg = unsafe { luaO_pushvfstring(state, fmt, argp) };
     if msg.is_null() {
@@ -856,17 +867,25 @@ pub unsafe extern "C" fn luaO_chunkid(out: *mut c_char, source: *const c_char, s
     match source.first().copied() {
         Some(b'=') => {
             if srclen <= bufflen {
-                unsafe { ptr::copy_nonoverlapping(source[1..].as_ptr().cast::<c_char>(), outp, srclen) };
+                unsafe {
+                    ptr::copy_nonoverlapping(source[1..].as_ptr().cast::<c_char>(), outp, srclen)
+                };
             } else {
                 unsafe {
-                    ptr::copy_nonoverlapping(source[1..bufflen].as_ptr().cast::<c_char>(), outp, bufflen - 1);
+                    ptr::copy_nonoverlapping(
+                        source[1..bufflen].as_ptr().cast::<c_char>(),
+                        outp,
+                        bufflen - 1,
+                    );
                     *outp.add(bufflen - 1) = 0;
                 }
             }
         }
         Some(b'@') => {
             if srclen <= bufflen {
-                unsafe { ptr::copy_nonoverlapping(source[1..].as_ptr().cast::<c_char>(), outp, srclen) };
+                unsafe {
+                    ptr::copy_nonoverlapping(source[1..].as_ptr().cast::<c_char>(), outp, srclen)
+                };
             } else {
                 unsafe {
                     ptr::copy_nonoverlapping(RETS.as_ptr().cast::<c_char>(), outp, RETS.len());
@@ -874,7 +893,13 @@ pub unsafe extern "C" fn luaO_chunkid(out: *mut c_char, source: *const c_char, s
                 }
                 bufflen -= RETS.len();
                 let start = 1 + srclen - bufflen;
-                unsafe { ptr::copy_nonoverlapping(source[start..start + bufflen].as_ptr().cast::<c_char>(), outp, bufflen) };
+                unsafe {
+                    ptr::copy_nonoverlapping(
+                        source[start..start + bufflen].as_ptr().cast::<c_char>(),
+                        outp,
+                        bufflen,
+                    )
+                };
             }
         }
         _ => {
@@ -916,7 +941,7 @@ pub unsafe extern "C" fn luaO_chunkid(out: *mut c_char, source: *const c_char, s
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close, lua_tolstring};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_tolstring};
 
     fn get_top_string(state: *mut lua_State) -> String {
         unsafe {
@@ -957,14 +982,16 @@ mod tests {
 
             let mut utf8 = [0 as c_char; UTF8BUFFSZ];
             let len = luaO_utf8esc(utf8.as_mut_ptr(), 0x20ac) as usize;
-            let bytes = core::slice::from_raw_parts(
-                utf8.as_ptr().add(UTF8BUFFSZ - len).cast::<u8>(),
-                len,
-            );
+            let bytes =
+                core::slice::from_raw_parts(utf8.as_ptr().add(UTF8BUFFSZ - len).cast::<u8>(), len);
             assert_eq!(bytes, "€".as_bytes());
 
             let mut out = [0 as c_char; LUA_IDSIZE + 1];
-            luaO_chunkid(out.as_mut_ptr(), c"@/tmp/some/very/long/path/test.lua".as_ptr(), 33);
+            luaO_chunkid(
+                out.as_mut_ptr(),
+                c"@/tmp/some/very/long/path/test.lua".as_ptr(),
+                33,
+            );
             let s = CStr::from_ptr(out.as_ptr()).to_string_lossy().into_owned();
             assert!(s.ends_with("path/test.lua") || s.contains("..."));
         }
@@ -972,7 +999,7 @@ mod tests {
 
     #[test]
     fn pushfstring_formats_expected_values() {
-        let state = unsafe { luaL_newstate() };
+        let state = { luaL_newstate() };
         assert!(!state.is_null());
 
         let result = (|| unsafe {

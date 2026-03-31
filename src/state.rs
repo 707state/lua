@@ -1,4 +1,9 @@
+use crate::lex::raw_luaX_init;
 use crate::lua_module::{lua_Integer, lua_Number};
+use crate::object::luaO_codeparam;
+use crate::string::raw_luaS_init;
+use crate::table::{raw_luaH_new, raw_luaH_resize, raw_luaH_setint};
+use crate::tm::raw_luaT_init;
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr;
@@ -44,7 +49,7 @@ const EXTRA_STACK: usize = 5;
 const BASIC_STACK_SIZE: usize = 2 * LUA_MINSTACK;
 const KGC_INC: u8 = 0;
 const GCSTPGC: u8 = 2;
-const GCSpause: u8 = 8;
+const GCSPAUSE: u8 = 8;
 const WHITE0BIT: u8 = 3;
 const WHITE1BIT: u8 = 4;
 const WHITEBITS: u8 = (1 << WHITE0BIT) | (1 << WHITE1BIT);
@@ -279,15 +284,8 @@ unsafe extern "C" {
     fn luaD_throwbaselevel(state: *mut lua_State, errcode: TStatus) -> !;
     fn luaF_closeupval(state: *mut lua_State, level: StkId);
     fn luaG_runerror(state: *mut lua_State, fmt: *const c_char, ...) -> !;
-    fn luaH_new(state: *mut lua_State) -> *mut Table;
-    fn luaH_resize(state: *mut lua_State, table: *mut Table, newasize: u32, nhsize: u32);
-    fn luaH_setint(state: *mut lua_State, table: *mut Table, key: lua_Integer, value: *mut TValue);
     fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
     fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void;
-    fn luaO_codeparam(value: c_int) -> u8;
-    fn luaS_init(state: *mut lua_State);
-    fn luaT_init(state: *mut lua_State);
-    fn luaX_init(state: *mut lua_State);
 }
 
 #[inline]
@@ -430,9 +428,9 @@ unsafe extern "C" fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
     let g = unsafe { g(state) };
     unsafe { stack_init(state, state) };
     unsafe { init_registry(state, g) };
-    unsafe { luaS_init(state) };
-    unsafe { luaT_init(state) };
-    unsafe { luaX_init(state) };
+    unsafe { raw_luaS_init(state.cast()) };
+    unsafe { raw_luaT_init(state.cast()) };
+    unsafe { raw_luaX_init(state.cast()) };
     unsafe {
         (*g).gcstp = 0;
         setnilvalue(ptr::addr_of_mut!((*g).nilvalue));
@@ -490,7 +488,13 @@ unsafe fn freestack(state: *mut lua_State) {
     }
     unsafe { (*state).ci = ptr::addr_of_mut!((*state).base_ci) };
     unsafe { free_ci(state) };
-    unsafe { free_stackvector(state, (*state).stack.p, (stacksize(state) as usize) + EXTRA_STACK) };
+    unsafe {
+        free_stackvector(
+            state,
+            (*state).stack.p,
+            (stacksize(state) as usize) + EXTRA_STACK,
+        )
+    };
 }
 
 unsafe fn init_registry(state: *mut lua_State, g: *mut global_State) {
@@ -498,15 +502,41 @@ unsafe fn init_registry(state: *mut lua_State, g: *mut global_State) {
         value_: Value { ub: 0 },
         tt_: LUA_VNIL,
     };
-    let registry = unsafe { luaH_new(state) };
+    let registry = unsafe { raw_luaH_new(state.cast()).cast::<Table>() };
     unsafe { sethvalue(ptr::addr_of_mut!((*g).l_registry), registry) };
-    unsafe { luaH_resize(state, registry, LUA_RIDX_LAST as u32, 0) };
+    unsafe { raw_luaH_resize(state.cast(), registry.cast(), LUA_RIDX_LAST as u32, 0) };
     unsafe { setbfvalue(ptr::addr_of_mut!(aux)) };
-    unsafe { luaH_setint(state, registry, 1, ptr::addr_of_mut!(aux)) };
+    unsafe {
+        raw_luaH_setint(
+            state.cast(),
+            registry.cast(),
+            1,
+            ptr::addr_of_mut!(aux).cast(),
+        )
+    };
     unsafe { setthvalue(ptr::addr_of_mut!(aux), state) };
-    unsafe { luaH_setint(state, registry, LUA_RIDX_MAINTHREAD, ptr::addr_of_mut!(aux)) };
-    unsafe { sethvalue(ptr::addr_of_mut!(aux), luaH_new(state)) };
-    unsafe { luaH_setint(state, registry, LUA_RIDX_GLOBALS, ptr::addr_of_mut!(aux)) };
+    unsafe {
+        raw_luaH_setint(
+            state.cast(),
+            registry.cast(),
+            LUA_RIDX_MAINTHREAD,
+            ptr::addr_of_mut!(aux).cast(),
+        )
+    };
+    unsafe {
+        sethvalue(
+            ptr::addr_of_mut!(aux),
+            raw_luaH_new(state.cast()).cast::<Table>(),
+        )
+    };
+    unsafe {
+        raw_luaH_setint(
+            state.cast(),
+            registry.cast(),
+            LUA_RIDX_GLOBALS,
+            ptr::addr_of_mut!(aux).cast(),
+        )
+    };
 }
 
 unsafe fn preinit_thread(state: *mut lua_State, g: *mut global_State) {
@@ -623,7 +653,8 @@ pub unsafe extern "C" fn luaE_incCstack(state: *mut lua_State) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaE_threadsize(state: *mut lua_State) -> LuMem {
-    let mut sz = size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
+    let mut sz =
+        size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
     if unsafe { !(*state).stack.p.is_null() } {
         sz += ((unsafe { stacksize(state) as usize }) + EXTRA_STACK) * size_of::<StackValue>();
     }
@@ -636,14 +667,7 @@ pub unsafe extern "C" fn lua_newthread(state: *mut lua_State) -> *mut lua_State 
     if unsafe { (*g).GCdebt <= 0 } {
         unsafe { luaC_step(state) };
     }
-    let o = unsafe {
-        luaC_newobjdt(
-            state,
-            LUA_TTHREAD,
-            size_of::<LX>(),
-            offset_of!(LX, l),
-        )
-    };
+    let o = unsafe { luaC_newobjdt(state, LUA_TTHREAD, size_of::<LX>(), offset_of!(LX, l)) };
     let thread = o.cast::<lua_State>();
     unsafe { setthvalue2s(state, (*state).top.p, thread) };
     unsafe { api_incr_top(state) };
@@ -708,16 +732,19 @@ pub unsafe extern "C" fn lua_closethread(state: *mut lua_State, from: *mut lua_S
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_newstate(
-    f: LuaAlloc,
-    ud: *mut c_void,
-    seed: u32,
-) -> *mut lua_State {
+pub unsafe extern "C" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
     let Some(frealloc) = f else {
         return ptr::null_mut();
     };
-    let g = unsafe { frealloc(ud, ptr::null_mut(), LUA_TTHREAD as usize, size_of::<global_State>()) }
-        .cast::<global_State>();
+    let g = unsafe {
+        frealloc(
+            ud,
+            ptr::null_mut(),
+            LUA_TTHREAD as usize,
+            size_of::<global_State>(),
+        )
+    }
+    .cast::<global_State>();
     if g.is_null() {
         return ptr::null_mut();
     }
@@ -741,7 +768,7 @@ pub unsafe extern "C" fn lua_newstate(
         (*g).strt.hash = ptr::null_mut();
         setnilvalue(ptr::addr_of_mut!((*g).l_registry));
         (*g).panic = None;
-        (*g).gcstate = GCSpause;
+        (*g).gcstate = GCSPAUSE;
         (*g).gckind = KGC_INC;
         (*g).gcstopem = 0;
         (*g).gcemergency = 0;
@@ -766,12 +793,12 @@ pub unsafe extern "C" fn lua_newstate(
         (*g).GCmarked = 0;
         (*g).GCdebt = 0;
         setivalue(ptr::addr_of_mut!((*g).nilvalue), 0);
-        (*g).gcparams[LUA_GCPPAUSE] = luaO_codeparam(LUAI_GCPAUSE);
-        (*g).gcparams[LUA_GCPSTEPMUL] = luaO_codeparam(LUAI_GCMUL);
-        (*g).gcparams[LUA_GCPSTEPSIZE] = luaO_codeparam((200 * size_of::<Table>()) as c_int);
-        (*g).gcparams[LUA_GCPMINORMUL] = luaO_codeparam(LUAI_GENMINORMUL);
-        (*g).gcparams[LUA_GCPMINORMAJOR] = luaO_codeparam(LUAI_MINORMAJOR);
-        (*g).gcparams[LUA_GCPMAJORMINOR] = luaO_codeparam(LUAI_MAJORMINOR);
+        (*g).gcparams[LUA_GCPPAUSE] = luaO_codeparam(LUAI_GCPAUSE as u32);
+        (*g).gcparams[LUA_GCPSTEPMUL] = luaO_codeparam(LUAI_GCMUL as u32);
+        (*g).gcparams[LUA_GCPSTEPSIZE] = luaO_codeparam((200 * size_of::<Table>()) as c_int as u32);
+        (*g).gcparams[LUA_GCPMINORMUL] = luaO_codeparam(LUAI_GENMINORMUL as u32);
+        (*g).gcparams[LUA_GCPMINORMAJOR] = luaO_codeparam(LUAI_MINORMAJOR as u32);
+        (*g).gcparams[LUA_GCPMAJORMINOR] = luaO_codeparam(LUAI_MAJORMINOR as u32);
         for mt in &mut (*g).mt {
             *mt = ptr::null_mut();
         }
@@ -825,13 +852,13 @@ pub unsafe extern "C" fn luaE_warnerror(state: *mut lua_State, where_: *const c_
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
 
     unsafe extern "C" fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
 
     #[test]
     fn newthread_copies_hook_state_and_closes() {
-        let state = unsafe { luaL_newstate() }.cast::<lua_State>();
+        let state = { luaL_newstate() }.cast::<lua_State>();
         assert!(!state.is_null());
 
         let result = (|| unsafe {
@@ -863,7 +890,7 @@ mod tests {
 
     #[test]
     fn callinfo_growth_and_threadsize_track_allocations() {
-        let state = unsafe { luaL_newstate() }.cast::<lua_State>();
+        let state = { luaL_newstate() }.cast::<lua_State>();
         assert!(!state.is_null());
 
         let result = (|| unsafe {

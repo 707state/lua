@@ -237,11 +237,11 @@ pub unsafe extern "C" fn luaM_malloc_(
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
 
     #[test]
     fn malloc_realloc_free_update_gcdebt() {
-        let state = unsafe { luaL_newstate() };
+        let state = { luaL_newstate() };
         assert!(!state.is_null());
 
         let result = (|| unsafe {
@@ -267,14 +267,22 @@ mod tests {
 
     #[test]
     fn grow_and_shrink_vector_adjust_size() {
-        let state = unsafe { luaL_newstate() };
+        let state = { luaL_newstate() };
         assert!(!state.is_null());
 
         let result = (|| unsafe {
             luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
 
             let mut size = 0;
-            let block = luaM_growaux_(state, core::ptr::null_mut(), 0, &mut size, 4, 32, c"items".as_ptr());
+            let block = luaM_growaux_(
+                state,
+                core::ptr::null_mut(),
+                0,
+                &mut size,
+                4,
+                32,
+                c"items".as_ptr(),
+            );
             assert!(!block.is_null());
             assert_eq!(size, 4);
 

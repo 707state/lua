@@ -1,6 +1,11 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
 use crate::lua_module::lua_Integer;
+use crate::string::raw_luaS_new;
+use crate::table::{
+    raw_luaH_Hgetshortstr, raw_luaH_getint, raw_luaH_getshortstr, raw_luaH_new, raw_luaH_resize,
+    raw_luaH_set, raw_luaH_setint,
+};
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 
@@ -323,16 +328,8 @@ pub struct lua_State {
 }
 
 unsafe extern "C" {
-    fn luaS_new(state: *mut lua_State, s: *const c_char) -> *mut TString;
     fn luaC_fix(state: *mut lua_State, o: *mut GCObject);
     fn luaC_step(state: *mut lua_State);
-    fn luaH_Hgetshortstr(table: *mut Table, key: *mut TString) -> *const TValue;
-    fn luaH_getshortstr(table: *mut Table, key: *mut TString, res: *mut TValue) -> u8;
-    fn luaH_getint(table: *mut Table, key: lua_Integer, res: *mut TValue) -> u8;
-    fn luaH_new(state: *mut lua_State) -> *mut Table;
-    fn luaH_resize(state: *mut lua_State, table: *mut Table, narr: u32, nrec: u32);
-    fn luaH_set(state: *mut lua_State, table: *mut Table, key: *const TValue, value: *mut TValue);
-    fn luaH_setint(state: *mut lua_State, table: *mut Table, key: lua_Integer, value: *mut TValue);
     fn luaD_call(state: *mut lua_State, func: StkId, nresults: c_int);
     fn luaD_callnoyield(state: *mut lua_State, func: StkId, nresults: c_int);
     fn luaD_growstack(state: *mut lua_State, n: c_int, raiseerror: c_int) -> c_int;
@@ -610,12 +607,16 @@ pub unsafe extern "C" fn luaT_init(state: *mut lua_State) {
     ];
     let g = unsafe { G(state) };
     for (i, name) in EVENT_NAMES.iter().enumerate() {
-        let ts = unsafe { luaS_new(state, name.as_ptr().cast()) };
+        let ts = unsafe { raw_luaS_new(state.cast(), name.as_ptr().cast()).cast::<TString>() };
         unsafe {
             (&mut (*g).tmname)[i] = ts;
             luaC_fix(state, ts.cast());
         }
     }
+}
+
+pub(crate) unsafe fn raw_luaT_init(state: *mut c_void) {
+    unsafe { luaT_init(state.cast()) };
 }
 
 #[unsafe(no_mangle)]
@@ -624,7 +625,7 @@ pub unsafe extern "C" fn luaT_gettm(
     event: c_int,
     ename: *mut TString,
 ) -> *const TValue {
-    let tm = unsafe { luaH_Hgetshortstr(events, ename) };
+    let tm = unsafe { raw_luaH_Hgetshortstr(events.cast(), ename.cast()).cast::<TValue>() };
     if unsafe { ttisnil(tm) } {
         unsafe { (*events).flags |= (1u8) << event };
         ptr::null()
@@ -647,7 +648,10 @@ pub unsafe extern "C" fn luaT_gettmbyobj(
     if mt.is_null() {
         unsafe { ptr::addr_of!((*G(state)).nilvalue) }
     } else {
-        unsafe { luaH_Hgetshortstr(mt, (&(*G(state)).tmname)[event as usize]) }
+        unsafe {
+            raw_luaH_Hgetshortstr(mt.cast(), (&(*G(state)).tmname)[event as usize].cast())
+                .cast::<TValue>()
+        }
     }
 }
 
@@ -663,7 +667,13 @@ pub unsafe extern "C" fn luaT_objtypename(
         mt = unsafe { (*uvalue(o)).metatable };
     }
     if !mt.is_null() {
-        let name = unsafe { luaH_Hgetshortstr(mt, luaS_new(state, c"__name".as_ptr())) };
+        let name = unsafe {
+            raw_luaH_Hgetshortstr(
+                mt.cast(),
+                raw_luaS_new(state.cast(), c"__name".as_ptr()).cast(),
+            )
+            .cast::<TValue>()
+        };
         if unsafe { ttisstring(name) } {
             return unsafe { getstr(tsvalue(name)) };
         }
@@ -756,12 +766,7 @@ pub unsafe extern "C" fn luaT_trybinTM(
                     unsafe { luaG_tointerror(state, p1, p2) };
                 } else {
                     unsafe {
-                        luaG_opinterror(
-                            state,
-                            p1,
-                            p2,
-                            c"perform bitwise operation on".as_ptr(),
-                        )
+                        luaG_opinterror(state, p1, p2, c"perform bitwise operation on".as_ptr())
                     };
                 }
             }
@@ -863,17 +868,33 @@ unsafe fn createvarargtab(state: *mut lua_State, f: StkId, n: c_int) {
         value_: Value { i: 0 },
         tt_: LUA_VNIL,
     };
-    let t = unsafe { luaH_new(state) };
+    let t = unsafe { raw_luaH_new(state.cast()).cast::<Table>() };
     unsafe {
         sethvalue(state, s2v((*state).top.p), t);
         (*state).top.p = (*state).top.p.add(1);
-        luaH_resize(state, t, n as u32, 1);
-        setsvalue(state, ptr::addr_of_mut!(key), luaS_new(state, c"n".as_ptr()));
+        raw_luaH_resize(state.cast(), t.cast(), n as u32, 1);
+        setsvalue(
+            state,
+            ptr::addr_of_mut!(key),
+            raw_luaS_new(state.cast(), c"n".as_ptr()).cast(),
+        );
         setivalue(ptr::addr_of_mut!(value), n as lua_Integer);
-        luaH_set(state, t, ptr::addr_of!(key), ptr::addr_of_mut!(value));
+        raw_luaH_set(
+            state.cast(),
+            t.cast(),
+            ptr::addr_of!(key).cast(),
+            ptr::addr_of_mut!(value).cast(),
+        );
     }
     for i in 0..n {
-        unsafe { luaH_setint(state, t, (i + 1) as lua_Integer, s2v(f.add(i as usize))) };
+        unsafe {
+            raw_luaH_setint(
+                state.cast(),
+                t.cast(),
+                (i + 1) as lua_Integer,
+                s2v(f.add(i as usize)).cast(),
+            )
+        };
     }
     unsafe { luaC_checkGC(state) };
 }
@@ -957,7 +978,13 @@ unsafe fn getnumargs(state: *mut lua_State, ci: *mut CallInfo, h: *mut Table) ->
             value_: Value { i: 0 },
             tt_: LUA_VNIL,
         };
-        if unsafe { luaH_getshortstr(h, luaS_new(state, c"n".as_ptr()), ptr::addr_of_mut!(res)) } != LUA_VNUMINT
+        if unsafe {
+            raw_luaH_getshortstr(
+                h.cast(),
+                raw_luaS_new(state.cast(), c"n".as_ptr()).cast(),
+                ptr::addr_of_mut!(res).cast(),
+            )
+        } != LUA_VNUMINT
             || unsafe { ivalue(ptr::addr_of!(res)) as u64 > (c_int::MAX as u64 / 2) }
         {
             unsafe { luaG_runerror(state, c"vararg table has no proper 'n'".as_ptr()) };
@@ -1003,7 +1030,13 @@ pub unsafe extern "C" fn luaT_getvarargs(
         }
     } else {
         while i < touse {
-            let tag = unsafe { luaH_getint(h, (i + 1) as lua_Integer, s2v(where_.add(i as usize))) };
+            let tag = unsafe {
+                raw_luaH_getint(
+                    h.cast(),
+                    (i + 1) as lua_Integer,
+                    s2v(where_.add(i as usize)).cast(),
+                )
+            };
             if tagisempty(tag) {
                 unsafe { setnilvalue(s2v(where_.add(i as usize))) };
             }
@@ -1020,7 +1053,7 @@ pub unsafe extern "C" fn luaT_getvarargs(
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
     use crate::test_support::run_lua_test;
 
     #[test]

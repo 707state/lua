@@ -579,12 +579,12 @@ fn ldexp(value: lua_Number, exponent: c_int) -> lua_Number {
 
 unsafe fn check_vector_table(state: *mut lua_State, arg: c_int, lanes: usize) {
     if unsafe { lua_type(state, arg) } != 5 {
-        let _ = unsafe { luaL_argerror(state, arg, ERR_EXPECTED_VECTOR_TABLE.as_ptr().cast()) };
+        let _ = luaL_argerror(state, arg, ERR_EXPECTED_VECTOR_TABLE.as_ptr().cast());
         unsafe { core::hint::unreachable_unchecked() }
     }
 
     if unsafe { lua_rawlen(state, arg) } != lanes {
-        let _ = unsafe { luaL_argerror(state, arg, ERR_EXPECTED_4_LANES.as_ptr().cast()) };
+        let _ = luaL_argerror(state, arg, ERR_EXPECTED_4_LANES.as_ptr().cast());
         unsafe { core::hint::unreachable_unchecked() }
     }
 }
@@ -595,7 +595,7 @@ unsafe fn read_f64x4(state: *mut lua_State, arg: c_int) -> Simd<f64, 4> {
     let mut values = [0.0; 4];
     for lane in 0..4 {
         unsafe { lua_geti(state, arg, (lane + 1) as lua_Integer) };
-        values[lane] = unsafe { luaL_checknumber(state, -1) };
+        values[lane] = luaL_checknumber(state, -1);
         unsafe { lua_pop(state, 1) };
     }
 
@@ -608,11 +608,11 @@ unsafe fn read_i32x4(state: *mut lua_State, arg: c_int) -> Simd<i32, 4> {
     let mut values = [0_i32; 4];
     for lane in 0..4 {
         unsafe { lua_geti(state, arg, (lane + 1) as lua_Integer) };
-        let value = unsafe { luaL_checkinteger(state, -1) };
+        let value = { luaL_checkinteger(state, -1) };
         unsafe { lua_pop(state, 1) };
 
         if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
-            let _ = unsafe { luaL_argerror(state, arg, ERR_I32_RANGE.as_ptr().cast()) };
+            let _ = { luaL_argerror(state, arg, ERR_I32_RANGE.as_ptr().cast()) };
             unsafe { core::hint::unreachable_unchecked() }
         }
 
@@ -673,7 +673,7 @@ unsafe extern "C" fn simd_f64x4_add(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn simd_f64x4_splat(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checknumber(state, 1) };
+    let value = { luaL_checknumber(state, 1) };
     unsafe { push_f64x4(state, Simd::splat(value)) };
     1
 }
@@ -823,9 +823,9 @@ unsafe extern "C" fn simd_f64x4_ge(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn simd_i32x4_splat(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checkinteger(state, 1) };
+    let value = { luaL_checkinteger(state, 1) };
     if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
-        return unsafe { luaL_argerror(state, 1, ERR_I32_RANGE.as_ptr().cast()) };
+        return luaL_argerror(state, 1, ERR_I32_RANGE.as_ptr().cast());
     }
     unsafe { push_i32x4(state, Simd::splat(value as i32)) };
     1
@@ -913,14 +913,14 @@ unsafe extern "C" fn simd_i32x4_bitxor(state: *mut lua_State) -> c_int {
 
 unsafe extern "C" fn simd_i32x4_shl(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
-    let amount = unsafe { luaL_checkinteger(state, 2) };
+    let amount = { luaL_checkinteger(state, 2) };
     unsafe { push_i32x4(state, value << Simd::splat(amount as i32)) };
     1
 }
 
 unsafe extern "C" fn simd_i32x4_shr(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
-    let amount = unsafe { luaL_checkinteger(state, 2) };
+    let amount = { luaL_checkinteger(state, 2) };
     unsafe { push_i32x4(state, value >> Simd::splat(amount as i32)) };
     1
 }
@@ -969,10 +969,10 @@ unsafe extern "C" fn simd_i32x4_ge(state: *mut lua_State) -> c_int {
 
 unsafe extern "C" fn math_abs(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
-        let value = unsafe { luaL_checkinteger(state, 1) };
+        let value = { luaL_checkinteger(state, 1) };
         unsafe { lua_pushinteger(state, value.wrapping_abs()) };
     } else {
-        let value = unsafe { luaL_checknumber(state, 1) };
+        let value = { luaL_checknumber(state, 1) };
         unsafe { lua_pushnumber(state, value.abs()) };
     }
     1
@@ -1004,8 +1004,8 @@ unsafe extern "C" fn math_acos(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn math_atan(state: *mut lua_State) -> c_int {
-    let y = unsafe { luaL_checknumber(state, 1) };
-    let x = unsafe { luaL_optnumber(state, 2, 1.0) };
+    let y = { luaL_checknumber(state, 1) };
+    let x = { luaL_optnumber(state, 2, 1.0) };
     unsafe { lua_pushnumber(state, y.atan2(x)) };
     1
 }
@@ -1016,7 +1016,9 @@ unsafe extern "C" fn math_toint(state: *mut lua_State) -> c_int {
     if valid != 0 {
         unsafe { lua_pushinteger(state, value) };
     } else {
-        unsafe { luaL_checkany(state, 1) };
+        {
+            luaL_checkany(state, 1)
+        };
         unsafe { push_fail(state) };
     }
     1
@@ -1026,7 +1028,7 @@ unsafe extern "C" fn math_floor(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         unsafe { lua_settop(state, 1) };
     } else {
-        let value = unsafe { luaL_checknumber(state, 1) }.floor();
+        let value = { luaL_checknumber(state, 1) }.floor();
         unsafe { pushnumint(state, value) };
     }
     1
@@ -1036,7 +1038,7 @@ unsafe extern "C" fn math_ceil(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         unsafe { lua_settop(state, 1) };
     } else {
-        let value = unsafe { luaL_checknumber(state, 1) }.ceil();
+        let value = { luaL_checknumber(state, 1) }.ceil();
         unsafe { pushnumint(state, value) };
     }
     1
@@ -1044,19 +1046,19 @@ unsafe extern "C" fn math_ceil(state: *mut lua_State) -> c_int {
 
 unsafe extern "C" fn math_fmod(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 && unsafe { lua_isinteger(state, 2) } != 0 {
-        let divisor = unsafe { luaL_checkinteger(state, 2) };
+        let divisor = { luaL_checkinteger(state, 2) };
         if divisor == 0 {
-            return unsafe { luaL_argerror(state, 2, ERR_ZERO.as_ptr().cast()) };
+            return luaL_argerror(state, 2, ERR_ZERO.as_ptr().cast());
         }
         if divisor == -1 {
             unsafe { lua_pushinteger(state, 0) };
         } else {
-            let value = unsafe { luaL_checkinteger(state, 1) };
+            let value = { luaL_checkinteger(state, 1) };
             unsafe { lua_pushinteger(state, value % divisor) };
         }
     } else {
-        let lhs = unsafe { luaL_checknumber(state, 1) };
-        let rhs = unsafe { luaL_checknumber(state, 2) };
+        let lhs = { luaL_checknumber(state, 1) };
+        let rhs = { luaL_checknumber(state, 2) };
         unsafe { lua_pushnumber(state, fmod(lhs, rhs)) };
     }
     1
@@ -1067,7 +1069,7 @@ unsafe extern "C" fn math_modf(state: *mut lua_State) -> c_int {
         unsafe { lua_settop(state, 1) };
         unsafe { lua_pushnumber(state, 0.0) };
     } else {
-        let value = unsafe { luaL_checknumber(state, 1) };
+        let value = { luaL_checknumber(state, 1) };
         let integer_part = if value < 0.0 {
             value.ceil()
         } else {
@@ -1090,18 +1092,18 @@ unsafe extern "C" fn math_sqrt(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn math_ult(state: *mut lua_State) -> c_int {
-    let lhs = unsafe { luaL_checkinteger(state, 1) } as lua_Unsigned;
-    let rhs = unsafe { luaL_checkinteger(state, 2) } as lua_Unsigned;
+    let lhs = { luaL_checkinteger(state, 1) } as lua_Unsigned;
+    let rhs = { luaL_checkinteger(state, 2) } as lua_Unsigned;
     unsafe { lua_pushboolean(state, (lhs < rhs) as c_int) };
     1
 }
 
 unsafe extern "C" fn math_log(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checknumber(state, 1) };
+    let value = { luaL_checknumber(state, 1) };
     let result = if unsafe { lua_type(state, 2) } <= 0 {
         value.ln()
     } else {
-        let base = unsafe { luaL_checknumber(state, 2) };
+        let base = { luaL_checknumber(state, 2) };
         if base == 2.0 {
             value.log2()
         } else if base == 10.0 {
@@ -1130,7 +1132,7 @@ unsafe extern "C" fn math_rad(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn math_frexp(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checknumber(state, 1) };
+    let value = { luaL_checknumber(state, 1) };
     let mut exponent = 0;
     let mantissa = frexp(value, &mut exponent);
     unsafe { lua_pushnumber(state, mantissa) };
@@ -1139,8 +1141,8 @@ unsafe extern "C" fn math_frexp(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn math_ldexp(state: *mut lua_State) -> c_int {
-    let value = unsafe { luaL_checknumber(state, 1) };
-    let exponent = unsafe { luaL_checkinteger(state, 2) } as c_int;
+    let value = { luaL_checknumber(state, 1) };
+    let exponent = { luaL_checkinteger(state, 2) } as c_int;
     unsafe { lua_pushnumber(state, ldexp(value, exponent)) };
     1
 }
@@ -1148,7 +1150,7 @@ unsafe extern "C" fn math_ldexp(state: *mut lua_State) -> c_int {
 unsafe extern "C" fn math_min(state: *mut lua_State) -> c_int {
     let count = unsafe { lua_gettop(state) };
     if count < 1 {
-        return unsafe { luaL_argerror(state, 1, b"value expected\0".as_ptr().cast()) };
+        return luaL_argerror(state, 1, b"value expected\0".as_ptr().cast());
     }
 
     let mut min_index = 1;
@@ -1165,7 +1167,7 @@ unsafe extern "C" fn math_min(state: *mut lua_State) -> c_int {
 unsafe extern "C" fn math_max(state: *mut lua_State) -> c_int {
     let count = unsafe { lua_gettop(state) };
     if count < 1 {
-        return unsafe { luaL_argerror(state, 1, b"value expected\0".as_ptr().cast()) };
+        return luaL_argerror(state, 1, b"value expected\0".as_ptr().cast());
     }
 
     let mut max_index = 1;
@@ -1188,7 +1190,9 @@ unsafe extern "C" fn math_type(state: *mut lua_State) -> c_int {
         };
         unsafe { lua_pushstring(state, result.as_ptr().cast()) };
     } else {
-        unsafe { luaL_checkany(state, 1) };
+        {
+            luaL_checkany(state, 1)
+        };
         unsafe { push_fail(state) };
     }
     1
@@ -1227,10 +1231,10 @@ unsafe extern "C" fn math_random(state: *mut lua_State) -> c_int {
             1
         }
         2 => {
-            let low = unsafe { luaL_checkinteger(state, 1) };
-            let up = unsafe { luaL_checkinteger(state, 2) };
+            let low = { luaL_checkinteger(state, 1) };
+            let up = { luaL_checkinteger(state, 2) };
             if low > up {
-                return unsafe { luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast()) };
+                return luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast());
             }
             let projected = project(
                 random,
@@ -1256,14 +1260,13 @@ unsafe extern "C" fn math_randomseed(state: *mut lua_State) -> c_int {
     let ran_state = unsafe { &mut *(lua_touserdata(state, lua_upvalueindex(1)) as *mut RanState) };
     let (seed1, seed2) = if unsafe { lua_type(state, 1) } == -1 {
         (
-            unsafe { luaL_makeseed(state) as lua_Unsigned },
+            { luaL_makeseed(state) as lua_Unsigned },
             next_random_value(&mut ran_state.s),
         )
     } else {
-        (
-            unsafe { luaL_checkinteger(state, 1) as lua_Unsigned },
-            unsafe { luaL_optinteger(state, 2, 0) as lua_Unsigned },
-        )
+        ({ luaL_checkinteger(state, 1) as lua_Unsigned }, {
+            luaL_optinteger(state, 2, 0) as lua_Unsigned
+        })
     };
 
     unsafe { setseed(state, ran_state, seed1, seed2) };
@@ -1275,7 +1278,9 @@ unsafe fn setrandfunc(state: *mut lua_State) {
     let ran_state = unsafe { &mut *userdata };
     unsafe { setseed(state, ran_state, luaL_makeseed(state) as lua_Unsigned, 0) };
     unsafe { lua_pop(state, 2) };
-    unsafe { luaL_setfuncs(state, RANDFUNCS.as_ptr(), 1) };
+    {
+        luaL_setfuncs(state, RANDFUNCS.as_ptr(), 1)
+    };
 }
 
 #[unsafe(no_mangle)]

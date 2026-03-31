@@ -1,5 +1,6 @@
-use math_rs::luaffi::*;
-use math_rs::{link_anchor, lua_module::lua_State, luavm};
+use lua_rs::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_loadfilex, luaL_newstate};
+use lua_rs::luaffi::*;
+use lua_rs::{link_anchor, lua_module::lua_State, luavm};
 use std::env;
 use std::ffi::{CStr, CString, c_void};
 use std::fs::File;
@@ -53,7 +54,7 @@ impl Luac {
         if files.is_empty() {
             return Err(self.usage("no input files given"));
         }
-        let state = unsafe { luaL_newstate() };
+        let state = luaL_newstate();
         if state.is_null() {
             return Err(format!(
                 "{}: cannot create state: not enough memory",
@@ -141,7 +142,7 @@ Available options are:\n\
     }
 
     fn compile(&self, state: *mut lua_State, files: &[String]) -> Result<(), String> {
-        unsafe { luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
+        luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
         if files.len() == 1 {
             let filename = if files[0] == "-" {
                 None
@@ -149,13 +150,11 @@ Available options are:\n\
                 Some(files[0].as_str())
             };
             let name = filename.map(cstr);
-            let status = unsafe {
-                luaL_loadfilex(
-                    state,
-                    name.as_ref().map_or(ptr::null(), |it| it.as_ptr()),
-                    ptr::null(),
-                )
-            };
+            let status = luaL_loadfilex(
+                state,
+                name.as_ref().map_or(ptr::null(), |it| it.as_ptr()),
+                ptr::null(),
+            );
             if status != LUA_OK {
                 return Err(format!(
                     "{}: {}",
@@ -167,15 +166,13 @@ Available options are:\n\
         } else {
             let source = self.build_combined_source(files)?;
             let chunk_name = cstr("=(luac)");
-            let status = unsafe {
-                luaL_loadbufferx(
-                    state,
-                    source.as_ptr().cast(),
-                    source.len(),
-                    chunk_name.as_ptr(),
-                    ptr::null(),
-                )
-            };
+            let status = luaL_loadbufferx(
+                state,
+                source.as_ptr().cast(),
+                source.len(),
+                chunk_name.as_ptr(),
+                ptr::null(),
+            );
             if status != LUA_OK {
                 return Err(format!(
                     "{}: {}",

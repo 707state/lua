@@ -1,4 +1,5 @@
 use crate::lua_module::{lua_Integer, lua_Number, lua_State, lua_Unsigned};
+use crate::table::{raw_luaH_getstr, raw_luaH_new, raw_luaH_set};
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
@@ -186,9 +187,6 @@ struct DumpState {
 
 unsafe extern "C" {
     fn luaD_inctop(state: *mut lua_State);
-    fn luaH_new(state: *mut lua_State) -> *mut Table;
-    fn luaH_getstr(table: *mut Table, key: *mut TString, result: *mut TValue) -> u8;
-    fn luaH_set(state: *mut lua_State, table: *mut Table, key: *mut TValue, value: *mut TValue);
 }
 
 #[inline]
@@ -350,7 +348,13 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
         value_: Value { ub: 0 },
         tt_: 0,
     };
-    let tag = unsafe { luaH_getstr(state.h, string, &mut idx) };
+    let tag = unsafe {
+        raw_luaH_getstr(
+            state.h.cast(),
+            string.cast(),
+            (&mut idx as *mut TValue).cast(),
+        )
+    };
     if !tagisempty(tag) {
         dump_varint(state, 0);
         dump_varint(state, unsafe { ivalue(&idx) as lua_Unsigned });
@@ -374,7 +378,12 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
     unsafe {
         setsvalue(state.l, &mut key, string);
         setivalue(&mut value, state.nstr as lua_Integer);
-        luaH_set(state.l, state.h, &mut key, &mut value);
+        raw_luaH_set(
+            state.l.cast(),
+            state.h.cast(),
+            (&mut key as *mut TValue).cast(),
+            (&mut value as *mut TValue).cast(),
+        );
     }
 }
 
@@ -538,7 +547,7 @@ pub unsafe extern "C" fn luaU_dump(
         offset: 0,
         strip: strip != 0,
         status: 0,
-        h: unsafe { luaH_new(state) },
+        h: unsafe { raw_luaH_new(state.cast()).cast::<Table>() },
         nstr: 0,
     };
 

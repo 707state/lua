@@ -1,5 +1,8 @@
+use crate::func::{raw_luaF_newLclosure, raw_luaF_newproto};
 use crate::lua_module::{lua_Integer, lua_Number, lua_State, lua_Unsigned};
 use crate::luaffi::LUA_ERRSYNTAX;
+use crate::string::raw_luaS_newlstr;
+use crate::table::{raw_luaH_getint, raw_luaH_new, raw_luaH_setint};
 use crate::zio::{EOZ, ZIO, luaZ_fill, luaZ_getaddr, luaZ_read};
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::{MaybeUninit, size_of};
@@ -211,12 +214,6 @@ unsafe extern "C" {
     fn luaO_pushfstring(state: *mut lua_State, fmt: *const c_char, ...) -> *const c_char;
     fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
     fn luaD_inctop(state: *mut lua_State);
-    fn luaF_newproto(state: *mut lua_State) -> *mut Proto;
-    fn luaF_newLclosure(state: *mut lua_State, nupvals: c_int) -> *mut LClosure;
-    fn luaH_new(state: *mut lua_State) -> *mut Table;
-    fn luaH_getint(table: *mut Table, key: lua_Integer, result: *mut TValue) -> u8;
-    fn luaH_setint(state: *mut lua_State, table: *mut Table, key: lua_Integer, value: *mut TValue);
-    fn luaS_newlstr(state: *mut lua_State, s: *const c_char, len: usize) -> *mut TString;
     fn luaS_newextlstr(
         state: *mut lua_State,
         s: *const c_char,
@@ -479,8 +476,13 @@ unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut 
         }
 
         let mut saved = MaybeUninit::<TValue>::uninit();
-        if novariant(unsafe { luaH_getint(state.h, index as lua_Integer, saved.as_mut_ptr()) })
-            != LUA_TSTRING
+        if novariant(unsafe {
+            raw_luaH_getint(
+                state.h.cast(),
+                index as lua_Integer,
+                saved.as_mut_ptr().cast(),
+            )
+        }) != LUA_TSTRING
         {
             error(state, c"invalid string index".as_ptr());
         }
@@ -494,7 +496,9 @@ unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut 
     if size <= LUAI_MAXSHORTLEN {
         let mut buffer = [0u8; LUAI_MAXSHORTLEN + 1];
         load_block(state, buffer.as_mut_ptr().cast(), size + 1);
-        let string = unsafe { luaS_newlstr(state.l, buffer.as_ptr().cast(), size) };
+        let string = unsafe {
+            raw_luaS_newlstr(state.l.cast(), buffer.as_ptr().cast(), size).cast::<TString>()
+        };
         unsafe { *slot = string };
         unsafe { objbarrier(state.l, proto, string) };
     } else if state.fixed {
@@ -513,11 +517,11 @@ unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut 
     let mut saved = MaybeUninit::<TValue>::uninit();
     unsafe { setsvalue(saved.as_mut_ptr(), *slot) };
     unsafe {
-        luaH_setint(
-            state.l,
-            state.h,
+        raw_luaH_setint(
+            state.l.cast(),
+            state.h.cast(),
             state.nstr as lua_Integer,
-            saved.as_mut_ptr(),
+            saved.as_mut_ptr().cast(),
         )
     };
     unsafe { objbarrierback(state.l, state.h, *slot) };
@@ -593,7 +597,7 @@ unsafe fn load_protos(state: &mut LoadState, proto: *mut Proto) {
     }
 
     for index in 0..count {
-        let child = unsafe { luaF_newproto(state.l) };
+        let child = unsafe { raw_luaF_newproto(state.l.cast()).cast::<Proto>() };
         unsafe {
             *protos.add(index) = child;
             objbarrier(state.l, proto, child);
@@ -782,14 +786,16 @@ pub unsafe extern "C" fn luaU_undump(
     };
 
     check_header(&mut load_state);
-    let closure = unsafe { luaF_newLclosure(state, load_byte(&mut load_state) as c_int) };
+    let closure = unsafe {
+        raw_luaF_newLclosure(state.cast(), load_byte(&mut load_state) as c_int).cast::<LClosure>()
+    };
     unsafe { push_lclosure(state, closure) };
 
-    load_state.h = unsafe { luaH_new(state) };
+    load_state.h = unsafe { raw_luaH_new(state.cast()).cast::<Table>() };
     unsafe { push_table(state, load_state.h) };
 
     unsafe {
-        (*closure).p = luaF_newproto(state);
+        (*closure).p = raw_luaF_newproto(state.cast()).cast::<Proto>();
         objbarrier(state, closure, (*closure).p);
         load_function(&mut load_state, (*closure).p);
     }

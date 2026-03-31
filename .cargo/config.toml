@@ -9,3 +9,10 @@ linker = "scripts/android-linker-x86_64-linux-android.sh"
 
 [target.i686-linux-android]
 linker = "scripts/android-linker-i686-linux-android.sh"
+
+[profile.release]
+strip = true 
+opt-level = "z" 
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -57,7 +57,7 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaL_error(state: *mut lua_State, fmt: *const c_char, argp: ...) -> c_int {
-    unsafe { luaL_where(state, 1) };
+    luaL_where(state, 1);
     unsafe { lua_pushvfstring(state, fmt, argp) };
     unsafe { lua_concat(state, 2) };
     unsafe { lua_error(state) }
@@ -80,7 +80,7 @@ pub unsafe fn push_fail(state: *mut lua_State) {
 
 #[inline]
 pub unsafe fn checkversion(state: *mut lua_State) {
-    unsafe { luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES) };
+    luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
 }
 
 #[inline]
@@ -92,13 +92,13 @@ pub unsafe fn create_library(state: *mut lua_State, regs: &[luaL_Reg]) {
 pub unsafe fn create_library_with_nrec(state: *mut lua_State, regs: &[luaL_Reg], nrec: c_int) {
     unsafe { checkversion(state) };
     unsafe { lua_createtable(state, 0, nrec) };
-    unsafe { luaL_setfuncs(state, regs.as_ptr(), 0) };
+    luaL_setfuncs(state, regs.as_ptr(), 0);
 }
 
 #[inline]
 pub unsafe fn argcheck(state: *mut lua_State, condition: bool, arg: c_int, message: &'static [u8]) {
     if !condition {
-        let _ = unsafe { luaL_argerror(state, arg, message.as_ptr().cast()) };
+        let _ = luaL_argerror(state, arg, message.as_ptr().cast());
     }
 }
 
@@ -118,10 +118,11 @@ pub unsafe fn push_cfunction(state: *mut lua_State, function: LuaCFunction) {
 #[cfg(test)]
 mod tests {
     use super::lua_State;
-    use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx};
+    use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
+    use crate::init::luaL_openselectedlibs;
     use crate::luaffi::{
         LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_pushcclosure,
-        lua_setglobal, lua_tolstring, luaL_newstate, luaL_openselectedlibs,
+        lua_setglobal, lua_tolstring,
     };
     use core::ffi::{c_char, c_int};
     use std::ptr;
@@ -145,7 +146,7 @@ mod tests {
 
     #[test]
     fn lua_l_error_is_served_by_rust_bridge() {
-        let state = unsafe { luaL_newstate() };
+        let state = luaL_newstate();
         assert!(!state.is_null(), "failed to create Lua state");
 
         let result = (|| unsafe {

@@ -6,17 +6,7 @@ fn main() {
     let target = env::var("TARGET").expect("TARGET is not set");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
-    let common_sources = [
-        "src/lapi.c",
-        "src/lcode.c",
-        "src/ldebug.c",
-        "src/ldo.c",
-        "src/lgc.c",
-        "src/llex.c",
-        "src/lparser.c",
-        "src/ltable.c",
-        "src/lvm.c",
-    ];
+    let common_sources = ["src/do_jump.c"];
 
     let mut lua_core = cc::Build::new();
     configure_cc(&mut lua_core, &target, &target_os);
@@ -26,15 +16,8 @@ fn main() {
     }
     lua_core.compile("lua_core");
 
-    let mut luavm_bridge = cc::Build::new();
-    configure_cc(&mut luavm_bridge, &target, &target_os);
-    luavm_bridge
-        .file("src/luavm_bridge.c")
-        .compile("luavm_bridge");
-
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=lua_core");
-    println!("cargo:rustc-link-lib=static=luavm_bridge");
 
     match target_os.as_str() {
         "linux" | "freebsd" | "dragonfly" | "netbsd" | "openbsd" => {
@@ -73,13 +56,13 @@ fn configure_android_cc(build: &mut cc::Build, target: &str) {
     println!("cargo:rerun-if-env-changed=ANDROID_NDK_HOME");
     println!("cargo:rerun-if-env-changed=ANDROID_NDK_ROOT");
     println!("cargo:rerun-if-env-changed=ANDROID_API_LEVEL");
-    println!("cargo:rerun-if-env-changed=ANlibndkDROID_PLATFORM");
+    println!("cargo:rerun-if-env-changed=ANDROID_PLATFORM");
 
     let ndk_home = android_ndk_home();
     let api_level = android_api_level();
     let toolchain_bin = android_toolchain_bin(Path::new(&ndk_home));
-    let clang = toolchain_bin.join(android_clang_name(target, api_level));
-    let ar = toolchain_bin.join("llvm-ar");
+    let clang = android_tool_path(&toolchain_bin, &android_clang_name(target, api_level));
+    let ar = android_tool_path(&toolchain_bin, "llvm-ar");
 
     build
         .define("LUA_USE_DLOPEN", None)
@@ -129,12 +112,36 @@ fn android_toolchain_bin(ndk_home: &Path) -> PathBuf {
         .join("bin")
 }
 
+fn android_tool_path(toolchain_bin: &Path, tool: &str) -> PathBuf {
+    let host = env::var("HOST").unwrap_or_default();
+    let candidates = if host.contains("windows") {
+        vec![
+            format!("{tool}.cmd"),
+            format!("{tool}.exe"),
+            tool.to_owned(),
+        ]
+    } else {
+        vec![tool.to_owned()]
+    };
+
+    for candidate in candidates {
+        let path = toolchain_bin.join(&candidate);
+        if path.exists() {
+            return path;
+        }
+    }
+
+    panic!(
+        "Android NDK tool not found in {} for {}",
+        toolchain_bin.display(),
+        tool
+    );
+}
+
 fn android_host_tag() -> &'static str {
     let host = env::var("HOST").unwrap_or_default();
     if host.contains("linux") {
         "linux-x86_64"
-    } else if host.contains("darwin") && host.starts_with("aarch64") {
-        "darwin-arm64"
     } else if host.contains("darwin") {
         "darwin-x86_64"
     } else if host.contains("windows") {

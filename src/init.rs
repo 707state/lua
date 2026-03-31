@@ -4,11 +4,13 @@ use crate::coro_rs::luaopen_coroutine;
 use crate::db_rs::luaopen_debug;
 use crate::io_rs::luaopen_io;
 use crate::load_rs::luaopen_package;
-use crate::lua_module::{LUA_REGISTRYINDEX, lua_State, lua_pop, lua_setfield, luaL_Reg, push_cfunction};
+use crate::lua_module::{
+    LUA_REGISTRYINDEX, lua_State, lua_pop, lua_setfield, luaL_Reg, push_cfunction,
+};
 use crate::math_rs::luaopen_math;
 use crate::os_rs::luaopen_os;
 use crate::str_rs::luaopen_string;
-use crate::table_rs::luaopen_table;
+use crate::table::luaopen_table;
 use crate::utf8_rs::luaopen_utf8;
 use core::ffi::c_int;
 use core::ptr;
@@ -73,18 +75,13 @@ static STDLIBS: [luaL_Reg; 11] = [
     },
 ];
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_openselectedlibs(
-    state: *mut lua_State,
-    load: c_int,
-    preload: c_int,
-) {
+pub fn luaL_openselectedlibs(state: *mut lua_State, load: c_int, preload: c_int) {
     unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
 
     let mut mask = 1;
     for lib in STDLIBS.iter().take_while(|lib| !lib.name.is_null()) {
         if load & mask != 0 {
-            unsafe { luaL_requiref(state, lib.name, lib.func, 1) };
+            luaL_requiref(state, lib.name, lib.func, 1);
             unsafe { lua_pop(state, 1) };
         } else if preload & mask != 0 {
             unsafe { push_cfunction(state, lib.func) };
@@ -102,7 +99,9 @@ mod tests {
     use super::{LUA_DBLIBK, LUA_GLIBK, LUA_LOADLIBK, LUA_MATHLIBK, luaL_openselectedlibs};
     use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
     use crate::lua_module::lua_State;
-    use crate::luaffi::{LUA_OK, LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close, lua_pcall, lua_tolstring};
+    use crate::luaffi::{
+        LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring,
+    };
     use std::ptr;
 
     fn lua_error_string(state: *mut lua_State) -> String {

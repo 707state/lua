@@ -232,11 +232,36 @@ unsafe extern "C" {
     fn luaC_fix(state: *mut lua_State, o: *mut GCObject);
     fn luaC_fullgc(state: *mut lua_State, isemergency: c_int);
     fn luaC_newobj(state: *mut lua_State, tt: u8, sz: usize) -> *mut GCObject;
-    fn luaD_rawrunprotected(state: *mut lua_State, f: Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>, ud: *mut c_void) -> TStatus;
+    fn luaD_rawrunprotected(
+        state: *mut lua_State,
+        f: Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>,
+        ud: *mut c_void,
+    ) -> TStatus;
     fn luaD_throw(state: *mut lua_State, errcode: TStatus) -> !;
     fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void;
-    fn luaM_realloc_(state: *mut lua_State, block: *mut c_void, oldsize: usize, size: usize) -> *mut c_void;
+    fn luaM_realloc_(
+        state: *mut lua_State,
+        block: *mut c_void,
+        oldsize: usize,
+        size: usize,
+    ) -> *mut c_void;
     fn luaM_toobig(state: *mut lua_State) -> !;
+}
+
+pub(crate) unsafe fn raw_luaS_init(state: *mut c_void) {
+    unsafe { luaS_init(state.cast()) };
+}
+
+pub(crate) unsafe fn raw_luaS_new(state: *mut c_void, s: *const c_char) -> *mut c_void {
+    unsafe { luaS_new(state.cast(), s).cast() }
+}
+
+pub(crate) unsafe fn raw_luaS_newlstr(
+    state: *mut c_void,
+    s: *const c_char,
+    len: usize,
+) -> *mut c_void {
+    unsafe { luaS_newlstr(state.cast(), s, len).cast() }
 }
 
 #[inline]
@@ -486,13 +511,7 @@ pub unsafe extern "C" fn luaS_init(state: *mut lua_State) {
         tablerehash((*tb).hash, 0, MINSTRTABSIZE);
         (*tb).size = MINSTRTABSIZE;
     }
-    let memerrmsg = unsafe {
-        luaS_newlstr(
-            state,
-            MEMERRMSG.as_ptr().cast(),
-            MEMERRMSG.len() - 1,
-        )
-    };
+    let memerrmsg = unsafe { luaS_newlstr(state, MEMERRMSG.as_ptr().cast(), MEMERRMSG.len() - 1) };
     unsafe {
         (*g).memerrmsg = memerrmsg;
         luaC_fix(state, memerrmsg.cast());
@@ -566,7 +585,7 @@ unsafe fn internshrstr(state: *mut lua_State, str_: *const c_char, l: usize) -> 
     let tb = unsafe { ptr::addr_of_mut!((*g).strt) };
     let h = unsafe { luaS_hash(str_, l, (*g).seed) };
     let mut list = unsafe { (*tb).hash.add(lmod(h, (*tb).size)) };
-        let mut ts = unsafe { *list };
+    let mut ts = unsafe { *list };
     while !ts.is_null() {
         if l == unsafe { (*ts).shrlen as u8 as usize }
             && unsafe { memcmp(str_.cast(), getshrstr(ts).cast(), l) == 0 }
@@ -676,7 +695,8 @@ pub unsafe extern "C" fn luaS_newextlstr(
         unsafe { f_newext(state, ptr::addr_of_mut!(ne).cast()) };
     } else {
         ne.kind = LSTRMEM;
-        if unsafe { luaD_rawrunprotected(state, Some(f_newext), ptr::addr_of_mut!(ne).cast()) } != LUA_OK
+        if unsafe { luaD_rawrunprotected(state, Some(f_newext), ptr::addr_of_mut!(ne).cast()) }
+            != LUA_OK
         {
             if let Some(free) = falloc {
                 unsafe { free(ud, s.cast_mut().cast(), len + 1, 0) };
@@ -710,11 +730,11 @@ pub unsafe extern "C" fn luaS_normstr(state: *mut lua_State, ts: *mut TString) -
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
 
     #[test]
     fn strings_and_userdata_behave_like_c_runtime() {
-        let state = unsafe { luaL_newstate() }.cast::<lua_State>();
+        let state = { luaL_newstate() }.cast::<lua_State>();
         assert!(!state.is_null());
 
         let result = (|| unsafe {

@@ -1,8 +1,16 @@
 use crate::lua_module::lua_State;
 use std::ffi::{c_char, c_int};
 use std::fmt::Write as _;
+use std::ptr;
 
 pub type Instruction = u32;
+type StkId = *mut StackValue;
+
+const BIT_ISCOLLECTABLE: u8 = 1 << 6;
+const LUA_TFUNCTION: u8 = 6;
+const LUA_VLCL: u8 = LUA_TFUNCTION;
+const ABSLINEINFO: i8 = -0x80;
+const MAXIWTHABS: c_int = 128;
 
 #[repr(C)]
 struct GCObject {
@@ -11,6 +19,7 @@ struct GCObject {
     marked: u8,
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 union Value {
     gc: *mut GCObject,
@@ -21,10 +30,33 @@ union Value {
     ub: u8,
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 struct TValue {
     value_: Value,
     tt_: u8,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+union StackValue {
+    val: TValue,
+    tbclist: StackValueTbc,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct StackValueTbc {
+    value_: Value,
+    tt_: u8,
+    delta: u16,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+union StkIdRel {
+    p: StkId,
+    offset: isize,
 }
 
 #[repr(C)]
@@ -94,6 +126,98 @@ pub struct Proto {
     locvars: *const LocVar,
     source: *const TString,
     gclist: *mut GCObject,
+}
+
+#[repr(C)]
+struct LClosure {
+    next: *mut GCObject,
+    tt: u8,
+    marked: u8,
+    nupvalues: u8,
+    gclist: *mut GCObject,
+    p: *const Proto,
+}
+
+#[repr(C)]
+struct stringtable {
+    hash: *mut *mut TString,
+    nuse: c_int,
+    size: c_int,
+}
+
+#[repr(C)]
+struct Table {
+    next: *mut GCObject,
+    tt: u8,
+    marked: u8,
+}
+
+type LuaAlloc = Option<
+    unsafe extern "C" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        usize,
+        usize,
+    ) -> *mut core::ffi::c_void,
+>;
+type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+type LuaWarnFunction = Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const c_char, c_int)>;
+
+#[repr(C)]
+struct GlobalState {
+    frealloc: LuaAlloc,
+    ud: *mut core::ffi::c_void,
+    gctotalbytes: isize,
+    gcdebt: isize,
+    gcmarked: isize,
+    gcmajorminor: isize,
+    strt: stringtable,
+    l_registry: TValue,
+    nilvalue: TValue,
+    seed: u32,
+    gcparams: [u8; 6],
+    currentwhite: u8,
+    gcstate: u8,
+    gckind: u8,
+    gcstopem: u8,
+    gcstp: u8,
+    gcemergency: u8,
+    allgc: *mut GCObject,
+    sweepgc: *mut *mut GCObject,
+    finobj: *mut GCObject,
+    gray: *mut GCObject,
+    grayagain: *mut GCObject,
+    weak: *mut GCObject,
+    ephemeron: *mut GCObject,
+    allweak: *mut GCObject,
+    tobefnz: *mut GCObject,
+    fixedgc: *mut GCObject,
+    survival: *mut GCObject,
+    old1: *mut GCObject,
+    reallyold: *mut GCObject,
+    firstold1: *mut GCObject,
+    finobjsur: *mut GCObject,
+    finobjold1: *mut GCObject,
+    finobjrold: *mut GCObject,
+    twups: *mut lua_State,
+    panic: LuaCFunction,
+    memerrmsg: *mut TString,
+    tmname: [*mut TString; 25],
+    mt: [*mut Table; 9],
+    strcache: [[*mut TString; 2]; 53],
+    warnf: LuaWarnFunction,
+    ud_warn: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+struct LuaStatePrefix {
+    next: *mut GCObject,
+    tt: u8,
+    marked: u8,
+    allowhook: u8,
+    status: u8,
+    top: StkIdRel,
+    l_g: *mut GlobalState,
 }
 
 const LUA_VNIL: u8 = 0;
@@ -223,7 +347,7 @@ const OPNAMES: &[&str] = &[
 ];
 
 pub unsafe fn print_listing(state: *mut lua_State, full: bool) {
-    let proto = unsafe { rust_luavm_top_proto(state) };
+    let proto = unsafe { top_proto(state) };
     unsafe { print_function(state, proto, full) };
 }
 
@@ -342,7 +466,7 @@ unsafe fn print_code(state: *mut lua_State, proto: *const Proto) {
         let vc = getarg_vc(instruction);
         let sbx = getarg_sbx(instruction);
         let isk = getarg_k(instruction);
-        let line = unsafe { rust_luavm_getfuncline(proto, pc) };
+        let line = getfuncline(proto, pc);
         print!("\t{}\t", pc + 1);
         if line > 0 {
             print!("[{}]\t", line);
@@ -650,8 +774,67 @@ fn upval_name(proto: *const Proto, index: i32) -> String {
 }
 
 fn event_name(state: *mut lua_State, index: i32) -> String {
-    let name = unsafe { rust_luavm_eventname(state, index) };
+    let name = unsafe { eventname(state, index) };
     tstring_to_string(name)
+}
+
+unsafe fn lstate(state: *mut lua_State) -> *mut LuaStatePrefix {
+    state.cast()
+}
+
+unsafe fn s2v(stack: StkId) -> *mut TValue {
+    unsafe { ptr::addr_of_mut!((*stack).val) }
+}
+
+unsafe fn cl_lvalue(value: *const TValue) -> *const LClosure {
+    debug_assert_eq!(
+        unsafe { (*value).tt_ & !BIT_ISCOLLECTABLE },
+        LUA_VLCL,
+        "expected Lua closure on stack top"
+    );
+    unsafe { (*value).value_.gc.cast() }
+}
+
+unsafe fn top_proto(state: *mut lua_State) -> *const Proto {
+    let top = unsafe { (*lstate(state)).top.p };
+    unsafe { (*cl_lvalue(s2v(top.sub(1)))).p }
+}
+
+fn getbaseline(proto: *const Proto, pc: c_int, basepc: &mut c_int) -> c_int {
+    let proto = unsafe { &*proto };
+    if proto.sizeabslineinfo == 0 || pc < unsafe { (*proto.abslineinfo).pc } {
+        *basepc = -1;
+        proto.linedefined
+    } else {
+        let mut i = pc / MAXIWTHABS - 1;
+        while i + 1 < proto.sizeabslineinfo
+            && pc >= unsafe { (*proto.abslineinfo.add((i + 1) as usize)).pc }
+        {
+            i += 1;
+        }
+        *basepc = unsafe { (*proto.abslineinfo.add(i as usize)).pc };
+        unsafe { (*proto.abslineinfo.add(i as usize)).line }
+    }
+}
+
+fn getfuncline(proto: *const Proto, pc: c_int) -> c_int {
+    if unsafe { (*proto).lineinfo.is_null() } {
+        -1
+    } else {
+        let mut basepc = 0;
+        let mut baseline = getbaseline(proto, pc, &mut basepc);
+        while basepc < pc {
+            basepc += 1;
+            let lineinfo = unsafe { *(*proto).lineinfo.add(basepc as usize) };
+            debug_assert_ne!(lineinfo, ABSLINEINFO);
+            baseline += c_int::from(lineinfo);
+        }
+        baseline
+    }
+}
+
+unsafe fn eventname(state: *mut lua_State, index: c_int) -> *const TString {
+    unsafe { (*(*lstate(state)).l_g).tmname[index as usize] }
 }
 
 fn getarg(i: Instruction, pos: u32, size: u32) -> i32 {
@@ -706,8 +889,76 @@ fn extraargc(proto: *const Proto, pc: i32) -> i32 {
     extraarg(proto, pc) * (MAXARG_C + 1)
 }
 
-unsafe extern "C" {
-    fn rust_luavm_top_proto(state: *mut lua_State) -> *const Proto;
-    fn rust_luavm_getfuncline(proto: *const Proto, pc: c_int) -> c_int;
-    fn rust_luavm_eventname(state: *mut lua_State, idx: c_int) -> *const TString;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn getfuncline_uses_relative_and_absolute_entries() {
+        let lineinfo = [0, 1, 2, ABSLINEINFO, 1, -2];
+        let abslineinfo = [AbsLineInfo { pc: 3, line: 20 }];
+        let proto = Proto {
+            next: ptr::null_mut(),
+            tt: 0,
+            marked: 0,
+            numparams: 0,
+            flag: 0,
+            maxstacksize: 0,
+            sizeupvalues: 0,
+            sizek: 0,
+            sizecode: 0,
+            sizelineinfo: lineinfo.len() as c_int,
+            sizep: 0,
+            sizelocvars: 0,
+            sizeabslineinfo: abslineinfo.len() as c_int,
+            linedefined: 10,
+            lastlinedefined: 0,
+            k: ptr::null(),
+            code: ptr::null(),
+            p: ptr::null(),
+            upvalues: ptr::null(),
+            lineinfo: lineinfo.as_ptr(),
+            abslineinfo: abslineinfo.as_ptr(),
+            locvars: ptr::null(),
+            source: ptr::null(),
+            gclist: ptr::null_mut(),
+        };
+
+        assert_eq!(getfuncline(&proto, 0), 10);
+        assert_eq!(getfuncline(&proto, 2), 13);
+        assert_eq!(getfuncline(&proto, 3), 20);
+        assert_eq!(getfuncline(&proto, 5), 19);
+    }
+
+    #[test]
+    fn getfuncline_returns_minus_one_without_debug_info() {
+        let proto = Proto {
+            next: ptr::null_mut(),
+            tt: 0,
+            marked: 0,
+            numparams: 0,
+            flag: 0,
+            maxstacksize: 0,
+            sizeupvalues: 0,
+            sizek: 0,
+            sizecode: 0,
+            sizelineinfo: 0,
+            sizep: 0,
+            sizelocvars: 0,
+            sizeabslineinfo: 0,
+            linedefined: 0,
+            lastlinedefined: 0,
+            k: ptr::null(),
+            code: ptr::null(),
+            p: ptr::null(),
+            upvalues: ptr::null(),
+            lineinfo: ptr::null(),
+            abslineinfo: ptr::null(),
+            locvars: ptr::null(),
+            source: ptr::null(),
+            gclist: ptr::null_mut(),
+        };
+
+        assert_eq!(getfuncline(&proto, 0), -1);
+    }
 }

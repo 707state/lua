@@ -1,13 +1,12 @@
-#![allow(dead_code)]
+#![allow(dead_code, non_snake_case, unused_unsafe)]
 
 use crate::lua_module::{
     LUA_REGISTRYINDEX, LUAL_NUMSIZES, lua_Integer, lua_Number, lua_State, lua_createtable,
     lua_error, lua_pop, lua_pushboolean, lua_pushcclosure, lua_pushinteger, lua_pushlstring,
     lua_pushnil, lua_pushstring, lua_pushvalue, lua_setfield, luaL_Reg,
 };
-use crate::luaffi::{lua_call, lua_remove};
+use crate::luaffi::{LuaThread, lua_call, lua_remove};
 use core::ffi::{c_char, c_int, c_uchar, c_void};
-use core::mem::MaybeUninit;
 use core::ptr;
 use std::ffi::{CStr, CString};
 use std::fs::File;
@@ -248,16 +247,16 @@ unsafe fn pushfuncname_string(state: *mut lua_State, ar: *mut lua_Debug) -> Stri
 }
 
 unsafe fn lastlevel(state: *mut lua_State) -> c_int {
-    let mut ar = MaybeUninit::<lua_Debug>::uninit();
+    let thread = unsafe { LuaThread::from_ptr(state) };
     let mut li = 1;
     let mut le = 1;
-    while unsafe { lua_getstack_debug(state, le, ar.as_mut_ptr()) } != 0 {
+    while thread.get_stack(le).is_some() {
         li = le;
         le *= 2;
     }
     while li < le {
         let m = (li + le) / 2;
-        if unsafe { lua_getstack_debug(state, m, ar.as_mut_ptr()) } != 0 {
+        if thread.get_stack(m).is_some() {
             li = m + 1;
         } else {
             le = m;
@@ -266,8 +265,16 @@ unsafe fn lastlevel(state: *mut lua_State) -> c_int {
     le - 1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_traceback(
+pub fn luaL_traceback(
+    state: *mut lua_State,
+    state1: *mut lua_State,
+    msg: *const c_char,
+    level: c_int,
+) {
+    lua_l_traceback_impl(state, state1, msg, level);
+}
+
+fn lua_l_traceback_impl(
     state: *mut lua_State,
     state1: *mut lua_State,
     msg: *const c_char,
@@ -285,8 +292,8 @@ pub unsafe extern "C" fn luaL_traceback(
     } else {
         -1
     };
-    let mut ar = MaybeUninit::<lua_Debug>::uninit();
-    while unsafe { lua_getstack_debug(state1, level, ar.as_mut_ptr()) } != 0 {
+    let thread = unsafe { LuaThread::from_ptr(state1) };
+    while let Some(mut ar) = thread.get_stack(level) {
         level += 1;
         if limit2show == 0 {
             let n = last - level - LEVELS2 + 1;
@@ -296,21 +303,19 @@ pub unsafe extern "C" fn luaL_traceback(
             if limit2show > 0 {
                 limit2show -= 1;
             }
-            let _ = unsafe { lua_getinfo(state1, c"Slnt".as_ptr(), ar.as_mut_ptr()) };
-            let (src, currentline, istailcall) = {
-                let ar_ref = unsafe { ar.assume_init_ref() };
-                (
-                    cstr_lossy(ar_ref.short_src.as_ptr()),
-                    ar_ref.currentline,
-                    ar_ref.istailcall,
-                )
-            };
+            let _ = thread.get_info(c"Slnt", &mut ar);
+            let (src, currentline, istailcall) = (
+                cstr_lossy(ar.short_src.as_ptr()),
+                ar.currentline,
+                ar.istailcall,
+            );
             if currentline <= 0 {
                 out.push_str(&format!("\n\t{}: in ", src));
             } else {
                 out.push_str(&format!("\n\t{}:{}: in ", src, currentline));
             }
-            out.push_str(&unsafe { pushfuncname_string(state, ar.as_mut_ptr()) });
+            let ar_ptr = (&mut ar as *mut crate::luaffi::LuaDebug).cast::<lua_Debug>();
+            out.push_str(&unsafe { pushfuncname_string(state, ar_ptr) });
             if istailcall != 0 {
                 out.push_str("\n\t(...tail calls...)");
             }
@@ -319,20 +324,19 @@ pub unsafe extern "C" fn luaL_traceback(
     unsafe { push_string(state, &out) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_argerror(
-    state: *mut lua_State,
-    mut arg: c_int,
-    extramsg: *const c_char,
-) -> c_int {
-    let mut ar = MaybeUninit::<lua_Debug>::uninit();
-    if unsafe { lua_getstack_debug(state, 0, ar.as_mut_ptr()) } == 0 {
+pub fn luaL_argerror(state: *mut lua_State, arg: c_int, extramsg: *const c_char) -> c_int {
+    lua_l_argerror_impl(state, arg, extramsg)
+}
+
+fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c_char) -> c_int {
+    let thread = unsafe { LuaThread::from_ptr(state) };
+    let Some(mut ar) = thread.get_stack(0) else {
         let msg = format!("bad argument #{} ({})", arg, cstr_lossy(extramsg));
         unsafe { push_string(state, &msg) };
         return unsafe { lua_error(state) };
-    }
-    let _ = unsafe { lua_getinfo(state, c"nt".as_ptr(), ar.as_mut_ptr()) };
-    let ar_ref = unsafe { ar.assume_init_mut() };
+    };
+    let _ = thread.get_info(c"nt", &mut ar);
+    let ar_ref = &mut ar;
     let argword;
     if arg <= ar_ref.extraargs as c_int {
         argword = "extra argument";
@@ -354,12 +358,15 @@ pub unsafe extern "C" fn luaL_argerror(
     }
     let name = if !ar_ref.name.is_null() {
         cstr_lossy(ar_ref.name)
-    } else if unsafe { pushglobalfuncname(state, ar.as_mut_ptr()) } {
-        let name = cstr_lossy(unsafe { tostring_ptr(state, -1) });
-        unsafe { lua_pop(state, 1) };
-        name
     } else {
-        "?".to_string()
+        let ar_ptr = (&mut ar as *mut crate::luaffi::LuaDebug).cast::<lua_Debug>();
+        if unsafe { pushglobalfuncname(state, ar_ptr) } {
+            let name = cstr_lossy(unsafe { tostring_ptr(state, -1) });
+            unsafe { lua_pop(state, 1) };
+            name
+        } else {
+            "?".to_string()
+        }
     };
     let msg = format!(
         "bad {} #{} to '{}' ({})",
@@ -372,12 +379,7 @@ pub unsafe extern "C" fn luaL_argerror(
     unsafe { lua_error(state) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_typeerror(
-    state: *mut lua_State,
-    arg: c_int,
-    tname: *const c_char,
-) -> c_int {
+pub fn luaL_typeerror(state: *mut lua_State, arg: c_int, tname: *const c_char) -> c_int {
     let typearg = if unsafe { luaL_getmetafield(state, arg, c"__name".as_ptr()) } == LUA_TSTRING {
         cstr_lossy(unsafe { tostring_ptr(state, -1) })
     } else if unsafe { lua_type(state, arg) } == LUA_TLIGHTUSERDATA {
@@ -389,12 +391,15 @@ pub unsafe extern "C" fn luaL_typeerror(
     unsafe { luaL_argerror(state, arg, CString::new(msg).unwrap().as_ptr()) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_where(state: *mut lua_State, level: c_int) {
-    let mut ar = MaybeUninit::<lua_Debug>::uninit();
-    if unsafe { lua_getstack_debug(state, level, ar.as_mut_ptr()) } != 0 {
-        let _ = unsafe { lua_getinfo(state, c"Sl".as_ptr(), ar.as_mut_ptr()) };
-        let ar_ref = unsafe { ar.assume_init_ref() };
+pub fn luaL_where(state: *mut lua_State, level: c_int) {
+    lua_l_where_impl(state, level);
+}
+
+fn lua_l_where_impl(state: *mut lua_State, level: c_int) {
+    let thread = unsafe { LuaThread::from_ptr(state) };
+    if let Some(mut ar) = thread.get_stack(level) {
+        let _ = thread.get_info(c"Sl", &mut ar);
+        let ar_ref = &ar;
         if ar_ref.currentline > 0 {
             let msg = format!(
                 "{}:{}: ",
@@ -408,12 +413,7 @@ pub unsafe extern "C" fn luaL_where(state: *mut lua_State, level: c_int) {
     unsafe { lua_pushstring(state, c"".as_ptr()) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_fileresult(
-    state: *mut lua_State,
-    stat: c_int,
-    fname: *const c_char,
-) -> c_int {
+pub fn luaL_fileresult(state: *mut lua_State, stat: c_int, fname: *const c_char) -> c_int {
     let en = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     if stat != 0 {
         unsafe { lua_pushboolean(state, 1) };
@@ -450,8 +450,7 @@ fn inspect_exit_status(stat: c_int) -> (&'static str, c_int) {
     ("exit", stat)
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_execresult(state: *mut lua_State, stat: c_int) -> c_int {
+pub fn luaL_execresult(state: *mut lua_State, stat: c_int) -> c_int {
     let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     if stat != 0 && errno != 0 {
         return unsafe { luaL_fileresult(state, 0, ptr::null()) };
@@ -467,8 +466,7 @@ pub unsafe extern "C" fn luaL_execresult(state: *mut lua_State, stat: c_int) -> 
     3
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_newmetatable(state: *mut lua_State, tname: *const c_char) -> c_int {
+pub fn luaL_newmetatable(state: *mut lua_State, tname: *const c_char) -> c_int {
     if unsafe { lua_getfield(state, LUA_REGISTRYINDEX, tname) } != LUA_TNIL {
         return 0;
     }
@@ -481,18 +479,12 @@ pub unsafe extern "C" fn luaL_newmetatable(state: *mut lua_State, tname: *const 
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_setmetatable(state: *mut lua_State, tname: *const c_char) {
+pub fn luaL_setmetatable(state: *mut lua_State, tname: *const c_char) {
     let _ = unsafe { lua_getfield(state, LUA_REGISTRYINDEX, tname) };
     let _ = unsafe { lua_setmetatable(state, -2) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_testudata(
-    state: *mut lua_State,
-    ud: c_int,
-    tname: *const c_char,
-) -> *mut c_void {
+pub fn luaL_testudata(state: *mut lua_State, ud: c_int, tname: *const c_char) -> *mut c_void {
     let p = unsafe { lua_touserdata(state, ud) };
     if !p.is_null() && unsafe { lua_getmetatable(state, ud) } != 0 {
         let _ = unsafe { lua_getfield(state, LUA_REGISTRYINDEX, tname) };
@@ -506,12 +498,7 @@ pub unsafe extern "C" fn luaL_testudata(
     ptr::null_mut()
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkudata(
-    state: *mut lua_State,
-    ud: c_int,
-    tname: *const c_char,
-) -> *mut c_void {
+pub fn luaL_checkudata(state: *mut lua_State, ud: c_int, tname: *const c_char) -> *mut c_void {
     let p = unsafe { luaL_testudata(state, ud, tname) };
     if p.is_null() {
         let _ = unsafe { luaL_typeerror(state, ud, tname) };
@@ -519,8 +506,7 @@ pub unsafe extern "C" fn luaL_checkudata(
     p
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkoption(
+pub fn luaL_checkoption(
     state: *mut lua_State,
     arg: c_int,
     def: *const c_char,
@@ -547,8 +533,11 @@ pub unsafe extern "C" fn luaL_checkoption(
     unsafe { luaL_argerror(state, arg, msg.as_ptr()) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkstack(state: *mut lua_State, space: c_int, msg: *const c_char) {
+pub fn luaL_checkstack(state: *mut lua_State, space: c_int, msg: *const c_char) {
+    lua_l_checkstack_impl(state, space, msg);
+}
+
+fn lua_l_checkstack_impl(state: *mut lua_State, space: c_int, msg: *const c_char) {
     if unsafe { lua_checkstack(state, space) } == 0 {
         let out = if msg.is_null() {
             "stack overflow".to_string()
@@ -560,26 +549,27 @@ pub unsafe extern "C" fn luaL_checkstack(state: *mut lua_State, space: c_int, ms
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checktype(state: *mut lua_State, arg: c_int, t: c_int) {
+pub fn luaL_checktype(state: *mut lua_State, arg: c_int, t: c_int) {
+    lua_l_checktype_impl(state, arg, t);
+}
+
+fn lua_l_checktype_impl(state: *mut lua_State, arg: c_int, t: c_int) {
     if unsafe { lua_type(state, arg) } != t {
         let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, t)) };
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkany(state: *mut lua_State, arg: c_int) {
+pub fn luaL_checkany(state: *mut lua_State, arg: c_int) {
+    lua_l_checkany_impl(state, arg);
+}
+
+fn lua_l_checkany_impl(state: *mut lua_State, arg: c_int) {
     if unsafe { lua_type(state, arg) } == LUA_TNONE {
         let _ = unsafe { luaL_argerror(state, arg, c"value expected".as_ptr()) };
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checklstring(
-    state: *mut lua_State,
-    arg: c_int,
-    len: *mut usize,
-) -> *const c_char {
+pub fn luaL_checklstring(state: *mut lua_State, arg: c_int, len: *mut usize) -> *const c_char {
     let s = unsafe { lua_tolstring(state, arg, len) };
     if s.is_null() {
         let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TSTRING)) };
@@ -587,8 +577,7 @@ pub unsafe extern "C" fn luaL_checklstring(
     s
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_optlstring(
+pub fn luaL_optlstring(
     state: *mut lua_State,
     arg: c_int,
     def: *const c_char,
@@ -610,8 +599,7 @@ pub unsafe extern "C" fn luaL_optlstring(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number {
+pub fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number {
     let mut isnum = 0;
     let d = unsafe { lua_tonumberx(state, arg, &mut isnum) };
     if isnum == 0 {
@@ -620,12 +608,7 @@ pub unsafe extern "C" fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> 
     d
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_optnumber(
-    state: *mut lua_State,
-    arg: c_int,
-    def: lua_Number,
-) -> lua_Number {
+pub fn luaL_optnumber(state: *mut lua_State, arg: c_int, def: lua_Number) -> lua_Number {
     if unsafe { lua_type(state, arg) } <= LUA_TNIL {
         def
     } else {
@@ -633,8 +616,7 @@ pub unsafe extern "C" fn luaL_optnumber(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer {
+pub fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer {
     let mut isnum = 0;
     let d = unsafe { lua_tointegerx(state, arg, &mut isnum) };
     if isnum == 0 {
@@ -649,12 +631,7 @@ pub unsafe extern "C" fn luaL_checkinteger(state: *mut lua_State, arg: c_int) ->
     d
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_optinteger(
-    state: *mut lua_State,
-    arg: c_int,
-    def: lua_Integer,
-) -> lua_Integer {
+pub fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer {
     if unsafe { lua_type(state, arg) } <= LUA_TNIL {
         def
     } else {
@@ -704,8 +681,7 @@ fn preprocess_source(bytes: &[u8]) -> Vec<u8> {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_loadbufferx(
+pub fn luaL_loadbufferx(
     state: *mut lua_State,
     buff: *const c_char,
     size: usize,
@@ -727,8 +703,7 @@ pub unsafe extern "C" fn luaL_loadbufferx(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_loadfilex(
+pub fn luaL_loadfilex(
     state: *mut lua_State,
     filename: *const c_char,
     mode: *const c_char,
@@ -767,12 +742,7 @@ pub unsafe extern "C" fn luaL_loadfilex(
     status
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_getmetafield(
-    state: *mut lua_State,
-    obj: c_int,
-    event: *const c_char,
-) -> c_int {
+pub fn luaL_getmetafield(state: *mut lua_State, obj: c_int, event: *const c_char) -> c_int {
     if unsafe { lua_getmetatable(state, obj) } == 0 {
         LUA_TNIL
     } else {
@@ -787,12 +757,7 @@ pub unsafe extern "C" fn luaL_getmetafield(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_callmeta(
-    state: *mut lua_State,
-    obj: c_int,
-    event: *const c_char,
-) -> c_int {
+pub fn luaL_callmeta(state: *mut lua_State, obj: c_int, event: *const c_char) -> c_int {
     let obj = unsafe { lua_absindex(state, obj) };
     if unsafe { luaL_getmetafield(state, obj, event) } == LUA_TNIL {
         0
@@ -803,8 +768,7 @@ pub unsafe extern "C" fn luaL_callmeta(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_len(state: *mut lua_State, idx: c_int) -> lua_Integer {
+pub fn luaL_len(state: *mut lua_State, idx: c_int) -> lua_Integer {
     unsafe { lua_len(state, idx) };
     let mut isnum = 0;
     let l = unsafe { lua_tointegerx(state, -1, &mut isnum) };
@@ -816,12 +780,7 @@ pub unsafe extern "C" fn luaL_len(state: *mut lua_State, idx: c_int) -> lua_Inte
     l
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_tolstring(
-    state: *mut lua_State,
-    idx: c_int,
-    len: *mut usize,
-) -> *const c_char {
+pub fn luaL_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *const c_char {
     let idx = unsafe { lua_absindex(state, idx) };
     if unsafe { luaL_callmeta(state, idx, c"__tostring".as_ptr()) } != 0 {
         if unsafe { lua_isstring(state, -1) } == 0 {
@@ -863,8 +822,7 @@ pub unsafe extern "C" fn luaL_tolstring(
     unsafe { lua_tolstring(state, -1, len) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int) {
+pub fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int) {
     unsafe { luaL_checkstack(state, nup, c"too many upvalues".as_ptr()) };
     let mut reg = regs;
     while unsafe { !(*reg).name.is_null() } {
@@ -883,8 +841,7 @@ pub unsafe extern "C" fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_
     unsafe { lua_pop(state, nup) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_ref(state: *mut lua_State, t: c_int) -> c_int {
+pub fn luaL_ref(state: *mut lua_State, t: c_int) -> c_int {
     if unsafe { lua_type(state, -1) } == LUA_TNIL {
         unsafe { lua_pop(state, 1) };
         return LUA_REFNIL;
@@ -910,8 +867,7 @@ pub unsafe extern "C" fn luaL_ref(state: *mut lua_State, t: c_int) -> c_int {
     ref_id
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_unref(state: *mut lua_State, t: c_int, ref_id: c_int) {
+pub fn luaL_unref(state: *mut lua_State, t: c_int, ref_id: c_int) {
     if ref_id >= 0 {
         let t = unsafe { lua_absindex(state, t) };
         let _ = unsafe { lua_rawgeti(state, t, 1) };
@@ -921,12 +877,7 @@ pub unsafe extern "C" fn luaL_unref(state: *mut lua_State, t: c_int, ref_id: c_i
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_getsubtable(
-    state: *mut lua_State,
-    idx: c_int,
-    fname: *const c_char,
-) -> c_int {
+pub fn luaL_getsubtable(state: *mut lua_State, idx: c_int, fname: *const c_char) -> c_int {
     if unsafe { lua_getfield(state, idx, fname) } == LUA_TTABLE {
         1
     } else {
@@ -939,8 +890,7 @@ pub unsafe extern "C" fn luaL_getsubtable(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_requiref(
+pub fn luaL_requiref(
     state: *mut lua_State,
     modname: *const c_char,
     openf: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
@@ -1023,8 +973,7 @@ unsafe extern "C" fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_
     unsafe { warnfcont(ud, message, tocont) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_makeseed(_state: *mut lua_State) -> c_uint {
+pub fn luaL_makeseed(_state: *mut lua_State) -> c_uint {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1033,8 +982,7 @@ pub unsafe extern "C" fn luaL_makeseed(_state: *mut lua_State) -> c_uint {
     (now ^ addr ^ (now >> 7) ^ (addr << 11)) as c_uint
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_newstate() -> *mut lua_State {
+pub fn luaL_newstate() -> *mut lua_State {
     let state = unsafe {
         lua_newstate(
             Some(lua_l_alloc),
@@ -1049,8 +997,7 @@ pub unsafe extern "C" fn luaL_newstate() -> *mut lua_State {
     state
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_checkversion_(state: *mut lua_State, ver: lua_Number, sz: usize) {
+pub fn luaL_checkversion_(state: *mut lua_State, ver: lua_Number, sz: usize) {
     let v = unsafe { lua_version(state) };
     if sz != LUAL_NUMSIZES {
         unsafe { push_string(state, "core and library have incompatible numeric types") };

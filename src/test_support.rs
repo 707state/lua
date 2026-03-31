@@ -1,9 +1,7 @@
 use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
+use crate::init::luaL_openselectedlibs;
 use crate::lua_module::lua_State;
-use crate::luaffi::{
-    LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring,
-    luaL_openselectedlibs,
-};
+use crate::luaffi::{LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring};
 use std::ptr;
 
 fn lua_error_string(state: *mut lua_State) -> String {
@@ -18,7 +16,7 @@ fn lua_error_string(state: *mut lua_State) -> String {
 }
 
 pub(crate) fn run_lua_test(script_name: &str, source: &str) {
-    let state = unsafe { luaL_newstate() };
+    let state = { luaL_newstate() };
     assert!(
         !state.is_null(),
         "failed to create Lua state for {script_name}"

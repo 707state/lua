@@ -3,7 +3,7 @@ use crate::lua_module::{
     LUA_REGISTRYINDEX, create_library, lua_State, lua_error, lua_gettop, lua_pop, lua_pushboolean,
     lua_pushcclosure, lua_pushstring, lua_pushvalue, lua_upvalueindex, luaL_Reg, raise_error,
 };
-use crate::luaffi::{LUA_OK, LUA_TSTRING, LuaDebug, lua_insert};
+use crate::luaffi::{LUA_OK, LUA_TSTRING, LuaDebug, LuaThread, lua_insert};
 use core::ffi::c_int;
 use core::ptr;
 
@@ -198,10 +198,10 @@ unsafe fn auxstatus(state: *mut lua_State, co: *mut lua_State) -> c_int {
     match unsafe { lua_status(co) } {
         LUA_YIELD => COS_YIELD,
         LUA_OK => {
-            let mut ar = core::mem::MaybeUninit::<LuaDebug>::uninit();
-            if unsafe { lua_getstack_coro(co, 0, ar.as_mut_ptr()) } != 0 {
+            let co = unsafe { LuaThread::from_ptr(co) };
+            if co.get_stack(0).is_some() {
                 COS_NORM
-            } else if unsafe { lua_gettop(co) } == 0 {
+            } else if unsafe { lua_gettop(co.as_ptr()) } == 0 {
                 COS_DEAD
             } else {
                 COS_YIELD

@@ -1,14 +1,22 @@
 #![feature(c_variadic, portable_simd)]
 
+pub mod api;
 pub mod aux_rs;
 pub mod base_rs;
 pub mod coro_rs;
 pub mod ctype;
+#[path = "code.rs"]
+pub mod code_rs;
 pub mod db_rs;
+pub mod debug;
+#[path = "do.rs"]
+pub mod do_rs;
 pub mod dump;
 pub mod func;
-pub mod io_rs;
+pub mod gc;
 pub mod init;
+pub mod io_rs;
+pub mod lex;
 pub mod load_rs;
 pub mod lua_module;
 pub mod luaffi;
@@ -18,13 +26,18 @@ pub mod mem;
 pub mod object;
 pub mod opcodes;
 pub mod os_rs;
+#[path = "parser.rs"]
+pub mod parser_rs;
+pub(crate) mod runtime;
+pub mod state;
 pub mod str_rs;
 pub mod string;
-pub mod state;
+pub mod table;
 pub mod tm;
-pub mod table_rs;
 pub mod undump;
 pub mod utf8_rs;
+#[path = "vm.rs"]
+pub mod vm_rs;
 pub mod zio;
 
 #[cfg(test)]

@@ -7,12 +7,8 @@ use crate::lua_module::{
     LUA_REGISTRYINDEX, create_library, lua_Integer, lua_State, lua_pushboolean, lua_pushinteger,
     lua_pushnil, lua_pushstring, lua_pushvalue, lua_setfield, lua_settop, luaL_Reg,
 };
-use crate::luaffi::{
-    LuaDebug, lua_call, lua_gethook, lua_gethookcount, lua_gethookmask, lua_getinfo, lua_getstack,
-    lua_insert, lua_pcall, lua_remove, lua_rotate, lua_sethook,
-};
+use crate::luaffi::{LuaDebug, LuaThread, lua_call, lua_insert, lua_pcall, lua_remove, lua_rotate};
 use core::ffi::{c_char, c_int, c_void};
-use core::mem::MaybeUninit;
 use core::ptr;
 use std::ffi::{CStr, CString};
 use std::io::{self, Write};
@@ -148,9 +144,11 @@ unsafe fn push_fail(state: *mut lua_State) {
     unsafe { lua_pushnil(state) };
 }
 
-unsafe fn checkstack_main(state: *mut lua_State, target: *mut lua_State, n: c_int) {
-    if state != target && unsafe { lua_checkstack(target, n) } == 0 {
-        let _ = unsafe { luaL_argerror(state, 1, c"stack overflow".as_ptr()) };
+fn checkstack_main(state: LuaThread, target: LuaThread, n: c_int) {
+    let state_ptr = state.as_ptr();
+    let target_ptr = target.as_ptr();
+    if state_ptr != target_ptr && unsafe { lua_checkstack(target_ptr, n) } == 0 {
+        let _ = unsafe { luaL_argerror(state_ptr, 1, c"stack overflow".as_ptr()) };
     }
 }
 
@@ -199,10 +197,11 @@ unsafe extern "C" fn db_setuservalue(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe fn getthread(state: *mut lua_State, arg: &mut c_int) -> *mut lua_State {
-    if unsafe { lua_type(state, 1) } == LUA_TTHREAD {
+fn getthread(state: LuaThread, arg: &mut c_int) -> LuaThread {
+    let state_ptr = state.as_ptr();
+    if unsafe { lua_type(state_ptr, 1) } == LUA_TTHREAD {
         *arg = 1;
-        unsafe { lua_tothread(state, 1) }
+        unsafe { LuaThread::from_ptr(lua_tothread(state_ptr, 1)) }
     } else {
         *arg = 0;
         state
@@ -238,127 +237,137 @@ unsafe fn treatstackoption(state: *mut lua_State, target: *mut lua_State, fname:
 }
 
 unsafe extern "C" fn db_getinfo(state: *mut lua_State) -> c_int {
-    let mut ar = MaybeUninit::<LuaDebug>::uninit();
+    db_getinfo_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_getinfo_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
+    let mut ar = LuaDebug::default();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let mut options = unsafe { optstring(state, arg + 2, c"flnSrtu".as_ptr()) }
+    let target = getthread(state, &mut arg);
+    let mut options = unsafe { optstring(state_ptr, arg + 2, c"flnSrtu".as_ptr()) }
         .to_string_lossy()
         .into_owned();
-    unsafe { checkstack_main(state, target, 3) };
+    checkstack_main(state, target, 3);
     if options.starts_with('>') {
-        let _ = unsafe { luaL_argerror(state, arg + 2, c"invalid option '>'".as_ptr()) };
+        let _ = unsafe { luaL_argerror(state_ptr, arg + 2, c"invalid option '>'".as_ptr()) };
     }
-    if unsafe { lua_type(state, arg + 1) } == LUA_TFUNCTION {
+    if unsafe { lua_type(state_ptr, arg + 1) } == LUA_TFUNCTION {
         options = format!(">{options}");
-        unsafe { lua_pushvalue(state, arg + 1) };
-        unsafe { lua_xmove(state, target, 1) };
-    } else if unsafe {
-        lua_getstack(
-            target,
-            luaL_checkinteger(state, arg + 1) as c_int,
-            ar.as_mut_ptr(),
-        )
-    } == 0
+        unsafe { lua_pushvalue(state_ptr, arg + 1) };
+        unsafe { lua_xmove(state_ptr, target.as_ptr(), 1) };
+    } else if let Some(frame) =
+        target.get_stack(unsafe { luaL_checkinteger(state_ptr, arg + 1) } as c_int)
     {
-        unsafe { push_fail(state) };
+        ar = frame;
+    } else {
+        unsafe { push_fail(state_ptr) };
         return 1;
     }
     let options_c = CString::new(options.clone()).unwrap();
-    if unsafe { lua_getinfo(target, options_c.as_ptr(), ar.as_mut_ptr()) } == 0 {
-        return unsafe { luaL_argerror(state, arg + 2, c"invalid option".as_ptr()) };
+    if !target.get_info(options_c.as_c_str(), &mut ar) {
+        return unsafe { luaL_argerror(state_ptr, arg + 2, c"invalid option".as_ptr()) };
     }
-    unsafe { crate::lua_module::lua_createtable(state, 0, 12) };
-    let ar_ref = unsafe { ar.assume_init_ref() };
+    unsafe { crate::lua_module::lua_createtable(state_ptr, 0, 12) };
+    let ar_ref = &ar;
     if options.contains('S') {
-        unsafe { crate::lua_module::lua_pushlstring(state, ar_ref.source, ar_ref.srclen) };
-        unsafe { lua_setfield(state, -2, c"source".as_ptr()) };
-        unsafe { settabss(state, b"short_src\0", ar_ref.short_src.as_ptr()) };
-        unsafe { settabsi(state, b"linedefined\0", ar_ref.linedefined) };
-        unsafe { settabsi(state, b"lastlinedefined\0", ar_ref.lastlinedefined) };
-        unsafe { settabss(state, b"what\0", ar_ref.what) };
+        unsafe { crate::lua_module::lua_pushlstring(state_ptr, ar_ref.source, ar_ref.srclen) };
+        unsafe { lua_setfield(state_ptr, -2, c"source".as_ptr()) };
+        unsafe { settabss(state_ptr, b"short_src\0", ar_ref.short_src.as_ptr()) };
+        unsafe { settabsi(state_ptr, b"linedefined\0", ar_ref.linedefined) };
+        unsafe { settabsi(state_ptr, b"lastlinedefined\0", ar_ref.lastlinedefined) };
+        unsafe { settabss(state_ptr, b"what\0", ar_ref.what) };
     }
     if options.contains('l') {
-        unsafe { settabsi(state, b"currentline\0", ar_ref.currentline) };
+        unsafe { settabsi(state_ptr, b"currentline\0", ar_ref.currentline) };
     }
     if options.contains('u') {
-        unsafe { settabsi(state, b"nups\0", ar_ref.nups as c_int) };
-        unsafe { settabsi(state, b"nparams\0", ar_ref.nparams as c_int) };
-        unsafe { settabsb(state, b"isvararg\0", ar_ref.isvararg as c_int) };
+        unsafe { settabsi(state_ptr, b"nups\0", ar_ref.nups as c_int) };
+        unsafe { settabsi(state_ptr, b"nparams\0", ar_ref.nparams as c_int) };
+        unsafe { settabsb(state_ptr, b"isvararg\0", ar_ref.isvararg as c_int) };
     }
     if options.contains('n') {
-        unsafe { settabss(state, b"name\0", ar_ref.name) };
-        unsafe { settabss(state, b"namewhat\0", ar_ref.namewhat) };
+        unsafe { settabss(state_ptr, b"name\0", ar_ref.name) };
+        unsafe { settabss(state_ptr, b"namewhat\0", ar_ref.namewhat) };
     }
     if options.contains('r') {
-        unsafe { settabsi(state, b"ftransfer\0", ar_ref.ftransfer) };
-        unsafe { settabsi(state, b"ntransfer\0", ar_ref.ntransfer) };
+        unsafe { settabsi(state_ptr, b"ftransfer\0", ar_ref.ftransfer) };
+        unsafe { settabsi(state_ptr, b"ntransfer\0", ar_ref.ntransfer) };
     }
     if options.contains('t') {
-        unsafe { settabsb(state, b"istailcall\0", ar_ref.istailcall as c_int) };
-        unsafe { settabsi(state, b"extraargs\0", ar_ref.extraargs as c_int) };
+        unsafe { settabsb(state_ptr, b"istailcall\0", ar_ref.istailcall as c_int) };
+        unsafe { settabsi(state_ptr, b"extraargs\0", ar_ref.extraargs as c_int) };
     }
     if options.contains('L') {
-        unsafe { treatstackoption(state, target, b"activelines\0") };
+        unsafe { treatstackoption(state_ptr, target.as_ptr(), b"activelines\0") };
     }
     if options.contains('f') {
-        unsafe { treatstackoption(state, target, b"func\0") };
+        unsafe { treatstackoption(state_ptr, target.as_ptr(), b"func\0") };
     }
     1
 }
 
 unsafe extern "C" fn db_getlocal(state: *mut lua_State) -> c_int {
+    db_getlocal_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_getlocal_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let nvar = unsafe { luaL_checkinteger(state, arg + 2) } as c_int;
-    if unsafe { lua_type(state, arg + 1) } == LUA_TFUNCTION {
-        unsafe { lua_pushvalue(state, arg + 1) };
-        let name = unsafe { lua_getlocal(state, ptr::null(), nvar) };
+    let target = getthread(state, &mut arg);
+    let nvar = unsafe { luaL_checkinteger(state_ptr, arg + 2) } as c_int;
+    if unsafe { lua_type(state_ptr, arg + 1) } == LUA_TFUNCTION {
+        unsafe { lua_pushvalue(state_ptr, arg + 1) };
+        let name = unsafe { lua_getlocal(state_ptr, ptr::null(), nvar) };
         if name.is_null() {
-            unsafe { lua_pushnil(state) };
+            unsafe { lua_pushnil(state_ptr) };
         } else {
-            unsafe { lua_pushstring(state, name) };
+            unsafe { lua_pushstring(state_ptr, name) };
         }
         return 1;
     }
-    let mut ar = MaybeUninit::<LuaDebug>::uninit();
-    let level = unsafe { luaL_checkinteger(state, arg + 1) } as c_int;
-    if unsafe { lua_getstack(target, level, ar.as_mut_ptr()) } == 0 {
-        return unsafe { luaL_argerror(state, arg + 1, c"level out of range".as_ptr()) };
-    }
-    unsafe { checkstack_main(state, target, 1) };
-    let name = unsafe { lua_getlocal(target, ar.as_ptr(), nvar) };
+    let level = unsafe { luaL_checkinteger(state_ptr, arg + 1) } as c_int;
+    let Some(ar) = target.get_stack(level) else {
+        return unsafe { luaL_argerror(state_ptr, arg + 1, c"level out of range".as_ptr()) };
+    };
+    checkstack_main(state, target, 1);
+    let name = unsafe { lua_getlocal(target.as_ptr(), &ar, nvar) };
     if !name.is_null() {
-        unsafe { lua_xmove(target, state, 1) };
-        unsafe { lua_pushstring(state, name) };
-        unsafe { lua_rotate(state, -2, 1) };
+        unsafe { lua_xmove(target.as_ptr(), state_ptr, 1) };
+        unsafe { lua_pushstring(state_ptr, name) };
+        unsafe { lua_rotate(state_ptr, -2, 1) };
         2
     } else {
-        unsafe { push_fail(state) };
+        unsafe { push_fail(state_ptr) };
         1
     }
 }
 
 unsafe extern "C" fn db_setlocal(state: *mut lua_State) -> c_int {
+    db_setlocal_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_setlocal_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let mut ar = MaybeUninit::<LuaDebug>::uninit();
-    let level = unsafe { luaL_checkinteger(state, arg + 1) } as c_int;
-    let nvar = unsafe { luaL_checkinteger(state, arg + 2) } as c_int;
-    if unsafe { lua_getstack(target, level, ar.as_mut_ptr()) } == 0 {
-        return unsafe { luaL_argerror(state, arg + 1, c"level out of range".as_ptr()) };
-    }
-    unsafe { luaL_checkany(state, arg + 3) };
-    unsafe { lua_settop(state, arg + 3) };
-    unsafe { checkstack_main(state, target, 1) };
-    unsafe { lua_xmove(state, target, 1) };
-    let name = unsafe { lua_setlocal(target, ar.as_ptr(), nvar) };
+    let target = getthread(state, &mut arg);
+    let level = unsafe { luaL_checkinteger(state_ptr, arg + 1) } as c_int;
+    let nvar = unsafe { luaL_checkinteger(state_ptr, arg + 2) } as c_int;
+    let Some(ar) = target.get_stack(level) else {
+        return unsafe { luaL_argerror(state_ptr, arg + 1, c"level out of range".as_ptr()) };
+    };
+    unsafe { luaL_checkany(state_ptr, arg + 3) };
+    unsafe { lua_settop(state_ptr, arg + 3) };
+    checkstack_main(state, target, 1);
+    unsafe { lua_xmove(state_ptr, target.as_ptr(), 1) };
+    let name = unsafe { lua_setlocal(target.as_ptr(), &ar, nvar) };
     if name.is_null() {
-        unsafe { crate::lua_module::lua_pop(target, 1) };
+        unsafe { crate::lua_module::lua_pop(target.as_ptr(), 1) };
     }
     if name.is_null() {
-        unsafe { lua_pushnil(state) };
+        unsafe { lua_pushnil(state_ptr) };
     } else {
-        unsafe { lua_pushstring(state, name) };
+        unsafe { lua_pushstring(state_ptr, name) };
     }
     1
 }
@@ -436,6 +445,10 @@ unsafe extern "C" fn db_upvaluejoin(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn hookf(state: *mut lua_State, ar: *mut LuaDebug) {
+    hookf_impl(unsafe { LuaThread::from_ptr(state) }, unsafe { &mut *ar });
+}
+
+fn hookf_impl(state: LuaThread, ar: &mut LuaDebug) {
     static HOOKNAMES: [&[u8]; 5] = [
         b"call\0",
         b"return\0",
@@ -443,18 +456,19 @@ unsafe extern "C" fn hookf(state: *mut lua_State, ar: *mut LuaDebug) {
         b"count\0",
         b"tail call\0",
     ];
-    let _ = unsafe { lua_getfield(state, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) };
-    unsafe { lua_pushthread(state) };
-    if unsafe { lua_rawget(state, -2) } == LUA_TFUNCTION {
-        let event = unsafe { (*ar).event as usize };
-        unsafe { lua_pushstring(state, HOOKNAMES[event].as_ptr().cast()) };
-        if unsafe { (*ar).currentline } >= 0 {
-            unsafe { lua_pushinteger(state, (*ar).currentline as lua_Integer) };
+    let state_ptr = state.as_ptr();
+    let _ = unsafe { lua_getfield(state_ptr, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) };
+    unsafe { lua_pushthread(state_ptr) };
+    if unsafe { lua_rawget(state_ptr, -2) } == LUA_TFUNCTION {
+        let event = ar.event as usize;
+        unsafe { lua_pushstring(state_ptr, HOOKNAMES[event].as_ptr().cast()) };
+        if ar.currentline >= 0 {
+            unsafe { lua_pushinteger(state_ptr, ar.currentline as lua_Integer) };
         } else {
-            unsafe { lua_pushnil(state) };
+            unsafe { lua_pushnil(state_ptr) };
         }
-        let _ = unsafe { lua_getinfo(state, c"lS".as_ptr(), ar) };
-        unsafe { lua_call(state, 2, 0) };
+        let _ = state.get_info(c"lS", ar);
+        unsafe { lua_call(state_ptr, 2, 0) };
     }
 }
 
@@ -490,62 +504,72 @@ fn unmakemask(mask: c_int) -> String {
 }
 
 unsafe extern "C" fn db_sethook(state: *mut lua_State) -> c_int {
+    db_sethook_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_sethook_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let (func, mask, count) = if unsafe { lua_type(state, arg + 1) } <= LUA_TNIL {
-        unsafe { lua_settop(state, arg + 1) };
+    let target = getthread(state, &mut arg);
+    let (func, mask, count) = if unsafe { lua_type(state_ptr, arg + 1) } <= LUA_TNIL {
+        unsafe { lua_settop(state_ptr, arg + 1) };
         (None, 0, 0)
     } else {
-        let smask = unsafe { checkstring(state, arg + 2) }
+        let smask = unsafe { checkstring(state_ptr, arg + 2) }
             .to_string_lossy()
             .into_owned();
-        unsafe { luaL_checktype(state, arg + 1, LUA_TFUNCTION) };
-        let count = unsafe { luaL_optinteger(state, arg + 3, 0) } as c_int;
+        unsafe { luaL_checktype(state_ptr, arg + 1, LUA_TFUNCTION) };
+        let count = unsafe { luaL_optinteger(state_ptr, arg + 3, 0) } as c_int;
         (
             Some(hookf as unsafe extern "C" fn(*mut lua_State, *mut LuaDebug)),
             makemask(&smask, count),
             count,
         )
     };
-    if unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) } == 0 {
-        unsafe { lua_pushstring(state, c"k".as_ptr()) };
-        unsafe { lua_setfield(state, -2, c"__mode".as_ptr()) };
-        unsafe { lua_pushvalue(state, -1) };
-        let _ = unsafe { lua_setmetatable(state, -2) };
+    if unsafe { luaL_getsubtable(state_ptr, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) } == 0 {
+        unsafe { lua_pushstring(state_ptr, c"k".as_ptr()) };
+        unsafe { lua_setfield(state_ptr, -2, c"__mode".as_ptr()) };
+        unsafe { lua_pushvalue(state_ptr, -1) };
+        let _ = unsafe { lua_setmetatable(state_ptr, -2) };
     }
-    unsafe { checkstack_main(state, target, 1) };
-    unsafe { lua_pushthread(target) };
-    unsafe { lua_xmove(target, state, 1) };
-    unsafe { lua_pushvalue(state, arg + 1) };
-    unsafe { lua_rawset(state, -3) };
-    unsafe { lua_sethook(target, func, mask, count) };
+    checkstack_main(state, target, 1);
+    unsafe { lua_pushthread(target.as_ptr()) };
+    unsafe { lua_xmove(target.as_ptr(), state_ptr, 1) };
+    unsafe { lua_pushvalue(state_ptr, arg + 1) };
+    unsafe { lua_rawset(state_ptr, -3) };
+    target.set_hook(func, mask, count);
     0
 }
 
 unsafe extern "C" fn db_gethook(state: *mut lua_State) -> c_int {
+    db_gethook_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_gethook_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let mask = unsafe { lua_gethookmask(target) };
-    let hook = unsafe { lua_gethook(target) };
+    let target = getthread(state, &mut arg);
+    let mask = target.get_hook_mask();
+    let hook = target.get_hook();
     if hook.is_none() {
-        unsafe { push_fail(state) };
+        unsafe { push_fail(state_ptr) };
         return 1;
     } else if !fn_addr_eq(
         hook.unwrap(),
         hookf as unsafe extern "C" fn(*mut lua_State, *mut LuaDebug),
     ) {
-        unsafe { lua_pushstring(state, c"external hook".as_ptr()) };
+        unsafe { lua_pushstring(state_ptr, c"external hook".as_ptr()) };
     } else {
-        let _ = unsafe { lua_getfield(state, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) };
-        unsafe { checkstack_main(state, target, 1) };
-        unsafe { lua_pushthread(target) };
-        unsafe { lua_xmove(target, state, 1) };
-        let _ = unsafe { lua_rawget(state, -2) };
-        unsafe { lua_remove(state, -2) };
+        let _ = unsafe { lua_getfield(state_ptr, LUA_REGISTRYINDEX, HOOKKEY.as_ptr().cast()) };
+        checkstack_main(state, target, 1);
+        unsafe { lua_pushthread(target.as_ptr()) };
+        unsafe { lua_xmove(target.as_ptr(), state_ptr, 1) };
+        let _ = unsafe { lua_rawget(state_ptr, -2) };
+        unsafe { lua_remove(state_ptr, -2) };
     }
     let smask = unmakemask(mask);
-    unsafe { crate::lua_module::lua_pushlstring(state, smask.as_ptr().cast(), smask.len()) };
-    unsafe { lua_pushinteger(state, lua_gethookcount(target) as lua_Integer) };
+    unsafe { crate::lua_module::lua_pushlstring(state_ptr, smask.as_ptr().cast(), smask.len()) };
+    unsafe { lua_pushinteger(state_ptr, target.get_hook_count() as lua_Integer) };
     3
 }
 
@@ -591,15 +615,21 @@ unsafe extern "C" fn db_debug(state: *mut lua_State) -> c_int {
 }
 
 unsafe extern "C" fn db_traceback(state: *mut lua_State) -> c_int {
+    db_traceback_impl(unsafe { LuaThread::from_ptr(state) })
+}
+
+fn db_traceback_impl(state: LuaThread) -> c_int {
+    let state_ptr = state.as_ptr();
     let mut arg = 0;
-    let target = unsafe { getthread(state, &mut arg) };
-    let msg = unsafe { lua_tolstring(state, arg + 1, ptr::null_mut()) };
-    if msg.is_null() && unsafe { lua_type(state, arg + 1) } > LUA_TNIL {
-        unsafe { lua_pushvalue(state, arg + 1) };
+    let target = getthread(state, &mut arg).as_ptr();
+    let msg = unsafe { lua_tolstring(state_ptr, arg + 1, ptr::null_mut()) };
+    if msg.is_null() && unsafe { lua_type(state_ptr, arg + 1) } > LUA_TNIL {
+        unsafe { lua_pushvalue(state_ptr, arg + 1) };
     } else {
-        let level = unsafe { luaL_optinteger(state, arg + 2, if state == target { 1 } else { 0 }) }
-            as c_int;
-        unsafe { luaL_traceback(state, target, msg, level) };
+        let level =
+            unsafe { luaL_optinteger(state_ptr, arg + 2, if state_ptr == target { 1 } else { 0 }) }
+                as c_int;
+        unsafe { luaL_traceback(state_ptr, target, msg, level) };
     }
     1
 }

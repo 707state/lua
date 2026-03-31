@@ -270,6 +270,14 @@ unsafe extern "C" {
     fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
 }
 
+pub(crate) unsafe fn raw_luaF_newproto(state: *mut c_void) -> *mut c_void {
+    unsafe { luaF_newproto(state.cast()).cast() }
+}
+
+pub(crate) unsafe fn raw_luaF_newLclosure(state: *mut c_void, nupvals: c_int) -> *mut c_void {
+    unsafe { luaF_newLclosure(state.cast(), nupvals).cast() }
+}
+
 #[inline]
 unsafe fn lstate(state: *mut lua_State) -> *mut LuaStatePrefix {
     state.cast()
@@ -356,7 +364,14 @@ unsafe fn savestack(state: *mut lua_State, pt: StkId) -> isize {
 
 #[inline]
 unsafe fn restorestack(state: *mut lua_State, n: isize) -> StkId {
-    unsafe { (*lstate(state)).stack.p.cast::<u8>().offset(n).cast::<StackValue>() }
+    unsafe {
+        (*lstate(state))
+            .stack
+            .p
+            .cast::<u8>()
+            .offset(n)
+            .cast::<StackValue>()
+    }
 }
 
 #[inline]
@@ -426,7 +441,13 @@ unsafe fn checkclosemth(state: *mut lua_State, level: StkId) {
         if vname.is_null() {
             vname = c"?".as_ptr();
         }
-        unsafe { luaG_runerror(state, c"variable '%s' got a non-closable value".as_ptr(), vname) };
+        unsafe {
+            luaG_runerror(
+                state,
+                c"variable '%s' got a non-closable value".as_ptr(),
+                vname,
+            )
+        };
     }
 }
 
@@ -466,7 +487,10 @@ pub unsafe extern "C" fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_newLclosure(state: *mut lua_State, mut nupvals: c_int) -> *mut LClosure {
+pub unsafe extern "C" fn luaF_newLclosure(
+    state: *mut lua_State,
+    mut nupvals: c_int,
+) -> *mut LClosure {
     let o = unsafe { luaC_newobj(state, LUA_VLCL, size_lclosure(nupvals)) };
     let c = o.cast::<LClosure>();
     unsafe {
@@ -644,8 +668,20 @@ pub unsafe extern "C" fn luaF_protosize(p: *mut Proto) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
     if unsafe { (*f).flag & PF_FIXED } == 0 {
-        unsafe { luaM_free_(state, (*f).code.cast(), (*f).sizecode.max(0) as usize * size_of::<Instruction>()) };
-        unsafe { luaM_free_(state, (*f).lineinfo.cast(), (*f).sizelineinfo.max(0) as usize * size_of::<u8>()) };
+        unsafe {
+            luaM_free_(
+                state,
+                (*f).code.cast(),
+                (*f).sizecode.max(0) as usize * size_of::<Instruction>(),
+            )
+        };
+        unsafe {
+            luaM_free_(
+                state,
+                (*f).lineinfo.cast(),
+                (*f).sizelineinfo.max(0) as usize * size_of::<u8>(),
+            )
+        };
         unsafe {
             luaM_free_(
                 state,
@@ -654,9 +690,27 @@ pub unsafe extern "C" fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
             )
         };
     }
-    unsafe { luaM_free_(state, (*f).p.cast(), (*f).sizep.max(0) as usize * size_of::<*mut Proto>()) };
-    unsafe { luaM_free_(state, (*f).k.cast(), (*f).sizek.max(0) as usize * size_of::<TValue>()) };
-    unsafe { luaM_free_(state, (*f).locvars.cast(), (*f).sizelocvars.max(0) as usize * size_of::<LocVar>()) };
+    unsafe {
+        luaM_free_(
+            state,
+            (*f).p.cast(),
+            (*f).sizep.max(0) as usize * size_of::<*mut Proto>(),
+        )
+    };
+    unsafe {
+        luaM_free_(
+            state,
+            (*f).k.cast(),
+            (*f).sizek.max(0) as usize * size_of::<TValue>(),
+        )
+    };
+    unsafe {
+        luaM_free_(
+            state,
+            (*f).locvars.cast(),
+            (*f).sizelocvars.max(0) as usize * size_of::<LocVar>(),
+        )
+    };
     unsafe {
         luaM_free_(
             state,
@@ -674,7 +728,9 @@ pub unsafe extern "C" fn luaF_getlocalname(
     pc: c_int,
 ) -> *const c_char {
     let mut i = 0;
-    while i < unsafe { (*f).sizelocvars } && unsafe { (*(*f).locvars.add(i as usize)).startpc <= pc } {
+    while i < unsafe { (*f).sizelocvars }
+        && unsafe { (*(*f).locvars.add(i as usize)).startpc <= pc }
+    {
         let loc = unsafe { &*(*f).locvars.add(i as usize) };
         if pc < loc.endpc {
             local_number -= 1;
@@ -691,7 +747,7 @@ pub unsafe extern "C" fn luaF_getlocalname(
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUAL_NUMSIZES, LUA_VERSION_NUM, lua_close};
+    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
 
     #[test]
     fn new_closures_and_proto_are_initialized() {
@@ -719,5 +775,4 @@ mod tests {
         unsafe { lua_close(state) };
         result
     }
-
 }
