@@ -555,7 +555,7 @@ impl LuaRuntime {
     }
 }
 
-unsafe extern "C" fn msghandler(state: *mut lua_State) -> i32 {
+unsafe extern "C-unwind" fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");

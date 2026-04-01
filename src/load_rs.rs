@@ -101,7 +101,7 @@ static LL_FUNCS: [luaL_Reg; 2] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
@@ -116,13 +116,13 @@ unsafe extern "C" {
         state: *mut lua_State,
         s: *const c_char,
         len: usize,
-        falloc: Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
+        falloc: Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
         ud: *mut c_void,
     ) -> *const c_char;
 }
 
 #[cfg(unix)]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
@@ -233,7 +233,7 @@ unsafe fn checkclib(state: *mut lua_State, path: &CStr) -> *mut c_void {
     plib
 }
 
-unsafe extern "C" fn freelib(
+unsafe extern "C-unwind" fn freelib(
     ud: *mut c_void,
     _ptr: *mut c_void,
     _osize: usize,
@@ -291,7 +291,7 @@ unsafe fn lookforfunc(state: *mut lua_State, path: &CStr, sym: &CStr) -> c_int {
     }
 }
 
-unsafe extern "C" fn ll_loadlib(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn ll_loadlib(state: *mut lua_State) -> c_int {
     let mut path = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -400,7 +400,7 @@ unsafe fn searchpath(
     None
 }
 
-unsafe extern "C" fn ll_searchpath(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn ll_searchpath(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -488,7 +488,7 @@ unsafe fn checkload(state: *mut lua_State, stat: bool, filename: &CStr) -> c_int
     }
 }
 
-unsafe extern "C" fn searcher_lua(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn searcher_lua(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -519,7 +519,7 @@ unsafe fn loadfunc(state: *mut lua_State, filename: &CStr, modname: &str) -> c_i
     unsafe { lookforfunc(state, filename, &openfunc) }
 }
 
-unsafe extern "C" fn searcher_c(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn searcher_c(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -530,7 +530,7 @@ unsafe extern "C" fn searcher_c(state: *mut lua_State) -> c_int {
     unsafe { checkload(state, loadfunc(state, &filename, &name) == 0, &filename) }
 }
 
-unsafe extern "C" fn searcher_croot(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn searcher_croot(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -558,7 +558,7 @@ unsafe extern "C" fn searcher_croot(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn searcher_preload(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn searcher_preload(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) };
     unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
     if unsafe { lua_getfield(state, -1, name.as_ptr()) } == LUA_TNIL {
@@ -614,7 +614,7 @@ unsafe fn findloader(state: *mut lua_State, name: &CStr) {
     }
 }
 
-unsafe extern "C" fn ll_require(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn ll_require(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) };
     unsafe { crate::lua_module::lua_settop(state, 1) };
     unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
@@ -660,8 +660,7 @@ unsafe fn createsearcherstable(state: *mut lua_State) {
     unsafe { lua_setfield(state, -2, FIELD_SEARCHERS.as_ptr().cast()) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_package(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_package(state: *mut lua_State) -> c_int {
     unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, CLIBS.as_ptr().cast()) };
     unsafe { lua_pop(state, 1) };
     unsafe { create_library_with_nrec(state, &PK_FUNCS, 7) };
@@ -725,7 +724,7 @@ unsafe fn lsys_sym(state: *mut lua_State, lib: *mut c_void, sym: &CStr) -> LuaCF
         None
     } else {
         Some(unsafe {
-            core::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut lua_State) -> c_int>(f)
+            core::mem::transmute::<*mut c_void, unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>(f)
         })
     }
 }

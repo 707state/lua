@@ -121,7 +121,7 @@ const L_FMTFLAGSC: &[u8] = b"-";
 const LUA_INTEGER_FRMLEN: &[u8] = b"ll";
 const LUA_NUMBER_FRMLEN: &[u8] = b"";
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char;
@@ -362,7 +362,7 @@ unsafe fn runtime_error(state: *mut lua_State, message: &'static [u8]) -> c_int 
     unsafe { lua_error(state) }
 }
 
-unsafe extern "C" fn dump_writer(
+unsafe extern "C-unwind" fn dump_writer(
     _state: *mut lua_State,
     block: *const c_void,
     size: usize,
@@ -1372,16 +1372,14 @@ fn addlenmod(form: &mut Vec<u8>, lenmod: &[u8]) {
     form.push(0);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_len(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_len(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let _ = { luaL_checklstring(state, 1, &mut len) };
     unsafe { lua_pushinteger(state, len as lua_Integer) };
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_sub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_sub(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let start = posrelat_i(unsafe { luaL_checkinteger(state, 2) }, len);
@@ -1400,8 +1398,7 @@ pub unsafe extern "C" fn str_sub(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_reverse(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_reverse(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1411,8 +1408,7 @@ pub unsafe extern "C" fn str_reverse(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_lower(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_lower(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1424,8 +1420,7 @@ pub unsafe extern "C" fn str_lower(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_upper(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_upper(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1437,8 +1432,7 @@ pub unsafe extern "C" fn str_upper(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_rep(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_rep(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let n = { luaL_checkinteger(state, 2) };
@@ -1482,8 +1476,7 @@ pub unsafe extern "C" fn str_rep(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_byte(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_byte(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let pi = { luaL_optinteger(state, 2, 1) };
@@ -1505,8 +1498,7 @@ pub unsafe extern "C" fn str_byte(state: *mut lua_State) -> c_int {
     n
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_char(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_char(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     let mut out = Vec::with_capacity(n.max(0) as usize);
     for i in 1..=n {
@@ -1530,8 +1522,7 @@ pub unsafe extern "C" fn str_char(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_dump(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_dump(state: *mut lua_State) -> c_int {
     let strip = unsafe { lua_toboolean(state, 2) };
     unsafe {
         argcheck(
@@ -1561,47 +1552,39 @@ pub unsafe extern "C" fn str_dump(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_add(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_add(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPADD, MT_ADD) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_sub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_sub(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPSUB, MT_SUB) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_mul(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_mul(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPMUL, MT_MUL) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_mod(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_mod(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPMOD, MT_MOD) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_pow(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_pow(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPPOW, MT_POW) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_div(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_div(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPDIV, MT_DIV) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_idiv(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_idiv(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPIDIV, MT_IDIV) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn arith_unm(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn arith_unm(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPUNM, MT_UNM) }
 }
 
-unsafe extern "C" fn gmatch_aux(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn gmatch_aux(state: *mut lua_State) -> c_int {
     let gm = unsafe { &mut *(lua_touserdata(state, lua_upvalueindex(3)) as *mut GMatchState) };
     gm.ms.state = state;
     let mut src = gm.src;
@@ -1618,18 +1601,15 @@ unsafe extern "C" fn gmatch_aux(state: *mut lua_State) -> c_int {
     0
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_find(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_find(state: *mut lua_State) -> c_int {
     unsafe { str_find_aux(state, true) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_match(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_match(state: *mut lua_State) -> c_int {
     unsafe { str_find_aux(state, false) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn gmatch(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn gmatch(state: *mut lua_State) -> c_int {
     let mut ls = 0;
     let mut lp = 0;
     let s = { luaL_checklstring(state, 1, &mut ls) }.cast::<u8>();
@@ -1666,8 +1646,7 @@ pub unsafe extern "C" fn gmatch(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_gsub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_gsub(state: *mut lua_State) -> c_int {
     let mut srcl = 0;
     let mut lp = 0;
     let mut src = { luaL_checklstring(state, 1, &mut srcl) }.cast::<u8>();
@@ -1732,8 +1711,7 @@ pub unsafe extern "C" fn str_gsub(state: *mut lua_State) -> c_int {
     2
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_format(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_format(state: *mut lua_State) -> c_int {
     let top = unsafe { lua_gettop(state) };
     let mut arg = 1;
     let mut sfl = 0usize;
@@ -1924,8 +1902,7 @@ fn unpackint(
     res as lua_Integer
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_pack(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_pack(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut fmtp = fmt;
@@ -2034,8 +2011,7 @@ pub unsafe extern "C" fn str_pack(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_packsize(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_packsize(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut fmtp = fmt;
@@ -2068,8 +2044,7 @@ pub unsafe extern "C" fn str_packsize(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn str_unpack(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn str_unpack(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut data_len = 0usize;
@@ -2176,8 +2151,7 @@ unsafe fn createmetatable(state: *mut lua_State) {
     unsafe { lua_pop(state, 1) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_string(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_string(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &STRLIB) };
     unsafe { createmetatable(state) };
     1

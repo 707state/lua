@@ -100,7 +100,7 @@ static DBLIB: [luaL_Reg; 17] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn lua_checkstack(state: *mut lua_State, n: c_int) -> c_int;
     fn lua_getfield(state: *mut lua_State, idx: c_int, key: *const c_char) -> c_int;
     fn lua_getlocal(state: *mut lua_State, ar: *const LuaDebug, n: c_int) -> *const c_char;
@@ -152,12 +152,12 @@ fn checkstack_main(state: LuaThread, target: LuaThread, n: c_int) {
     }
 }
 
-unsafe extern "C" fn db_getregistry(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getregistry(state: *mut lua_State) -> c_int {
     unsafe { lua_pushvalue(state, LUA_REGISTRYINDEX) };
     1
 }
 
-unsafe extern "C" fn db_getmetatable(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getmetatable(state: *mut lua_State) -> c_int {
     unsafe { luaL_checkany(state, 1) };
     if unsafe { lua_getmetatable(state, 1) } == 0 {
         unsafe { lua_pushnil(state) };
@@ -165,7 +165,7 @@ unsafe extern "C" fn db_getmetatable(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn db_setmetatable(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_setmetatable(state: *mut lua_State) -> c_int {
     let t = unsafe { lua_type(state, 2) };
     if !(t == LUA_TNIL || t == LUA_TTABLE) {
         let _ = unsafe { luaL_typeerror(state, 2, c"nil or table".as_ptr()) };
@@ -175,7 +175,7 @@ unsafe extern "C" fn db_setmetatable(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn db_getuservalue(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getuservalue(state: *mut lua_State) -> c_int {
     let n = unsafe { luaL_optinteger(state, 2, 1) } as c_int;
     if unsafe { lua_type(state, 1) } != LUA_TUSERDATA {
         unsafe { push_fail(state) };
@@ -186,7 +186,7 @@ unsafe extern "C" fn db_getuservalue(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn db_setuservalue(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_setuservalue(state: *mut lua_State) -> c_int {
     let n = unsafe { luaL_optinteger(state, 3, 1) } as c_int;
     unsafe { luaL_checktype(state, 1, LUA_TUSERDATA) };
     unsafe { luaL_checkany(state, 2) };
@@ -236,7 +236,7 @@ unsafe fn treatstackoption(state: *mut lua_State, target: *mut lua_State, fname:
     unsafe { lua_setfield(state, -2, fname.as_ptr().cast()) };
 }
 
-unsafe extern "C" fn db_getinfo(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getinfo(state: *mut lua_State) -> c_int {
     db_getinfo_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -307,7 +307,7 @@ fn db_getinfo_impl(state: LuaThread) -> c_int {
     1
 }
 
-unsafe extern "C" fn db_getlocal(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getlocal(state: *mut lua_State) -> c_int {
     db_getlocal_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -343,7 +343,7 @@ fn db_getlocal_impl(state: LuaThread) -> c_int {
     }
 }
 
-unsafe extern "C" fn db_setlocal(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_setlocal(state: *mut lua_State) -> c_int {
     db_setlocal_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -392,11 +392,11 @@ unsafe fn auxupvalue(state: *mut lua_State, get: bool) -> c_int {
     }
 }
 
-unsafe extern "C" fn db_getupvalue(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_getupvalue(state: *mut lua_State) -> c_int {
     unsafe { auxupvalue(state, true) }
 }
 
-unsafe extern "C" fn db_setupvalue(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_setupvalue(state: *mut lua_State) -> c_int {
     unsafe { luaL_checkany(state, 3) };
     unsafe { auxupvalue(state, false) }
 }
@@ -419,7 +419,7 @@ unsafe fn checkupval(
     id
 }
 
-unsafe extern "C" fn db_upvalueid(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_upvalueid(state: *mut lua_State) -> c_int {
     let id = unsafe { checkupval(state, 1, 2, None) };
     if id.is_null() {
         unsafe { push_fail(state) };
@@ -429,7 +429,7 @@ unsafe extern "C" fn db_upvalueid(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn db_upvaluejoin(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_upvaluejoin(state: *mut lua_State) -> c_int {
     let mut n1 = 0;
     let mut n2 = 0;
     unsafe { checkupval(state, 1, 2, Some(&mut n1)) };
@@ -444,7 +444,7 @@ unsafe extern "C" fn db_upvaluejoin(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C" fn hookf(state: *mut lua_State, ar: *mut LuaDebug) {
+unsafe extern "C-unwind" fn hookf(state: *mut lua_State, ar: *mut LuaDebug) {
     hookf_impl(unsafe { LuaThread::from_ptr(state) }, unsafe { &mut *ar });
 }
 
@@ -503,7 +503,7 @@ fn unmakemask(mask: c_int) -> String {
     out
 }
 
-unsafe extern "C" fn db_sethook(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_sethook(state: *mut lua_State) -> c_int {
     db_sethook_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -521,7 +521,7 @@ fn db_sethook_impl(state: LuaThread) -> c_int {
         unsafe { luaL_checktype(state_ptr, arg + 1, LUA_TFUNCTION) };
         let count = unsafe { luaL_optinteger(state_ptr, arg + 3, 0) } as c_int;
         (
-            Some(hookf as unsafe extern "C" fn(*mut lua_State, *mut LuaDebug)),
+            Some(hookf as unsafe extern "C-unwind" fn(*mut lua_State, *mut LuaDebug)),
             makemask(&smask, count),
             count,
         )
@@ -541,7 +541,7 @@ fn db_sethook_impl(state: LuaThread) -> c_int {
     0
 }
 
-unsafe extern "C" fn db_gethook(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_gethook(state: *mut lua_State) -> c_int {
     db_gethook_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -556,7 +556,7 @@ fn db_gethook_impl(state: LuaThread) -> c_int {
         return 1;
     } else if !fn_addr_eq(
         hook.unwrap(),
-        hookf as unsafe extern "C" fn(*mut lua_State, *mut LuaDebug),
+        hookf as unsafe extern "C-unwind" fn(*mut lua_State, *mut LuaDebug),
     ) {
         unsafe { lua_pushstring(state_ptr, c"external hook".as_ptr()) };
     } else {
@@ -573,7 +573,7 @@ fn db_gethook_impl(state: LuaThread) -> c_int {
     3
 }
 
-unsafe extern "C" fn db_debug(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_debug(state: *mut lua_State) -> c_int {
     let mut line = String::new();
     loop {
         let _ = write!(io::stderr(), "lua_debug> ");
@@ -614,7 +614,7 @@ unsafe extern "C" fn db_debug(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn db_traceback(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn db_traceback(state: *mut lua_State) -> c_int {
     db_traceback_impl(unsafe { LuaThread::from_ptr(state) })
 }
 
@@ -634,8 +634,7 @@ fn db_traceback_impl(state: LuaThread) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_debug(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_debug(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &DBLIB) };
     1
 }

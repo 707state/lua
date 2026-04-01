@@ -1,7 +1,7 @@
 use crate::lua_module::lua_State;
 use core::ffi::{c_char, c_int, c_void};
 
-type LuaAlloc = Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
 type LMem = isize;
 
 const LUA_ERRMEM: u8 = 4;
@@ -13,7 +13,7 @@ const MINSIZEARRAY: c_int = 4;
 union Value {
     gc: *mut c_void,
     p: *mut c_void,
-    f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     i: i64,
     n: f64,
     ub: u8,
@@ -65,7 +65,7 @@ struct LuaStatePrefix {
     l_g: *mut GlobalStatePrefix,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaC_fullgc(state: *mut lua_State, isemergency: c_int);
     fn luaG_runerror(state: *mut lua_State, fmt: *const c_char, ...) -> !;
     fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
@@ -116,7 +116,7 @@ unsafe fn tryagain(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_growaux_(
+pub unsafe extern "C-unwind" fn luaM_growaux_(
     state: *mut lua_State,
     block: *mut c_void,
     nelems: c_int,
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn luaM_growaux_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_shrinkvector_(
+pub unsafe extern "C-unwind" fn luaM_shrinkvector_(
     state: *mut lua_State,
     block: *mut c_void,
     size: *mut c_int,
@@ -168,19 +168,19 @@ pub unsafe extern "C" fn luaM_shrinkvector_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_toobig(state: *mut lua_State) -> ! {
+pub unsafe extern "C-unwind" fn luaM_toobig(state: *mut lua_State) -> ! {
     unsafe { luaG_runerror(state, c"memory allocation error: block too big".as_ptr()) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize) {
+pub unsafe extern "C-unwind" fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize) {
     let g = unsafe { global_state(state) };
     unsafe { callfrealloc(g, block, osize, 0) };
     unsafe { (*g).gcdebt += osize as LMem };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_realloc_(
+pub unsafe extern "C-unwind" fn luaM_realloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -199,7 +199,7 @@ pub unsafe extern "C" fn luaM_realloc_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_saferealloc_(
+pub unsafe extern "C-unwind" fn luaM_saferealloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -213,7 +213,7 @@ pub unsafe extern "C" fn luaM_saferealloc_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaM_malloc_(
+pub unsafe extern "C-unwind" fn luaM_malloc_(
     state: *mut lua_State,
     size: usize,
     tag: c_int,

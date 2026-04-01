@@ -116,7 +116,7 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
 union Value {
     gc: *mut GCObject,
     p: *mut c_void,
-    f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     i: lua_Integer,
     n: lua_Number,
     ub: u8,
@@ -184,7 +184,7 @@ struct TString {
     hash: u32,
     u: TStringUnion,
     contents: *mut c_char,
-    falloc: Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
+    falloc: Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
     ud: *mut c_void,
 }
 
@@ -248,7 +248,7 @@ struct LuaStatePrefix {
     l_g: *mut GlobalState,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaC_fix(state: *mut lua_State, object: *mut GCObject);
     fn luaC_step(state: *mut lua_State);
     fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
@@ -454,8 +454,7 @@ unsafe fn save_and_next(ls: *mut LexState) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_init(state: *mut lua_State) {
+pub(crate) unsafe fn luaX_init(state: *mut lua_State) {
     let env = unsafe { raw_luaS_new(state.cast(), LUA_ENV.as_ptr().cast()).cast::<TString>() };
     unsafe { luaC_fix(state, env.cast()) };
     for (i, token) in LUA_X_TOKENS.iter().take(NUM_RESERVED).enumerate() {
@@ -468,7 +467,7 @@ pub unsafe extern "C" fn luaX_init(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_token2str(ls: *mut LexState, token: c_int) -> *const c_char {
+pub unsafe extern "C-unwind" fn luaX_token2str(ls: *mut LexState, token: c_int) -> *const c_char {
     if token < FIRST_RESERVED {
         if lisprint(token) {
             unsafe { luaO_pushfstring((*ls).L, CHAR_FMT.as_ptr().cast(), token) }
@@ -498,7 +497,7 @@ unsafe fn txtToken(ls: *mut LexState, token: c_int) -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
+pub unsafe extern "C-unwind" fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
     unsafe { lexerror(ls, msg, (*ls).t.token) }
 }
 
@@ -528,7 +527,7 @@ unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_newstring(
+pub unsafe extern "C-unwind" fn luaX_newstring(
     ls: *mut LexState,
     str_: *const c_char,
     len: usize,
@@ -553,7 +552,7 @@ unsafe fn inclinenumber(ls: *mut LexState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_setinput(
+pub unsafe extern "C-unwind" fn luaX_setinput(
     state: *mut lua_State,
     ls: *mut LexState,
     z: *mut ZIO,
@@ -1035,7 +1034,7 @@ unsafe fn llex(ls: *mut LexState, seminfo: *mut SemInfo) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_next(ls: *mut LexState) {
+pub unsafe extern "C-unwind" fn luaX_next(ls: *mut LexState) {
     unsafe {
         (*ls).lastline = (*ls).linenumber;
         if (*ls).lookahead.token != TK_EOS {
@@ -1048,7 +1047,7 @@ pub unsafe extern "C" fn luaX_next(ls: *mut LexState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaX_lookahead(ls: *mut LexState) -> c_int {
+pub unsafe extern "C-unwind" fn luaX_lookahead(ls: *mut LexState) -> c_int {
     debug_assert_eq!(unsafe { (*ls).lookahead.token }, TK_EOS);
     unsafe {
         (*ls).lookahead.token = llex(ls, ptr::addr_of_mut!((*ls).lookahead.seminfo));

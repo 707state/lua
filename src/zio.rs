@@ -5,7 +5,7 @@ use core::{ptr, slice};
 pub const EOZ: c_int = -1;
 
 pub type LuaReader =
-    Option<unsafe extern "C" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
 
 #[repr(C)]
 pub struct ZIO {
@@ -23,7 +23,7 @@ pub struct Mbuffer {
     pub buffsize: usize,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaM_saferealloc_(
         state: *mut lua_State,
         block: *mut c_void,
@@ -65,7 +65,7 @@ fn checkbuffer(z: &mut ZIO) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_fill(z: *mut ZIO) -> c_int {
+pub unsafe extern "C-unwind" fn luaZ_fill(z: *mut ZIO) -> c_int {
     let z = ZIO::as_mut(z);
     let Some(reader) = z.reader else {
         return EOZ;
@@ -82,8 +82,7 @@ pub unsafe extern "C" fn luaZ_fill(z: *mut ZIO) -> c_int {
     unsafe { *buffer.cast::<u8>() as c_int }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_init(
+pub(crate) unsafe fn luaZ_init(
     state: *mut lua_State,
     z: *mut ZIO,
     reader: LuaReader,
@@ -98,15 +97,14 @@ pub unsafe extern "C" fn luaZ_init(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_initbuffer(_state: *mut lua_State, buffer: *mut Mbuffer) {
+pub unsafe extern "C-unwind" fn luaZ_initbuffer(_state: *mut lua_State, buffer: *mut Mbuffer) {
     let buffer = Mbuffer::as_mut(buffer);
     buffer.buffer = ptr::null_mut();
     buffer.n = 0;
     buffer.buffsize = 0;
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_resizebuffer(
+pub(crate) unsafe fn luaZ_resizebuffer(
     state: *mut lua_State,
     buffer: *mut Mbuffer,
     size: usize,
@@ -121,12 +119,11 @@ pub unsafe extern "C" fn luaZ_resizebuffer(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_freebuffer(state: *mut lua_State, buffer: *mut Mbuffer) {
+pub unsafe extern "C-unwind" fn luaZ_freebuffer(state: *mut lua_State, buffer: *mut Mbuffer) {
     unsafe { luaZ_resizebuffer(state, buffer, 0) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_read(z: *mut ZIO, buffer: *mut c_void, mut n: usize) -> usize {
+pub(crate) unsafe fn luaZ_read(z: *mut ZIO, buffer: *mut c_void, mut n: usize) -> usize {
     let z = ZIO::as_mut(z);
     let mut out = buffer.cast::<u8>();
 
@@ -147,8 +144,7 @@ pub unsafe extern "C" fn luaZ_read(z: *mut ZIO, buffer: *mut c_void, mut n: usiz
     0
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaZ_getaddr(z: *mut ZIO, n: usize) -> *const c_void {
+pub(crate) unsafe fn luaZ_getaddr(z: *mut ZIO, n: usize) -> *const c_void {
     let z = ZIO::as_mut(z);
     if !checkbuffer(z) || z.n < n {
         return ptr::null();
@@ -176,7 +172,7 @@ mod tests {
         index: usize,
     }
 
-    unsafe extern "C" fn reader(
+    unsafe extern "C-unwind" fn reader(
         _state: *mut lua_State,
         data: *mut c_void,
         size: *mut usize,

@@ -24,14 +24,14 @@ const LUA_VTABLE: u8 = 5;
 
 type Instruction = u32;
 type LuaWriter =
-    Option<unsafe extern "C" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 union Value {
     gc: *mut GCObject,
     p: *mut c_void,
-    f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     i: lua_Integer,
     n: lua_Number,
     ub: u8,
@@ -185,7 +185,7 @@ struct DumpState {
     nstr: lua_Unsigned,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaD_inctop(state: *mut lua_State);
 }
 
@@ -532,8 +532,7 @@ fn dump_header(state: &mut DumpState) {
     dump_var(state, &LUAC_NUM);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaU_dump(
+pub(crate) unsafe fn luaU_dump(
     state: *mut lua_State,
     proto: *const Proto,
     writer: LuaWriter,

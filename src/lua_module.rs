@@ -24,7 +24,7 @@ pub struct luaL_Reg {
 
 unsafe impl Sync for luaL_Reg {}
 
-pub type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+pub type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
 
 pub const LUA_VERSION_NUM: lua_Number = 505.0;
 pub const LUAL_NUMSIZES: usize = size_of::<lua_Integer>() * 16 + size_of::<lua_Number>();
@@ -33,30 +33,73 @@ pub const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 #[inline]
 pub fn link_anchor() {}
 
-unsafe extern "C" {
-    pub fn lua_gettop(state: *mut lua_State) -> c_int;
-    pub fn lua_settop(state: *mut lua_State, index: c_int);
-    pub fn lua_pushvalue(state: *mut lua_State, index: c_int);
-    pub fn lua_pushnil(state: *mut lua_State);
-    pub fn lua_pushnumber(state: *mut lua_State, n: lua_Number);
-    pub fn lua_pushinteger(state: *mut lua_State, n: lua_Integer);
-    pub fn lua_pushlstring(state: *mut lua_State, s: *const c_char, len: usize) -> *const c_char;
-    pub fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char;
-    pub fn lua_pushvfstring(
-        state: *mut lua_State,
-        fmt: *const c_char,
-        argp: VaList<'_>,
-    ) -> *const c_char;
-    pub fn lua_pushboolean(state: *mut lua_State, b: c_int);
-    pub fn lua_pushcclosure(state: *mut lua_State, function: LuaCFunction, n: c_int);
-    pub fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
-    pub fn lua_concat(state: *mut lua_State, n: c_int);
-    pub fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
-    pub fn lua_error(state: *mut lua_State) -> c_int;
+#[inline]
+pub unsafe fn lua_gettop(state: *mut lua_State) -> c_int {
+    unsafe { crate::api::lua_gettop(state as _) }
+}
+#[inline]
+pub unsafe fn lua_settop(state: *mut lua_State, index: c_int) {
+    unsafe { crate::api::lua_settop(state as _, index) }
+}
+#[inline]
+pub unsafe fn lua_pushvalue(state: *mut lua_State, index: c_int) {
+    unsafe { crate::api::lua_pushvalue(state as _, index) }
+}
+#[inline]
+pub unsafe fn lua_pushnil(state: *mut lua_State) {
+    unsafe { crate::api::lua_pushnil(state as _) }
+}
+#[inline]
+pub unsafe fn lua_pushnumber(state: *mut lua_State, n: lua_Number) {
+    unsafe { crate::api::lua_pushnumber(state as _, n) }
+}
+#[inline]
+pub unsafe fn lua_pushinteger(state: *mut lua_State, n: lua_Integer) {
+    unsafe { crate::api::lua_pushinteger(state as _, n) }
+}
+#[inline]
+pub unsafe fn lua_pushlstring(state: *mut lua_State, s: *const c_char, len: usize) -> *const c_char {
+    unsafe { crate::api::lua_pushlstring(state as _, s, len) }
+}
+#[inline]
+pub unsafe fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char {
+    unsafe { crate::api::lua_pushstring(state as _, s) }
+}
+#[inline]
+pub unsafe fn lua_pushvfstring(
+    state: *mut lua_State,
+    fmt: *const c_char,
+    argp: VaList<'_>,
+) -> *const c_char {
+    unsafe { crate::api::lua_pushvfstring(state as _, fmt, argp) }
+}
+#[inline]
+pub unsafe fn lua_pushboolean(state: *mut lua_State, b: c_int) {
+    unsafe { crate::api::lua_pushboolean(state as _, b) }
+}
+#[inline]
+pub unsafe fn lua_pushcclosure(state: *mut lua_State, function: LuaCFunction, n: c_int) {
+    unsafe { crate::api::lua_pushcclosure(state as _, core::mem::transmute(function), n) }
+}
+#[inline]
+pub unsafe fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int) {
+    unsafe { crate::api::lua_createtable(state as _, narr, nrec) }
+}
+#[inline]
+pub unsafe fn lua_concat(state: *mut lua_State, n: c_int) {
+    unsafe { crate::api::lua_concat(state as _, n) }
+}
+#[inline]
+pub unsafe fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char) {
+    unsafe { crate::api::lua_setfield(state as _, index, key) }
+}
+#[inline]
+pub unsafe fn lua_error(state: *mut lua_State) -> c_int {
+    unsafe { crate::api::lua_error(state as _) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaL_error(state: *mut lua_State, fmt: *const c_char, argp: ...) -> c_int {
+pub unsafe extern "C-unwind" fn luaL_error(state: *mut lua_State, fmt: *const c_char, argp: ...) -> c_int {
     luaL_where(state, 1);
     unsafe { lua_pushvfstring(state, fmt, argp) };
     unsafe { lua_concat(state, 2) };
@@ -127,11 +170,11 @@ mod tests {
     use core::ffi::{c_char, c_int};
     use std::ptr;
 
-    unsafe extern "C" {
+    unsafe extern "C-unwind" {
         fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
     }
 
-    unsafe extern "C" fn boom(state: *mut lua_State) -> c_int {
+    unsafe extern "C-unwind" fn boom(state: *mut lua_State) -> c_int {
         unsafe { luaL_error(state, c"broken %s %d".as_ptr(), c"item".as_ptr(), 7) }
     }
 

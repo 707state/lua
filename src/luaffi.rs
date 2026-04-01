@@ -6,12 +6,12 @@ use std::mem::MaybeUninit;
 
 pub type LuaInteger = i64;
 pub type LuaNumber = f64;
-pub type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+pub type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
 pub type LuaKContext = isize;
-pub type LuaKFunction = Option<unsafe extern "C" fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
-pub type LuaHook = Option<unsafe extern "C" fn(*mut lua_State, *mut LuaDebug)>;
+pub type LuaKFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
+pub type LuaHook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut LuaDebug)>;
 pub type LuaWriter =
-    Option<unsafe extern "C" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 
 const LUA_IDSIZE: usize = 60;
 
@@ -83,7 +83,7 @@ pub const LUA_VERSION_NUM: LuaNumber = 505.0;
 pub const LUAL_NUMSIZES: usize =
     std::mem::size_of::<LuaInteger>() * 16 + std::mem::size_of::<LuaNumber>();
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     pub fn lua_close(state: *mut lua_State);
     pub fn lua_pcallk(
         state: *mut lua_State,

@@ -167,7 +167,7 @@ union Closure {
     l: ManuallyDrop<LClosure>,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaD_hook(L: *mut lua_State, event: c_int, line: c_int, ftransfer: c_int, ntransfer: c_int);
     fn luaD_hookcall(L: *mut lua_State, ci: *mut CallInfo);
     fn luaF_getlocalname(p: *const Proto, local_number: c_int, pc: c_int) -> *const c_char;
@@ -281,7 +281,7 @@ unsafe fn getbaseline(f: *const ProtoDebug, pc: c_int, basepc: *mut c_int) -> c_
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_getfuncline(f: *const Proto, pc: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn luaG_getfuncline(f: *const Proto, pc: c_int) -> c_int {
     let f = unsafe { pdebug(f) };
     if unsafe { (*f).lineinfo.is_null() } {
         -1
@@ -310,7 +310,7 @@ unsafe fn settraps(mut ci: *mut CallInfo) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_sethook(
+pub unsafe extern "C-unwind" fn lua_sethook(
     L: *mut lua_State,
     mut func: lua_Hook,
     mut mask: c_int,
@@ -332,22 +332,22 @@ pub unsafe extern "C" fn lua_sethook(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gethook(L: *mut lua_State) -> lua_Hook {
+pub unsafe extern "C-unwind" fn lua_gethook(L: *mut lua_State) -> lua_Hook {
     unsafe { (*L).hook }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gethookmask(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_gethookmask(L: *mut lua_State) -> c_int {
     unsafe { (*L).hookmask }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gethookcount(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_gethookcount(L: *mut lua_State) -> c_int {
     unsafe { (*L).basehookcount }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getstack(
+pub unsafe extern "C-unwind" fn lua_getstack(
     L: *mut lua_State,
     mut level: c_int,
     ar: *mut lua_Debug,
@@ -392,7 +392,7 @@ unsafe fn findvararg(ci: *mut CallInfo, n: c_int, pos: *mut StkId) -> *const c_c
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_findlocal(
+pub unsafe extern "C-unwind" fn luaG_findlocal(
     L: *mut lua_State,
     ci: *mut CallInfo,
     n: c_int,
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn luaG_findlocal(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getlocal(
+pub unsafe extern "C-unwind" fn lua_getlocal(
     L: *mut lua_State,
     ar: *const lua_Debug,
     n: c_int,
@@ -455,7 +455,7 @@ pub unsafe extern "C" fn lua_getlocal(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setlocal(
+pub unsafe extern "C-unwind" fn lua_setlocal(
     L: *mut lua_State,
     ar: *const lua_Debug,
     n: c_int,
@@ -622,7 +622,7 @@ unsafe fn auxgetinfo(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getinfo(
+pub unsafe extern "C-unwind" fn lua_getinfo(
     L: *mut lua_State,
     mut what: *const c_char,
     ar: *mut lua_Debug,
@@ -956,7 +956,7 @@ unsafe fn typeerror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_typeerror(
+pub unsafe extern "C-unwind" fn luaG_typeerror(
     L: *mut lua_State,
     o: *const TValue,
     op: *const c_char,
@@ -965,7 +965,7 @@ pub unsafe extern "C" fn luaG_typeerror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
+pub unsafe extern "C-unwind" fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
     let ci = unsafe { (*L).ci };
     let mut name = ptr::null();
     let kind = unsafe { funcnamefromcall(L, ci, &mut name) };
@@ -978,7 +978,7 @@ pub unsafe extern "C" fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_forerror(
+pub unsafe extern "C-unwind" fn luaG_forerror(
     L: *mut lua_State,
     o: *const TValue,
     what: *const c_char,
@@ -994,7 +994,7 @@ pub unsafe extern "C" fn luaG_forerror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_concaterror(
+pub unsafe extern "C-unwind" fn luaG_concaterror(
     L: *mut lua_State,
     mut p1: *const TValue,
     p2: *const TValue,
@@ -1006,7 +1006,7 @@ pub unsafe extern "C" fn luaG_concaterror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_opinterror(
+pub unsafe extern "C-unwind" fn luaG_opinterror(
     L: *mut lua_State,
     p1: *const TValue,
     mut p2: *const TValue,
@@ -1019,7 +1019,7 @@ pub unsafe extern "C" fn luaG_opinterror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_tointerror(
+pub unsafe extern "C-unwind" fn luaG_tointerror(
     L: *mut lua_State,
     p1: *const TValue,
     mut p2: *const TValue,
@@ -1038,7 +1038,7 @@ pub unsafe extern "C" fn luaG_tointerror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_ordererror(
+pub unsafe extern "C-unwind" fn luaG_ordererror(
     L: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -1053,7 +1053,7 @@ pub unsafe extern "C" fn luaG_ordererror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! {
+pub unsafe extern "C-unwind" fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! {
     let mut globalname = STR_QUESTION.as_ptr().cast();
     if k > 0 {
         let _ = unsafe { kname(pdebug((*cl).p), k - 1, &mut globalname) };
@@ -1062,7 +1062,7 @@ pub unsafe extern "C" fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_addinfo(
+pub unsafe extern "C-unwind" fn luaG_addinfo(
     L: *mut lua_State,
     msg: *const c_char,
     src: *mut TString,
@@ -1080,7 +1080,7 @@ pub unsafe extern "C" fn luaG_addinfo(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_errormsg(L: *mut lua_State) -> ! {
+pub unsafe extern "C-unwind" fn luaG_errormsg(L: *mut lua_State) -> ! {
     if unsafe { (*L).errfunc != 0 } {
         let errfunc = unsafe { restorestack(L, (*L).errfunc) };
         unsafe {
@@ -1098,7 +1098,7 @@ pub unsafe extern "C" fn luaG_errormsg(L: *mut lua_State) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_runerror(L: *mut lua_State, fmt: *const c_char, argp: ...) -> ! {
+pub unsafe extern "C-unwind" fn luaG_runerror(L: *mut lua_State, fmt: *const c_char, argp: ...) -> ! {
     let ci = unsafe { (*L).ci };
     unsafe { luaC_checkGC(L) };
     let msg = unsafe { luaO_pushvfstring(L, fmt, argp) };
@@ -1140,7 +1140,7 @@ unsafe fn changedline(p: *const ProtoDebug, oldpc: c_int, newpc: c_int) -> c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_tracecall(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn luaG_tracecall(L: *mut lua_State) -> c_int {
     let ci = unsafe { (*L).ci };
     let p = unsafe { pdebug((*ci_func(ci)).p) };
     unsafe { (*ci).u.l.trap = 1 };
@@ -1156,7 +1156,7 @@ pub unsafe extern "C" fn luaG_tracecall(L: *mut lua_State) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int {
+pub unsafe extern "C-unwind" fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int {
     let ci = unsafe { (*L).ci };
     let mask = unsafe { (*L).hookmask as u8 };
     let p = unsafe { pdebug((*ci_func(ci)).p) };

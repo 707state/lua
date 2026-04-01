@@ -153,15 +153,15 @@ struct Table {
 }
 
 type LuaAlloc = Option<
-    unsafe extern "C" fn(
+    unsafe extern "C-unwind" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
         usize,
         usize,
     ) -> *mut core::ffi::c_void,
 >;
-type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
-type LuaWarnFunction = Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const c_char, c_int)>;
+type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
+type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut core::ffi::c_void, *const c_char, c_int)>;
 
 #[repr(C)]
 struct GlobalState {

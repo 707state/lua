@@ -34,14 +34,14 @@ const LUA_VTABLE: u8 = 5;
 const WHITEBITS: u8 = 0b11;
 const BLACKBIT: u8 = 5;
 
-type LuaAlloc = Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 union Value {
     gc: *mut GCObject,
     p: *mut c_void,
-    f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     i: lua_Integer,
     n: lua_Number,
     ub: u8,
@@ -210,7 +210,7 @@ struct LoadState {
     fixed: bool,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaO_pushfstring(state: *mut lua_State, fmt: *const c_char, ...) -> *const c_char;
     fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
     fn luaD_inctop(state: *mut lua_State);
@@ -762,7 +762,7 @@ fn check_header(state: &mut LoadState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaU_undump(
+pub unsafe extern "C-unwind" fn luaU_undump(
     state: *mut lua_State,
     z: *mut ZIO,
     mut name: *const c_char,

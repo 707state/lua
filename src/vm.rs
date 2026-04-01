@@ -169,7 +169,7 @@ const OFFSET_SC: c_int = MAXARG_C >> 1;
 
 const LUAI_MAXSHORTLEN: usize = 40;
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn strlen(s: *const c_char) -> usize;
     fn strcoll(s1: *const c_char, s2: *const c_char) -> c_int;
     fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
@@ -567,8 +567,7 @@ unsafe fn l_strcmp(ts1: *mut TString, ts2: *mut TString) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int {
+pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int {
     let mut v = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
     if ttisinteger(obj) {
         *n = ivalue(obj) as lua_Number;
@@ -582,7 +581,7 @@ pub unsafe extern "C" fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
     let mut f = n.floor();
     if n != f {
         if mode == F2Ieq {
@@ -595,7 +594,7 @@ pub unsafe extern "C" fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, m
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
     if ttisfloat(obj) {
         luaV_flttointeger(fltvalue(obj), p, mode)
     } else if ttisinteger(obj) {
@@ -606,8 +605,7 @@ pub unsafe extern "C" fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Intege
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
     let mut v = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
     let mut o = obj;
     if l_strton(obj, &mut v) != 0 {
@@ -702,8 +700,7 @@ unsafe fn floatforloop(ra: StkId) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_finishget(
+pub(crate) unsafe fn luaV_finishget(
     L: *mut lua_State,
     mut t: *const TValue,
     key: *mut TValue,
@@ -742,8 +739,7 @@ pub unsafe extern "C" fn luaV_finishget(
     luaG_runerror(L, c"'__index' chain too long; possible loop".as_ptr())
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_finishset(
+pub(crate) unsafe fn luaV_finishset(
     L: *mut lua_State,
     mut t: *const TValue,
     key: *mut TValue,
@@ -888,8 +884,7 @@ unsafe fn lessequalothers(L: *mut lua_State, l: *const TValue, r: *const TValue)
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+pub(crate) unsafe fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
     if ttisnumber(l) && ttisnumber(r) {
         LTnum(l, r)
     } else {
@@ -897,8 +892,7 @@ pub unsafe extern "C" fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+pub(crate) unsafe fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
     if ttisnumber(l) && ttisnumber(r) {
         LEnum(l, r)
     } else {
@@ -907,7 +901,7 @@ pub unsafe extern "C" fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
+pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
     let tm;
     if ttype(t1) != ttype(t2) {
         return 0;
@@ -990,8 +984,7 @@ unsafe fn copy2buff(top: StkId, mut n: c_int, buff: *mut c_char) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_concat(L: *mut lua_State, mut total: c_int) {
+pub(crate) unsafe fn luaV_concat(L: *mut lua_State, mut total: c_int) {
     if total == 1 {
         return;
     }
@@ -1035,8 +1028,7 @@ pub unsafe extern "C" fn luaV_concat(L: *mut lua_State, mut total: c_int) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue) {
+pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue) {
     let tm;
     match ttypetag(rb) {
         LUA_VTABLE => {
@@ -1066,7 +1058,7 @@ pub unsafe extern "C" fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TV
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+pub unsafe extern "C-unwind" fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to divide by zero".as_ptr());
@@ -1082,7 +1074,7 @@ pub unsafe extern "C" fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+pub unsafe extern "C-unwind" fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to perform 'n%%0'".as_ptr());
@@ -1098,7 +1090,7 @@ pub unsafe extern "C" fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Inte
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Number) -> lua_Number {
+pub unsafe extern "C-unwind" fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Number) -> lua_Number {
     let mut r = m % n;
     if if r > 0.0 { n < 0.0 } else { r < 0.0 && n > 0.0 } {
         r += n;
@@ -1107,7 +1099,7 @@ pub unsafe extern "C" fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Num
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_shiftl(x: lua_Integer, y: lua_Integer) -> lua_Integer {
+pub unsafe extern "C-unwind" fn luaV_shiftl(x: lua_Integer, y: lua_Integer) -> lua_Integer {
     let nbits = lua_Integer::BITS as lua_Integer;
     if y < 0 {
         if y <= -nbits {
@@ -1140,7 +1132,7 @@ unsafe fn pushclosure(L: *mut lua_State, p: *mut Proto, encup: *mut *mut UpVal, 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_finishOp(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaV_finishOp(L: *mut lua_State) {
     let ci = (*L).ci;
     let base = (*ci).func.p.add(1);
     let inst = *(*ci).u.l.savedpc.sub(1);
@@ -1180,7 +1172,7 @@ pub unsafe extern "C" fn luaV_finishOp(L: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
+pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
     let mut trap = 0;
     let mut keep_trap = false;
     'newframe: loop {

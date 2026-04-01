@@ -36,8 +36,7 @@ const fn build_ctype() -> [u8; 258] {
     out
 }
 
-#[unsafe(no_mangle)]
-pub static luai_ctype_: [u8; 258] = build_ctype();
+pub(crate) static luai_ctype_: [u8; 258] = build_ctype();
 
 #[cfg(test)]
 mod tests {

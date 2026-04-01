@@ -8,17 +8,14 @@
 
 use crate::runtime::*;
 
-#[unsafe(no_mangle)]
 pub static lua_ident: [u8; 129] =
     *b"$LuaVersion: Lua 5.5.0  Copyright (C) 1994-2025 Lua.org, PUC-Rio $$LuaAuthors: R. Ierusalimschy, L. H. de Figueiredo, W. Celes $\0";
 
-unsafe extern "C" {
-    fn luaE_setdebt(g: *mut global_State, debt: l_mem);
-    fn luaG_errormsg(L: *mut lua_State) -> !;
-}
+use crate::runtime::luaE_setdebt;
+use crate::debug::luaG_errormsg;
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_checkstack(L: *mut lua_State, n: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_checkstack(L: *mut lua_State, n: c_int) -> c_int {
     let ci = unsafe { (*L).ci };
     unsafe { api_check(n >= 0, "negative 'n'") };
     let res = if unsafe { (*L).stack_last.p.offset_from((*L).top.p) > n as isize } {
@@ -33,7 +30,7 @@ pub unsafe extern "C" fn lua_checkstack(L: *mut lua_State, n: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_xmove(from: *mut lua_State, to: *mut lua_State, n: c_int) {
+pub unsafe extern "C-unwind" fn lua_xmove(from: *mut lua_State, to: *mut lua_State, n: c_int) {
     if from == to {
         return;
     }
@@ -55,19 +52,19 @@ pub unsafe extern "C" fn lua_xmove(from: *mut lua_State, to: *mut lua_State, n: 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_atpanic(L: *mut lua_State, panicf: lua_CFunction) -> lua_CFunction {
+pub unsafe extern "C-unwind" fn lua_atpanic(L: *mut lua_State, panicf: lua_CFunction) -> lua_CFunction {
     let old = unsafe { (*G(L)).panic };
     unsafe { (*G(L)).panic = panicf };
     old
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_version(_L: *mut lua_State) -> lua_Number {
+pub unsafe extern "C-unwind" fn lua_version(_L: *mut lua_State) -> lua_Number {
     LUA_VERSION_NUM
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_absindex(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_absindex(L: *mut lua_State, idx: c_int) -> c_int {
     if idx > 0 || unsafe { ispseudo(idx) } {
         idx
     } else {
@@ -76,12 +73,12 @@ pub unsafe extern "C" fn lua_absindex(L: *mut lua_State, idx: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gettop(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_gettop(L: *mut lua_State) -> c_int {
     unsafe { (*L).top.p.offset_from((*(*L).ci).func.p.add(1)) as c_int }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_settop(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_settop(L: *mut lua_State, idx: c_int) {
     let ci = unsafe { (*L).ci };
     let func = unsafe { (*ci).func.p };
     let diff = if idx >= 0 {
@@ -115,7 +112,7 @@ pub unsafe extern "C" fn lua_settop(L: *mut lua_State, idx: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_closeslot(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_closeslot(L: *mut lua_State, idx: c_int) {
     let mut level = unsafe { index2stack(L, idx) };
     unsafe {
         api_check(
@@ -128,7 +125,7 @@ pub unsafe extern "C" fn lua_closeslot(L: *mut lua_State, idx: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rotate(L: *mut lua_State, idx: c_int, n: c_int) {
+pub unsafe extern "C-unwind" fn lua_rotate(L: *mut lua_State, idx: c_int, n: c_int) {
     let t = unsafe { (*L).top.p.sub(1) };
     let p = unsafe { index2stack(L, idx) };
     unsafe { api_check((*L).tbclist.p < p, "moving a to-be-closed slot") };
@@ -149,7 +146,7 @@ pub unsafe extern "C" fn lua_rotate(L: *mut lua_State, idx: c_int, n: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_copy(L: *mut lua_State, fromidx: c_int, toidx: c_int) {
+pub unsafe extern "C-unwind" fn lua_copy(L: *mut lua_State, fromidx: c_int, toidx: c_int) {
     let fr = unsafe { index2value(L, fromidx) };
     let to = unsafe { index2value(L, toidx) };
     unsafe { api_check(isvalid(L, to), "invalid index") };
@@ -160,13 +157,13 @@ pub unsafe extern "C" fn lua_copy(L: *mut lua_State, fromidx: c_int, toidx: c_in
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushvalue(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_pushvalue(L: *mut lua_State, idx: c_int) {
     unsafe { setobj2s(L, (*L).top.p, index2value(L, idx)) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_type(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_type(L: *mut lua_State, idx: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     if unsafe { isvalid(L, o) } {
         unsafe { ttype(o) as c_int }
@@ -176,7 +173,7 @@ pub unsafe extern "C" fn lua_type(L: *mut lua_State, idx: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_typename(_L: *mut lua_State, t: c_int) -> *const c_char {
+pub unsafe extern "C-unwind" fn lua_typename(_L: *mut lua_State, t: c_int) -> *const c_char {
     unsafe { api_check(LUA_TNONE <= t && t < LUA_NUMTYPES, "invalid type") };
     static NAMES: [&[u8]; 10] = [
         b"no value\0",
@@ -194,36 +191,36 @@ pub unsafe extern "C" fn lua_typename(_L: *mut lua_State, t: c_int) -> *const c_
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_iscfunction(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_iscfunction(L: *mut lua_State, idx: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     (unsafe { ttislcf(o) || ttisCclosure(o) }) as c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_isinteger(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_isinteger(L: *mut lua_State, idx: c_int) -> c_int {
     unsafe { ttisinteger(index2value(L, idx)) as c_int }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_isnumber(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_isnumber(L: *mut lua_State, idx: c_int) -> c_int {
     let mut n = 0.0;
     unsafe { tonumber(index2value(L, idx), ptr::addr_of_mut!(n)) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_isstring(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_isstring(L: *mut lua_State, idx: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     (unsafe { ttisstring(o) || cvt2str(o) }) as c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_isuserdata(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_isuserdata(L: *mut lua_State, idx: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     (unsafe { ttisfulluserdata(o) || ttislightuserdata(o) }) as c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawequal(L: *mut lua_State, index1: c_int, index2: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_rawequal(L: *mut lua_State, index1: c_int, index2: c_int) -> c_int {
     let o1 = unsafe { index2value(L, index1) };
     let o2 = unsafe { index2value(L, index2) };
     if unsafe { isvalid(L, o1) && isvalid(L, o2) } {
@@ -234,7 +231,7 @@ pub unsafe extern "C" fn lua_rawequal(L: *mut lua_State, index1: c_int, index2: 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_arith(L: *mut lua_State, op: c_int) {
+pub unsafe extern "C-unwind" fn lua_arith(L: *mut lua_State, op: c_int) {
     if op != LUA_OPUNM && op != LUA_OPBNOT {
         unsafe { api_checkpop(L, 2) };
     } else {
@@ -255,7 +252,7 @@ pub unsafe extern "C" fn lua_arith(L: *mut lua_State, op: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_compare(
+pub unsafe extern "C-unwind" fn lua_compare(
     L: *mut lua_State,
     index1: c_int,
     index2: c_int,
@@ -278,7 +275,7 @@ pub unsafe extern "C" fn lua_compare(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_numbertocstring(
+pub unsafe extern "C-unwind" fn lua_numbertocstring(
     L: *mut lua_State,
     idx: c_int,
     buff: *mut c_char,
@@ -295,7 +292,7 @@ pub unsafe extern "C" fn lua_numbertocstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_stringtonumber(L: *mut lua_State, s: *const c_char) -> usize {
+pub unsafe extern "C-unwind" fn lua_stringtonumber(L: *mut lua_State, s: *const c_char) -> usize {
     let sz = unsafe { luaO_str2num(s, s2v((*L).top.p)) };
     if sz != 0 {
         unsafe { api_incr_top(L) };
@@ -304,7 +301,7 @@ pub unsafe extern "C" fn lua_stringtonumber(L: *mut lua_State, s: *const c_char)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_tonumberx(
+pub unsafe extern "C-unwind" fn lua_tonumberx(
     L: *mut lua_State,
     idx: c_int,
     pisnum: *mut c_int,
@@ -318,7 +315,7 @@ pub unsafe extern "C" fn lua_tonumberx(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_tointegerx(
+pub unsafe extern "C-unwind" fn lua_tointegerx(
     L: *mut lua_State,
     idx: c_int,
     pisnum: *mut c_int,
@@ -332,12 +329,12 @@ pub unsafe extern "C" fn lua_tointegerx(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_toboolean(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_toboolean(L: *mut lua_State, idx: c_int) -> c_int {
     (!unsafe { l_isfalse(index2value(L, idx)) }) as c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_tolstring(
+pub unsafe extern "C-unwind" fn lua_tolstring(
     L: *mut lua_State,
     idx: c_int,
     len: *mut usize,
@@ -362,7 +359,7 @@ pub unsafe extern "C" fn lua_tolstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawlen(L: *mut lua_State, idx: c_int) -> lua_Unsigned {
+pub unsafe extern "C-unwind" fn lua_rawlen(L: *mut lua_State, idx: c_int) -> lua_Unsigned {
     let o = unsafe { index2value(L, idx) };
     match unsafe { ttypetag(o) } {
         LUA_VSHRSTR => unsafe { (*tsvalue(o)).shrlen as lua_Unsigned },
@@ -374,7 +371,7 @@ pub unsafe extern "C" fn lua_rawlen(L: *mut lua_State, idx: c_int) -> lua_Unsign
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_tocfunction(L: *mut lua_State, idx: c_int) -> lua_CFunction {
+pub unsafe extern "C-unwind" fn lua_tocfunction(L: *mut lua_State, idx: c_int) -> lua_CFunction {
     let o = unsafe { index2value(L, idx) };
     if unsafe { ttislcf(o) } {
         unsafe { fvalue(o) }
@@ -386,12 +383,12 @@ pub unsafe extern "C" fn lua_tocfunction(L: *mut lua_State, idx: c_int) -> lua_C
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_touserdata(L: *mut lua_State, idx: c_int) -> *mut c_void {
+pub unsafe extern "C-unwind" fn lua_touserdata(L: *mut lua_State, idx: c_int) -> *mut c_void {
     unsafe { touserdata(index2value(L, idx)) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_tothread(L: *mut lua_State, idx: c_int) -> *mut lua_State {
+pub unsafe extern "C-unwind" fn lua_tothread(L: *mut lua_State, idx: c_int) -> *mut lua_State {
     let o = unsafe { index2value(L, idx) };
     if unsafe { ttisthread(o) } {
         unsafe { thvalue(o) }
@@ -401,7 +398,7 @@ pub unsafe extern "C" fn lua_tothread(L: *mut lua_State, idx: c_int) -> *mut lua
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_topointer(L: *mut lua_State, idx: c_int) -> *const c_void {
+pub unsafe extern "C-unwind" fn lua_topointer(L: *mut lua_State, idx: c_int) -> *const c_void {
     let o = unsafe { index2value(L, idx) };
     match unsafe { ttypetag(o) } {
         LUA_VLCF => unsafe { fvalue(o).map(|f| f as *const c_void).unwrap_or(ptr::null()) },
@@ -417,25 +414,25 @@ pub unsafe extern "C" fn lua_topointer(L: *mut lua_State, idx: c_int) -> *const 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushnil(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn lua_pushnil(L: *mut lua_State) {
     unsafe { setnilvalue(s2v((*L).top.p)) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushnumber(L: *mut lua_State, n: lua_Number) {
+pub unsafe extern "C-unwind" fn lua_pushnumber(L: *mut lua_State, n: lua_Number) {
     unsafe { setfltvalue(s2v((*L).top.p), n) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushinteger(L: *mut lua_State, n: lua_Integer) {
+pub unsafe extern "C-unwind" fn lua_pushinteger(L: *mut lua_State, n: lua_Integer) {
     unsafe { setivalue(s2v((*L).top.p), n) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushlstring(
+pub unsafe extern "C-unwind" fn lua_pushlstring(
     L: *mut lua_State,
     s: *const c_char,
     len: usize,
@@ -452,7 +449,7 @@ pub unsafe extern "C" fn lua_pushlstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushexternalstring(
+pub unsafe extern "C-unwind" fn lua_pushexternalstring(
     L: *mut lua_State,
     s: *const c_char,
     len: usize,
@@ -469,7 +466,7 @@ pub unsafe extern "C" fn lua_pushexternalstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushstring(L: *mut lua_State, mut s: *const c_char) -> *const c_char {
+pub unsafe extern "C-unwind" fn lua_pushstring(L: *mut lua_State, mut s: *const c_char) -> *const c_char {
     if s.is_null() {
         unsafe { setnilvalue(s2v((*L).top.p)) };
     } else {
@@ -482,8 +479,7 @@ pub unsafe extern "C" fn lua_pushstring(L: *mut lua_State, mut s: *const c_char)
     s
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushvfstring(
+pub unsafe fn lua_pushvfstring(
     L: *mut lua_State,
     fmt: *const c_char,
     argp: VaList<'_>,
@@ -494,7 +490,7 @@ pub unsafe extern "C" fn lua_pushvfstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushfstring(
+pub unsafe extern "C-unwind" fn lua_pushfstring(
     L: *mut lua_State,
     fmt: *const c_char,
     argp: ...
@@ -508,7 +504,7 @@ pub unsafe extern "C" fn lua_pushfstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushcclosure(L: *mut lua_State, fn_: lua_CFunction, n: c_int) {
+pub unsafe extern "C-unwind" fn lua_pushcclosure(L: *mut lua_State, fn_: lua_CFunction, n: c_int) {
     if n == 0 {
         unsafe { setfvalue(s2v((*L).top.p), fn_) };
         unsafe { api_incr_top(L) };
@@ -534,7 +530,7 @@ pub unsafe extern "C" fn lua_pushcclosure(L: *mut lua_State, fn_: lua_CFunction,
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushboolean(L: *mut lua_State, b: c_int) {
+pub unsafe extern "C-unwind" fn lua_pushboolean(L: *mut lua_State, b: c_int) {
     if b != 0 {
         unsafe { setbtvalue(s2v((*L).top.p)) };
     } else {
@@ -544,20 +540,20 @@ pub unsafe extern "C" fn lua_pushboolean(L: *mut lua_State, b: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushlightuserdata(L: *mut lua_State, p: *mut c_void) {
+pub unsafe extern "C-unwind" fn lua_pushlightuserdata(L: *mut lua_State, p: *mut c_void) {
     unsafe { setpvalue(s2v((*L).top.p), p) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pushthread(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_pushthread(L: *mut lua_State) -> c_int {
     unsafe { setthvalue(L, s2v((*L).top.p), L) };
     unsafe { api_incr_top(L) };
     (unsafe { mainthread(G(L)) == L }) as c_int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getglobal(L: *mut lua_State, name: *const c_char) -> c_int {
+pub unsafe extern "C-unwind" fn lua_getglobal(L: *mut lua_State, name: *const c_char) -> c_int {
     let mut gt = TValue {
         value_: Value { ub: 0 },
         tt_: 0,
@@ -567,7 +563,7 @@ pub unsafe extern "C" fn lua_getglobal(L: *mut lua_State, name: *const c_char) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int {
     unsafe { api_checkpop(L, 1) };
     let t = unsafe { index2value(L, idx) };
     let mut tag = if unsafe { ttistable(t) } {
@@ -582,12 +578,12 @@ pub unsafe extern "C" fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_char) -> c_int {
+pub unsafe extern "C-unwind" fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_char) -> c_int {
     unsafe { auxgetstr(L, index2value(L, idx), k) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_geti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
+pub unsafe extern "C-unwind" fn lua_geti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
     let t = unsafe { index2value(L, idx) };
     let mut tag = if unsafe { ttistable(t) } {
         unsafe { luaH_getint(hvalue(t), n, s2v((*L).top.p)) }
@@ -607,7 +603,7 @@ pub unsafe extern "C" fn lua_geti(L: *mut lua_State, idx: c_int, n: lua_Integer)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawget(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_rawget(L: *mut lua_State, idx: c_int) -> c_int {
     unsafe { api_checkpop(L, 1) };
     let t = unsafe { gettable(L, idx) };
     let tag = unsafe { luaH_get(t, s2v((*L).top.p.sub(1)), s2v((*L).top.p.sub(1))) };
@@ -616,14 +612,14 @@ pub unsafe extern "C" fn lua_rawget(L: *mut lua_State, idx: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
+pub unsafe extern "C-unwind" fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
     let t = unsafe { gettable(L, idx) };
     let tag = unsafe { luaH_getint(t, n, s2v((*L).top.p)) };
     unsafe { finishrawget(L, tag) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawgetp(L: *mut lua_State, idx: c_int, p: *const c_void) -> c_int {
+pub unsafe extern "C-unwind" fn lua_rawgetp(L: *mut lua_State, idx: c_int, p: *const c_void) -> c_int {
     let t = unsafe { gettable(L, idx) };
     let mut k = TValue {
         value_: Value { ub: 0 },
@@ -634,7 +630,7 @@ pub unsafe extern "C" fn lua_rawgetp(L: *mut lua_State, idx: c_int, p: *const c_
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_createtable(L: *mut lua_State, narray: c_int, nrec: c_int) {
+pub unsafe extern "C-unwind" fn lua_createtable(L: *mut lua_State, narray: c_int, nrec: c_int) {
     let t = unsafe { luaH_new(L) };
     unsafe { sethvalue2s(L, (*L).top.p, t) };
     unsafe { api_incr_top(L) };
@@ -645,7 +641,7 @@ pub unsafe extern "C" fn lua_createtable(L: *mut lua_State, narray: c_int, nrec:
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getmetatable(L: *mut lua_State, objindex: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_getmetatable(L: *mut lua_State, objindex: c_int) -> c_int {
     let obj = unsafe { index2value(L, objindex) };
     let mt = match unsafe { ttype(obj) } {
         LUA_TTABLE => unsafe { (*hvalue(obj)).metatable },
@@ -662,7 +658,7 @@ pub unsafe extern "C" fn lua_getmetatable(L: *mut lua_State, objindex: c_int) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getiuservalue(L: *mut lua_State, idx: c_int, n: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_getiuservalue(L: *mut lua_State, idx: c_int, n: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     unsafe { api_check(ttisfulluserdata(o), "full userdata expected") };
     let t = if n <= 0 || n > unsafe { (*uvalue(o)).nuvalue as c_int } {
@@ -683,7 +679,7 @@ pub unsafe extern "C" fn lua_getiuservalue(L: *mut lua_State, idx: c_int, n: c_i
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setglobal(L: *mut lua_State, name: *const c_char) {
+pub unsafe extern "C-unwind" fn lua_setglobal(L: *mut lua_State, name: *const c_char) {
     let mut gt = TValue {
         value_: Value { ub: 0 },
         tt_: 0,
@@ -693,7 +689,7 @@ pub unsafe extern "C" fn lua_setglobal(L: *mut lua_State, name: *const c_char) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_settable(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_settable(L: *mut lua_State, idx: c_int) {
     unsafe { api_checkpop(L, 2) };
     let t = unsafe { index2value(L, idx) };
     let hres = if unsafe { ttistable(t) } {
@@ -710,12 +706,12 @@ pub unsafe extern "C" fn lua_settable(L: *mut lua_State, idx: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setfield(L: *mut lua_State, idx: c_int, k: *const c_char) {
+pub unsafe extern "C-unwind" fn lua_setfield(L: *mut lua_State, idx: c_int, k: *const c_char) {
     unsafe { auxsetstr(L, index2value(L, idx), k) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
+pub unsafe extern "C-unwind" fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
     unsafe { api_checkpop(L, 1) };
     let t = unsafe { index2value(L, idx) };
     let hres = if unsafe { ttistable(t) } {
@@ -749,12 +745,12 @@ pub unsafe extern "C" fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawset(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_rawset(L: *mut lua_State, idx: c_int) {
     unsafe { aux_rawset(L, idx, s2v((*L).top.p.sub(2)), 2) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawsetp(L: *mut lua_State, idx: c_int, p: *const c_void) {
+pub unsafe extern "C-unwind" fn lua_rawsetp(L: *mut lua_State, idx: c_int, p: *const c_void) {
     let mut k = TValue {
         value_: Value { ub: 0 },
         tt_: 0,
@@ -764,7 +760,7 @@ pub unsafe extern "C" fn lua_rawsetp(L: *mut lua_State, idx: c_int, p: *const c_
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_rawseti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
+pub unsafe extern "C-unwind" fn lua_rawseti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
     unsafe { api_checkpop(L, 1) };
     let t = unsafe { gettable(L, idx) };
     unsafe { luaH_setint(L, t, n, s2v((*L).top.p.sub(1))) };
@@ -773,7 +769,7 @@ pub unsafe extern "C" fn lua_rawseti(L: *mut lua_State, idx: c_int, n: lua_Integ
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setmetatable(L: *mut lua_State, objindex: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_setmetatable(L: *mut lua_State, objindex: c_int) -> c_int {
     unsafe { api_checkpop(L, 1) };
     let obj = unsafe { index2value(L, objindex) };
     let mt = if unsafe { ttisnil(s2v((*L).top.p.sub(1))) } {
@@ -804,7 +800,7 @@ pub unsafe extern "C" fn lua_setmetatable(L: *mut lua_State, objindex: c_int) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setiuservalue(L: *mut lua_State, idx: c_int, n: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_setiuservalue(L: *mut lua_State, idx: c_int, n: c_int) -> c_int {
     unsafe { api_checkpop(L, 1) };
     let o = unsafe { index2value(L, idx) };
     unsafe { api_check(ttisfulluserdata(o), "full userdata expected") };
@@ -825,7 +821,7 @@ pub unsafe extern "C" fn lua_setiuservalue(L: *mut lua_State, idx: c_int, n: c_i
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_callk(
+pub unsafe extern "C-unwind" fn lua_callk(
     L: *mut lua_State,
     nargs: c_int,
     nresults: c_int,
@@ -860,7 +856,7 @@ pub unsafe extern "C" fn lua_callk(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_pcallk(
+pub unsafe extern "C-unwind" fn lua_pcallk(
     L: *mut lua_State,
     nargs: c_int,
     nresults: c_int,
@@ -935,7 +931,7 @@ pub unsafe extern "C" fn lua_pcallk(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_load(
+pub unsafe extern "C-unwind" fn lua_load(
     L: *mut lua_State,
     reader: lua_Reader,
     data: *mut c_void,
@@ -972,7 +968,7 @@ pub unsafe extern "C" fn lua_load(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_dump(
+pub unsafe extern "C-unwind" fn lua_dump(
     L: *mut lua_State,
     writer: lua_Writer,
     data: *mut c_void,
@@ -988,12 +984,12 @@ pub unsafe extern "C" fn lua_dump(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_status(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_status(L: *mut lua_State) -> c_int {
     unsafe { APIstatus((*L).status) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -> c_int {
+pub unsafe extern "C-unwind" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -> c_int {
     let g = unsafe { G(L) };
     if unsafe { (*g).gcstp & (GCSTPGC | GCSTPCLS) } != 0 {
         return -1;
@@ -1071,8 +1067,7 @@ pub unsafe extern "C" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_error(L: *mut lua_State) -> c_int {
+pub unsafe fn lua_error(L: *mut lua_State) -> c_int {
     let errobj = unsafe { s2v((*L).top.p.sub(1)) };
     unsafe { api_checkpop(L, 1) };
     if unsafe { ttisshrstring(errobj) && ptr::eq(tsvalue(errobj), (*G(L)).memerrmsg) } {
@@ -1083,7 +1078,7 @@ pub unsafe extern "C" fn lua_error(L: *mut lua_State) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_next(L: *mut lua_State, idx: c_int) -> c_int {
+pub unsafe extern "C-unwind" fn lua_next(L: *mut lua_State, idx: c_int) -> c_int {
     unsafe { api_checkpop(L, 1) };
     let t = unsafe { gettable(L, idx) };
     let more = unsafe { luaH_next(L, t, (*L).top.p.sub(1)) };
@@ -1096,7 +1091,7 @@ pub unsafe extern "C" fn lua_next(L: *mut lua_State, idx: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_toclose(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_toclose(L: *mut lua_State, idx: c_int) {
     let o = unsafe { index2stack(L, idx) };
     unsafe {
         api_check(
@@ -1109,7 +1104,7 @@ pub unsafe extern "C" fn lua_toclose(L: *mut lua_State, idx: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_concat(L: *mut lua_State, n: c_int) {
+pub unsafe extern "C-unwind" fn lua_concat(L: *mut lua_State, n: c_int) {
     unsafe { api_checknelems(L, n) };
     if n > 0 {
         unsafe { luaV_concat(L, n) };
@@ -1121,14 +1116,14 @@ pub unsafe extern "C" fn lua_concat(L: *mut lua_State, n: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_len(L: *mut lua_State, idx: c_int) {
+pub unsafe extern "C-unwind" fn lua_len(L: *mut lua_State, idx: c_int) {
     let t = unsafe { index2value(L, idx) };
     unsafe { luaV_objlen(L, (*L).top.p, t) };
     unsafe { api_incr_top(L) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getallocf(L: *mut lua_State, ud: *mut *mut c_void) -> lua_Alloc {
+pub unsafe extern "C-unwind" fn lua_getallocf(L: *mut lua_State, ud: *mut *mut c_void) -> lua_Alloc {
     if !ud.is_null() {
         unsafe { *ud = (*G(L)).ud };
     }
@@ -1136,7 +1131,7 @@ pub unsafe extern "C" fn lua_getallocf(L: *mut lua_State, ud: *mut *mut c_void) 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setallocf(L: *mut lua_State, f: lua_Alloc, ud: *mut c_void) {
+pub unsafe extern "C-unwind" fn lua_setallocf(L: *mut lua_State, f: lua_Alloc, ud: *mut c_void) {
     unsafe {
         (*G(L)).ud = ud;
         (*G(L)).frealloc = f;
@@ -1144,7 +1139,7 @@ pub unsafe extern "C" fn lua_setallocf(L: *mut lua_State, f: lua_Alloc, ud: *mut
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setwarnf(L: *mut lua_State, f: lua_WarnFunction, ud: *mut c_void) {
+pub unsafe extern "C-unwind" fn lua_setwarnf(L: *mut lua_State, f: lua_WarnFunction, ud: *mut c_void) {
     unsafe {
         (*G(L)).ud_warn = ud;
         (*G(L)).warnf = f;
@@ -1152,12 +1147,12 @@ pub unsafe extern "C" fn lua_setwarnf(L: *mut lua_State, f: lua_WarnFunction, ud
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_warning(L: *mut lua_State, msg: *const c_char, tocont: c_int) {
+pub unsafe extern "C-unwind" fn lua_warning(L: *mut lua_State, msg: *const c_char, tocont: c_int) {
     unsafe { luaE_warning(L, msg, tocont) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_newuserdatauv(
+pub unsafe extern "C-unwind" fn lua_newuserdatauv(
     L: *mut lua_State,
     size: usize,
     nuvalue: c_int,
@@ -1214,7 +1209,7 @@ unsafe fn aux_upvalue(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_getupvalue(
+pub unsafe extern "C-unwind" fn lua_getupvalue(
     L: *mut lua_State,
     funcindex: c_int,
     n: c_int,
@@ -1236,7 +1231,7 @@ pub unsafe extern "C" fn lua_getupvalue(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_setupvalue(
+pub unsafe extern "C-unwind" fn lua_setupvalue(
     L: *mut lua_State,
     funcindex: c_int,
     n: c_int,
@@ -1275,7 +1270,7 @@ unsafe fn getupvalref(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_upvalueid(L: *mut lua_State, fidx: c_int, n: c_int) -> *mut c_void {
+pub unsafe extern "C-unwind" fn lua_upvalueid(L: *mut lua_State, fidx: c_int, n: c_int) -> *mut c_void {
     let fi = unsafe { index2value(L, fidx) };
     match unsafe { ttypetag(fi) } {
         LUA_VLCL => unsafe { *getupvalref(L, fidx, n, ptr::null_mut()) as *mut c_void },
@@ -1301,7 +1296,7 @@ pub unsafe extern "C" fn lua_upvalueid(L: *mut lua_State, fidx: c_int, n: c_int)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_upvaluejoin(
+pub unsafe extern "C-unwind" fn lua_upvaluejoin(
     L: *mut lua_State,
     fidx1: c_int,
     n1: c_int,

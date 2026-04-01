@@ -132,14 +132,14 @@ static SYSLIB: [luaL_Reg; 12] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn lua_getfield(state: *mut lua_State, index: c_int, key: *const c_char) -> c_int;
     fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
     fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn system(command: *const c_char) -> c_int;
     fn remove(path: *const c_char) -> c_int;
     fn rename(old: *const c_char, new: *const c_char) -> c_int;
@@ -157,7 +157,7 @@ unsafe extern "C" {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __error() -> *mut c_int;
 }
 
@@ -168,12 +168,12 @@ unsafe extern "C" {
     target_os = "netbsd",
     target_os = "openbsd"
 ))]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __errno_location() -> *mut c_int;
 }
 
 #[cfg(target_os = "android")]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __errno() -> *mut c_int;
 }
 
@@ -346,7 +346,7 @@ unsafe fn l_checktime(state: *mut lua_State, arg: c_int) -> Result<time_t, c_int
     }
 }
 
-unsafe extern "C" fn os_execute(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_execute(state: *mut lua_State) -> c_int {
     let cmd = unsafe { l_optstring(state, 1) };
     unsafe { reset_errno() };
     let stat = unsafe { system(cmd) };
@@ -358,20 +358,20 @@ unsafe extern "C" fn os_execute(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn os_remove(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_remove(state: *mut lua_State) -> c_int {
     let filename = unsafe { l_checkstring(state, 1) };
     unsafe { reset_errno() };
     unsafe { luaL_fileresult(state, (remove(filename) == 0) as c_int, filename) }
 }
 
-unsafe extern "C" fn os_rename(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_rename(state: *mut lua_State) -> c_int {
     let fromname = unsafe { l_checkstring(state, 1) };
     let toname = unsafe { l_checkstring(state, 2) };
     unsafe { reset_errno() };
     unsafe { luaL_fileresult(state, (rename(fromname, toname) == 0) as c_int, ptr::null()) }
 }
 
-unsafe extern "C" fn os_tmpname(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_tmpname(state: *mut lua_State) -> c_int {
     let mut buff = TMP_TEMPLATE.to_vec();
     let fd = unsafe { mkstemp(buff.as_mut_ptr().cast()) };
     if fd == -1 {
@@ -390,19 +390,19 @@ unsafe extern "C" fn os_tmpname(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn os_getenv(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_getenv(state: *mut lua_State) -> c_int {
     let key = unsafe { l_checkstring(state, 1) };
     unsafe { lua_pushstring(state, getenv(key)) };
     1
 }
 
-unsafe extern "C" fn os_clock(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_clock(state: *mut lua_State) -> c_int {
     let value = unsafe { clock() } as lua_Number / CLOCKS_PER_SEC_VALUE;
     unsafe { lua_pushnumber(state, value) };
     1
 }
 
-unsafe extern "C" fn os_date(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_date(state: *mut lua_State) -> c_int {
     let mut slen = 0usize;
     let s = { luaL_optlstring(state, 1, b"%c\0".as_ptr().cast(), &mut slen) };
     let mut format = unsafe { slice::from_raw_parts(s.cast::<u8>(), slen) };
@@ -484,7 +484,7 @@ unsafe extern "C" fn os_date(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn os_time(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_time(state: *mut lua_State) -> c_int {
     let t = if unsafe { is_none_or_nil(state, 1) } {
         unsafe { time(ptr::null_mut()) }
     } else {
@@ -540,7 +540,7 @@ unsafe extern "C" fn os_time(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn os_difftime(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_difftime(state: *mut lua_State) -> c_int {
     let t1 = match unsafe { l_checktime(state, 1) } {
         Ok(v) => v,
         Err(code) => return code,
@@ -553,7 +553,7 @@ unsafe extern "C" fn os_difftime(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn os_setlocale(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_setlocale(state: *mut lua_State) -> c_int {
     const CATEGORIES: [c_int; 6] = [0, 1, 2, 3, 4, 5];
     const CAT_NAMES: [&[u8]; 6] = [
         CAT_ALL,
@@ -587,7 +587,7 @@ unsafe extern "C" fn os_setlocale(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn os_exit(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn os_exit(state: *mut lua_State) -> c_int {
     let status = if unsafe { is_boolean(state, 1) } {
         if unsafe { lua_toboolean(state, 1) } != 0 {
             EXIT_SUCCESS_CODE
@@ -604,8 +604,7 @@ unsafe extern "C" fn os_exit(state: *mut lua_State) -> c_int {
     exit(status);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_os(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_os(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &SYSLIB) };
     1
 }

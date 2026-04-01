@@ -43,7 +43,7 @@ struct LocVar {
     endpc: c_int,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void;
     fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
     fn luaH_size(t: *mut Table) -> usize;
@@ -441,7 +441,7 @@ unsafe fn iscleared(g: *mut global_State, o: *mut GCObject) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObject) {
+pub unsafe extern "C-unwind" fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObject) {
     let g = G(L);
     debug_assert!(isblack(o) && iswhite(v) && !isdead(g, v) && !isdead(g, o));
     if keepinvariant(g) {
@@ -456,7 +456,7 @@ pub unsafe extern "C" fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
+pub unsafe extern "C-unwind" fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
     let g = G(L);
     debug_assert!(isblack(o) && !isdead(g, o));
     if getage(o) == G_TOUCHED2 {
@@ -470,7 +470,7 @@ pub unsafe extern "C" fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
+pub unsafe extern "C-unwind" fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
     let g = G(L);
     debug_assert!((*g).allgc == o);
     set2gray(o);
@@ -481,7 +481,7 @@ pub unsafe extern "C" fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_newobjdt(
+pub unsafe extern "C-unwind" fn luaC_newobjdt(
     L: *mut lua_State,
     tt: lu_byte,
     sz: usize,
@@ -498,7 +498,7 @@ pub unsafe extern "C" fn luaC_newobjdt(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_newobj(L: *mut lua_State, tt: lu_byte, sz: usize) -> *mut GCObject {
+pub unsafe extern "C-unwind" fn luaC_newobj(L: *mut lua_State, tt: lu_byte, sz: usize) -> *mut GCObject {
     luaC_newobjdt(L, tt, sz, 0)
 }
 
@@ -984,7 +984,7 @@ unsafe fn udata2finalize(g: *mut global_State) -> *mut GCObject {
     o
 }
 
-unsafe extern "C" fn dothecall(L: *mut lua_State, _ud: *mut c_void) {
+unsafe extern "C-unwind" fn dothecall(L: *mut lua_State, _ud: *mut c_void) {
     luaD_callnoyield(L, (*L).top.p.sub(2), 0);
 }
 
@@ -1065,8 +1065,7 @@ unsafe fn correctpointers(g: *mut global_State, o: *mut GCObject) {
     checkpointer(ptr::addr_of_mut!((*g).firstold1), o);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_checkfinalizer(L: *mut lua_State, o: *mut GCObject, mt: *mut Table) {
+pub(crate) unsafe fn luaC_checkfinalizer(L: *mut lua_State, o: *mut GCObject, mt: *mut Table) {
     let g = G(L);
     if tofinalize(o) || gfasttm(g, mt, TM_GC).is_null() || ((*g).gcstp & GCSTPCLS) != 0 {
         return;
@@ -1298,8 +1297,7 @@ unsafe fn entergen(L: *mut lua_State, g: *mut global_State) {
     setminordebt(g);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_changemode(L: *mut lua_State, newmode: c_int) {
+pub(crate) unsafe fn luaC_changemode(L: *mut lua_State, newmode: c_int) {
     let g = G(L);
     if (*g).gckind == KGC_GENMAJOR {
         (*g).gckind = KGC_INC;
@@ -1349,7 +1347,7 @@ unsafe fn deletelist(L: *mut lua_State, mut p: *mut GCObject, limit: *mut GCObje
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_freeallobjects(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaC_freeallobjects(L: *mut lua_State) {
     let g = G(L);
     (*g).gcstp = GCSTPCLS;
     luaC_changemode(L, KGC_INC as c_int);
@@ -1461,8 +1459,7 @@ unsafe fn singlestep(L: *mut lua_State, fast: c_int) -> l_mem {
     stepresult
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_runtilstate(L: *mut lua_State, state: c_int, fast: c_int) {
+pub(crate) unsafe fn luaC_runtilstate(L: *mut lua_State, state: c_int, fast: c_int) {
     let g = G(L);
     while state as u8 != (*g).gcstate {
         singlestep(L, fast);
@@ -1494,7 +1491,7 @@ unsafe fn incstep(L: *mut lua_State, g: *mut global_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_step(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaC_step(L: *mut lua_State) {
     let g = G(L);
     if !gcrunning(g) {
         if (*g).gcstp & GCSTPUSR != 0 {
@@ -1523,7 +1520,7 @@ unsafe fn fullinc(L: *mut lua_State, g: *mut global_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaC_fullgc(L: *mut lua_State, isemergency: c_int) {
+pub unsafe extern "C-unwind" fn luaC_fullgc(L: *mut lua_State, isemergency: c_int) {
     let g = G(L);
     (*g).gcemergency = isemergency as u8;
     match (*g).gckind {

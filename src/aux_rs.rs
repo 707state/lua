@@ -33,10 +33,10 @@ const LUA_IDSIZE: usize = 60;
 const LEVELS1: i32 = 10;
 const LEVELS2: i32 = 11;
 
-type LuaAlloc = Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-type LuaWarnFunction = Option<unsafe extern "C" fn(*mut c_void, *const c_char, c_int)>;
+type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
 type LuaReader =
-    Option<unsafe extern "C" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
 
 #[repr(C)]
 struct lua_Debug {
@@ -65,67 +65,201 @@ struct LoadBuffer {
     offset: usize,
 }
 
-unsafe extern "C" {
-    fn lua_atpanic(
-        state: *mut lua_State,
-        panicf: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
-    );
-    fn lua_absindex(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_checkstack(state: *mut lua_State, n: c_int) -> c_int;
-    fn lua_concat(state: *mut lua_State, n: c_int);
-    fn lua_copy(state: *mut lua_State, fromidx: c_int, toidx: c_int);
-    fn lua_getfield(state: *mut lua_State, idx: c_int, key: *const c_char) -> c_int;
-    fn lua_getglobal(state: *mut lua_State, name: *const c_char) -> c_int;
-    fn lua_getinfo(state: *mut lua_State, what: *const c_char, ar: *mut lua_Debug) -> c_int;
-    fn lua_getmetatable(state: *mut lua_State, objindex: c_int) -> c_int;
-    #[link_name = "lua_getstack"]
-    fn lua_getstack_debug(state: *mut lua_State, level: c_int, ar: *mut lua_Debug) -> c_int;
-    fn lua_gettable(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_gettop(state: *mut lua_State) -> c_int;
-    fn lua_geti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int;
-    fn lua_isinteger(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_isnumber(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_isstring(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_len(state: *mut lua_State, idx: c_int);
-    fn lua_load(
-        state: *mut lua_State,
-        reader: LuaReader,
-        data: *mut c_void,
-        chunkname: *const c_char,
-        mode: *const c_char,
-    ) -> c_int;
-    fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: c_uint) -> *mut lua_State;
-    fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void;
-    fn lua_next(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_pushfstring(state: *mut lua_State, fmt: *const c_char, ...) -> *const c_char;
-    fn lua_pushlightuserdata(state: *mut lua_State, p: *mut c_void);
-    fn lua_rawequal(state: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int;
-    fn lua_rawget(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_rawgeti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int;
-    fn lua_rawlen(state: *mut lua_State, idx: c_int) -> usize;
-    fn lua_rawseti(state: *mut lua_State, idx: c_int, n: lua_Integer);
-    fn lua_rotate(state: *mut lua_State, idx: c_int, n: c_int);
-    fn lua_setglobal(state: *mut lua_State, name: *const c_char);
-    fn lua_setmetatable(state: *mut lua_State, objindex: c_int) -> c_int;
-    fn lua_settop(state: *mut lua_State, idx: c_int);
-    fn lua_stringtonumber(state: *mut lua_State, s: *const c_char) -> usize;
-    fn lua_toboolean(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_toclose(state: *mut lua_State, idx: c_int);
-    fn lua_closeslot(state: *mut lua_State, idx: c_int);
-    fn lua_tointegerx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Integer;
-    fn lua_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *const c_char;
-    fn lua_tonumberx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Number;
-    fn lua_topointer(state: *mut lua_State, idx: c_int) -> *const c_void;
-    fn lua_touserdata(state: *mut lua_State, idx: c_int) -> *mut c_void;
-    fn lua_type(state: *mut lua_State, idx: c_int) -> c_int;
-    fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char;
-    fn lua_version(state: *mut lua_State) -> lua_Number;
-    fn lua_setwarnf(state: *mut lua_State, f: LuaWarnFunction, ud: *mut c_void);
-    fn lua_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int);
-    fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> LuaAlloc;
+#[inline]
+unsafe fn lua_atpanic(
+    state: *mut lua_State,
+    panicf: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
+) {
+    unsafe { crate::api::lua_atpanic(state as _, core::mem::transmute(panicf)) };
+}
+#[inline]
+unsafe fn lua_absindex(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_absindex(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_checkstack(state: *mut lua_State, n: c_int) -> c_int {
+    unsafe { crate::api::lua_checkstack(state as _, n) }
+}
+#[inline]
+unsafe fn lua_concat(state: *mut lua_State, n: c_int) {
+    unsafe { crate::api::lua_concat(state as _, n) }
+}
+#[inline]
+unsafe fn lua_copy(state: *mut lua_State, fromidx: c_int, toidx: c_int) {
+    unsafe { crate::api::lua_copy(state as _, fromidx, toidx) }
+}
+#[inline]
+unsafe fn lua_getfield(state: *mut lua_State, idx: c_int, key: *const c_char) -> c_int {
+    unsafe { crate::api::lua_getfield(state as _, idx, key) }
+}
+#[inline]
+unsafe fn lua_getglobal(state: *mut lua_State, name: *const c_char) -> c_int {
+    unsafe { crate::api::lua_getglobal(state as _, name) }
+}
+#[inline]
+unsafe fn lua_getinfo(state: *mut lua_State, what: *const c_char, ar: *mut lua_Debug) -> c_int {
+    unsafe { crate::debug::lua_getinfo(state as _, what, ar as _) }
+}
+#[inline]
+unsafe fn lua_getmetatable(state: *mut lua_State, objindex: c_int) -> c_int {
+    unsafe { crate::api::lua_getmetatable(state as _, objindex) }
+}
+#[inline]
+unsafe fn lua_getstack_debug(state: *mut lua_State, level: c_int, ar: *mut lua_Debug) -> c_int {
+    unsafe { crate::debug::lua_getstack(state as _, level, ar as _) }
+}
+#[inline]
+unsafe fn lua_gettable(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_gettable(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_gettop(state: *mut lua_State) -> c_int {
+    unsafe { crate::api::lua_gettop(state as _) }
+}
+#[inline]
+unsafe fn lua_geti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
+    unsafe { crate::api::lua_geti(state as _, idx, n) }
+}
+#[inline]
+unsafe fn lua_isinteger(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_isinteger(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_isnumber(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_isnumber(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_isstring(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_isstring(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_len(state: *mut lua_State, idx: c_int) {
+    unsafe { crate::api::lua_len(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_load(
+    state: *mut lua_State,
+    reader: LuaReader,
+    data: *mut c_void,
+    chunkname: *const c_char,
+    mode: *const c_char,
+) -> c_int {
+    unsafe { crate::api::lua_load(state as _, core::mem::transmute(reader), data, chunkname, mode) }
+}
+#[inline]
+unsafe fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: c_uint) -> *mut lua_State {
+    unsafe { crate::state::lua_newstate(core::mem::transmute(f), ud, seed) as _ }
+}
+#[inline]
+unsafe fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void {
+    unsafe { crate::api::lua_newuserdatauv(state as _, size, nuvalue) }
+}
+#[inline]
+unsafe fn lua_next(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_next(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_pushlightuserdata(state: *mut lua_State, p: *mut c_void) {
+    unsafe { crate::api::lua_pushlightuserdata(state as _, p) }
+}
+#[inline]
+unsafe fn lua_rawequal(state: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int {
+    unsafe { crate::api::lua_rawequal(state as _, idx1, idx2) }
+}
+#[inline]
+unsafe fn lua_rawget(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_rawget(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_rawgeti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
+    unsafe { crate::api::lua_rawgeti(state as _, idx, n) }
+}
+#[inline]
+unsafe fn lua_rawlen(state: *mut lua_State, idx: c_int) -> usize {
+    unsafe { crate::api::lua_rawlen(state as _, idx) as usize }
+}
+#[inline]
+unsafe fn lua_rawseti(state: *mut lua_State, idx: c_int, n: lua_Integer) {
+    unsafe { crate::api::lua_rawseti(state as _, idx, n) }
+}
+#[inline]
+unsafe fn lua_rotate(state: *mut lua_State, idx: c_int, n: c_int) {
+    unsafe { crate::api::lua_rotate(state as _, idx, n) }
+}
+#[inline]
+unsafe fn lua_setglobal(state: *mut lua_State, name: *const c_char) {
+    unsafe { crate::api::lua_setglobal(state as _, name) }
+}
+#[inline]
+unsafe fn lua_setmetatable(state: *mut lua_State, objindex: c_int) -> c_int {
+    unsafe { crate::api::lua_setmetatable(state as _, objindex) }
+}
+#[inline]
+unsafe fn lua_settop(state: *mut lua_State, idx: c_int) {
+    unsafe { crate::api::lua_settop(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_stringtonumber(state: *mut lua_State, s: *const c_char) -> usize {
+    unsafe { crate::api::lua_stringtonumber(state as _, s) }
+}
+#[inline]
+unsafe fn lua_toboolean(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_toboolean(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_toclose(state: *mut lua_State, idx: c_int) {
+    unsafe { crate::api::lua_toclose(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_closeslot(state: *mut lua_State, idx: c_int) {
+    unsafe { crate::api::lua_closeslot(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_tointegerx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Integer {
+    unsafe { crate::api::lua_tointegerx(state as _, idx, isnum) }
+}
+#[inline]
+unsafe fn lua_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *const c_char {
+    unsafe { crate::api::lua_tolstring(state as _, idx, len) }
+}
+#[inline]
+unsafe fn lua_tonumberx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Number {
+    unsafe { crate::api::lua_tonumberx(state as _, idx, isnum) }
+}
+#[inline]
+unsafe fn lua_topointer(state: *mut lua_State, idx: c_int) -> *const c_void {
+    unsafe { crate::api::lua_topointer(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_touserdata(state: *mut lua_State, idx: c_int) -> *mut c_void {
+    unsafe { crate::api::lua_touserdata(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_type(state: *mut lua_State, idx: c_int) -> c_int {
+    unsafe { crate::api::lua_type(state as _, idx) }
+}
+#[inline]
+unsafe fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char {
+    unsafe { crate::api::lua_typename(state as _, tag) }
+}
+#[inline]
+unsafe fn lua_version(state: *mut lua_State) -> lua_Number {
+    unsafe { crate::api::lua_version(state as _) }
+}
+#[inline]
+unsafe fn lua_setwarnf(state: *mut lua_State, f: LuaWarnFunction, ud: *mut c_void) {
+    unsafe { crate::api::lua_setwarnf(state as _, core::mem::transmute(f), ud) }
+}
+#[inline]
+unsafe fn lua_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) {
+    unsafe { crate::api::lua_warning(state as _, msg, tocont) }
+}
+#[inline]
+unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> LuaAlloc {
+    unsafe { core::mem::transmute(crate::api::lua_getallocf(state as _, ud)) }
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn realloc(ptr: *mut c_void, size: usize) -> *mut c_void;
     fn free(ptr: *mut c_void);
 }
@@ -639,7 +773,7 @@ pub fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> l
     }
 }
 
-unsafe extern "C" fn get_s(
+unsafe extern "C-unwind" fn get_s(
     _state: *mut lua_State,
     ud: *mut c_void,
     size: *mut usize,
@@ -893,7 +1027,7 @@ pub fn luaL_getsubtable(state: *mut lua_State, idx: c_int, fname: *const c_char)
 pub fn luaL_requiref(
     state: *mut lua_State,
     modname: *const c_char,
-    openf: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    openf: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     glb: c_int,
 ) {
     unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
@@ -913,7 +1047,7 @@ pub fn luaL_requiref(
     }
 }
 
-unsafe extern "C" fn lua_l_alloc(
+unsafe extern "C-unwind" fn lua_l_alloc(
     _ud: *mut c_void,
     ptr: *mut c_void,
     _osize: usize,
@@ -927,7 +1061,7 @@ unsafe extern "C" fn lua_l_alloc(
     }
 }
 
-unsafe extern "C" fn panicf(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn panicf(state: *mut lua_State) -> c_int {
     let msg = if unsafe { lua_type(state, -1) } == LUA_TSTRING {
         cstr_lossy(unsafe { tostring_ptr(state, -1) })
     } else {
@@ -941,7 +1075,7 @@ unsafe extern "C" fn panicf(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C" fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe extern "C-unwind" fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     if tocont == 0 && !message.is_null() {
         let msg = unsafe { cstr(message) }.to_bytes();
         if msg == b"@on" {
@@ -950,7 +1084,7 @@ unsafe extern "C" fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c
     }
 }
 
-unsafe extern "C" fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe extern "C-unwind" fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let _ = write!(std::io::stderr(), "{}", cstr_lossy(message));
     if tocont != 0 {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfcont), ud) };
@@ -960,7 +1094,7 @@ unsafe extern "C" fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: 
     }
 }
 
-unsafe extern "C" fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe extern "C-unwind" fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let msg = cstr_lossy(message);
     if tocont == 0 && msg == "@off" {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfoff), ud) };

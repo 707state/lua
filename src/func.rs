@@ -5,7 +5,7 @@ use core::ptr;
 
 type TStatus = u8;
 type Instruction = u32;
-type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
 
 const LUA_OK: TStatus = 0;
 const LUA_ERRERR: TStatus = 5;
@@ -253,7 +253,7 @@ struct LuaStatePrefix {
     twups: *mut lua_State,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaC_newobj(state: *mut lua_State, tt: u8, sz: usize) -> *mut GCObject;
     fn luaC_barrier_(state: *mut lua_State, o: *mut GCObject, v: *mut GCObject);
     fn luaT_gettmbyobj(state: *mut lua_State, o: *const TValue, event: c_int) -> *const TValue;
@@ -478,8 +478,7 @@ unsafe fn poptbclist(state: *mut lua_State) {
     unsafe { (*lstate(state)).tbclist.p = tbc };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int) -> *mut CClosure {
+pub(crate) unsafe fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int) -> *mut CClosure {
     let o = unsafe { luaC_newobj(state, LUA_VCCL, size_cclosure(nupvals)) };
     let c = o.cast::<CClosure>();
     unsafe { (*c).nupvalues = nupvals as u8 };
@@ -487,7 +486,7 @@ pub unsafe extern "C" fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_newLclosure(
+pub unsafe extern "C-unwind" fn luaF_newLclosure(
     state: *mut lua_State,
     mut nupvals: c_int,
 ) -> *mut LClosure {
@@ -506,7 +505,7 @@ pub unsafe extern "C" fn luaF_newLclosure(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_initupvals(state: *mut lua_State, cl: *mut LClosure) {
+pub unsafe extern "C-unwind" fn luaF_initupvals(state: *mut lua_State, cl: *mut LClosure) {
     let nup = unsafe { (*cl).nupvalues as usize };
     let upvals = unsafe { (*cl).upvals.as_mut_ptr() };
     for i in 0..nup {
@@ -544,7 +543,7 @@ unsafe fn newupval(state: *mut lua_State, level: StkId, prev: *mut *mut UpVal) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_findupval(state: *mut lua_State, level: StkId) -> *mut UpVal {
+pub unsafe extern "C-unwind" fn luaF_findupval(state: *mut lua_State, level: StkId) -> *mut UpVal {
     let mut pp = unsafe { ptr::addr_of_mut!((*lstate(state)).openupval) };
     let mut p = unsafe { *pp };
     while !p.is_null() && unsafe { uplevel(p) >= level } {
@@ -557,8 +556,7 @@ pub unsafe extern "C" fn luaF_findupval(state: *mut lua_State, level: StkId) -> 
     unsafe { newupval(state, level, pp) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_newtbcupval(state: *mut lua_State, level: StkId) {
+pub(crate) unsafe fn luaF_newtbcupval(state: *mut lua_State, level: StkId) {
     if unsafe { isfalse(s2v(level)) } {
         return;
     }
@@ -576,7 +574,7 @@ pub unsafe extern "C" fn luaF_newtbcupval(state: *mut lua_State, level: StkId) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_unlinkupval(uv: *mut UpVal) {
+pub unsafe extern "C-unwind" fn luaF_unlinkupval(uv: *mut UpVal) {
     unsafe {
         *(*uv).u.open.previous = (*uv).u.open.next;
         if !(*uv).u.open.next.is_null() {
@@ -586,7 +584,7 @@ pub unsafe extern "C" fn luaF_unlinkupval(uv: *mut UpVal) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_closeupval(state: *mut lua_State, level: StkId) {
+pub unsafe extern "C-unwind" fn luaF_closeupval(state: *mut lua_State, level: StkId) {
     let mut uv = unsafe { (*lstate(state)).openupval };
     while !uv.is_null() && unsafe { uplevel(uv) >= level } {
         let slot = unsafe { ptr::addr_of_mut!((*uv).u.value) };
@@ -603,8 +601,7 @@ pub unsafe extern "C" fn luaF_closeupval(state: *mut lua_State, level: StkId) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_close(
+pub(crate) unsafe fn luaF_close(
     state: *mut lua_State,
     mut level: StkId,
     status: TStatus,
@@ -622,7 +619,7 @@ pub unsafe extern "C" fn luaF_close(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
+pub unsafe extern "C-unwind" fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
     let o = unsafe { luaC_newobj(state, LUA_VPROTO, size_of::<Proto>()) };
     let f = o.cast::<Proto>();
     unsafe {
@@ -651,7 +648,7 @@ pub unsafe extern "C" fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_protosize(p: *mut Proto) -> usize {
+pub unsafe extern "C-unwind" fn luaF_protosize(p: *mut Proto) -> usize {
     let mut sz = size_of::<Proto>()
         + unsafe { (*p).sizep.max(0) as usize } * size_of::<*mut Proto>()
         + unsafe { (*p).sizek.max(0) as usize } * size_of::<TValue>()
@@ -666,7 +663,7 @@ pub unsafe extern "C" fn luaF_protosize(p: *mut Proto) -> usize {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
+pub unsafe extern "C-unwind" fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
     if unsafe { (*f).flag & PF_FIXED } == 0 {
         unsafe {
             luaM_free_(
@@ -722,7 +719,7 @@ pub unsafe extern "C" fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaF_getlocalname(
+pub unsafe extern "C-unwind" fn luaF_getlocalname(
     f: *const Proto,
     mut local_number: c_int,
     pc: c_int,

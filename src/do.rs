@@ -7,9 +7,9 @@
 )]
 
 use crate::runtime::*;
-use core::alloc::Layout;
-use core::mem::{align_of, size_of};
-use std::alloc::{alloc, dealloc, handle_alloc_error};
+use core::mem::size_of;
+use std::panic::{AssertUnwindSafe, catch_unwind, panic_any, resume_unwind};
+use std::sync::Once;
 
 const LUA_YIELD: TStatus = 1;
 const LUA_ERRRUN: TStatus = 2;
@@ -144,17 +144,7 @@ struct CloseP {
     status: TStatus,
 }
 
-unsafe extern "C" {
-    fn luaRS_longjmp_size() -> usize;
-    fn luaRS_longjmp_align() -> usize;
-    fn luaRS_longjmp_set_previous(lj: *mut lua_longjmp, previous: *mut lua_longjmp);
-    fn luaRS_longjmp_get_previous(lj: *mut lua_longjmp) -> *mut lua_longjmp;
-    fn luaRS_longjmp_set_status(lj: *mut lua_longjmp, status: TStatus);
-    fn luaRS_longjmp_get_status(lj: *mut lua_longjmp) -> TStatus;
-    fn luaRS_longjmp_try(L: *mut lua_State, lj: *mut lua_longjmp, f: Pfunc, ud: *mut c_void)
-        -> c_int;
-    fn luaRS_longjmp_throw(lj: *mut lua_longjmp) -> !;
-
+unsafe extern "C-unwind" {
     fn luaE_resetthread(L: *mut lua_State, status: TStatus) -> TStatus;
     fn luaE_checkcstack(L: *mut lua_State);
     fn luaE_extendCI(L: *mut lua_State) -> *mut CallInfo;
@@ -284,19 +274,39 @@ unsafe fn uplevel(up: *mut UpVal) -> StkId {
     unsafe { (*up).v.p.cast() }
 }
 
-unsafe fn alloc_longjmp() -> (*mut lua_longjmp, Layout) {
-    let size = unsafe { luaRS_longjmp_size() };
-    let align = unsafe { luaRS_longjmp_align() }.max(align_of::<usize>());
-    let layout = Layout::from_size_align(size, align).expect("valid lua_longjmp layout");
-    let ptr = unsafe { alloc(layout) };
-    if ptr.is_null() {
-        handle_alloc_error(layout);
-    }
-    (ptr.cast(), layout)
+#[derive(Debug)]
+struct LuaUnwind {
+    target: *mut lua_longjmp,
+}
+
+unsafe impl Send for LuaUnwind {}
+
+fn ensure_lua_panic_hook() {
+    static INSTALL_HOOK: Once = Once::new();
+
+    INSTALL_HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if !info.payload().is::<LuaUnwind>() {
+                previous(info);
+            }
+        }));
+    });
+}
+
+unsafe fn alloc_longjmp(previous: *mut lua_longjmp) -> *mut lua_longjmp {
+    Box::into_raw(Box::new(lua_longjmp {
+        previous,
+        status: LUA_OK,
+    }))
+}
+
+unsafe fn free_longjmp(lj: *mut lua_longjmp) {
+    unsafe { drop(Box::from_raw(lj)) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, oldtop: StkId) {
+pub unsafe extern "C-unwind" fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, oldtop: StkId) {
     if errcode == LUA_ERRMEM {
         unsafe { setsvalue2s(L, oldtop, (*G(L)).memerrmsg) };
     } else {
@@ -310,11 +320,12 @@ pub unsafe extern "C" fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, o
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
+pub unsafe extern "C-unwind" fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
     let errjmp = unsafe { (*L).errorJmp };
     if !errjmp.is_null() {
-        unsafe { luaRS_longjmp_set_status(errjmp, errcode) };
-        unsafe { luaRS_longjmp_throw(errjmp) };
+        ensure_lua_panic_hook();
+        unsafe { (*errjmp).status = errcode };
+        panic_any(LuaUnwind { target: errjmp });
     } else {
         let g = unsafe { G(L) };
         let mainth = unsafe { mainthread(g) };
@@ -336,11 +347,11 @@ pub unsafe extern "C" fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_throwbaselevel(L: *mut lua_State, errcode: TStatus) -> ! {
+pub unsafe extern "C-unwind" fn luaD_throwbaselevel(L: *mut lua_State, errcode: TStatus) -> ! {
     let mut errjmp = unsafe { (*L).errorJmp };
     if !errjmp.is_null() {
         loop {
-            let previous = unsafe { luaRS_longjmp_get_previous(errjmp) };
+            let previous = unsafe { (*errjmp).previous };
             if previous.is_null() {
                 break;
             }
@@ -352,29 +363,48 @@ pub unsafe extern "C" fn luaD_throwbaselevel(L: *mut lua_State, errcode: TStatus
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_rawrunprotected(
+pub unsafe extern "C-unwind" fn luaD_rawrunprotected(
     L: *mut lua_State,
     f: Pfunc,
     ud: *mut c_void,
 ) -> TStatus {
     let oldnCcalls = unsafe { (*L).nCcalls };
     let old_error = unsafe { (*L).errorJmp };
-    let (lj, layout) = unsafe { alloc_longjmp() };
+    let lj = unsafe { alloc_longjmp(old_error) };
+    unsafe { (*L).errorJmp = lj };
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(f) = f {
+            unsafe { f(L, ud) };
+        }
+    }));
+
     unsafe {
-        luaRS_longjmp_set_status(lj, LUA_OK);
-        luaRS_longjmp_set_previous(lj, old_error);
-        (*L).errorJmp = lj;
-        luaRS_longjmp_try(L, lj, f, ud);
         (*L).errorJmp = old_error;
         (*L).nCcalls = oldnCcalls;
     }
-    let status = unsafe { luaRS_longjmp_get_status(lj) };
-    unsafe { dealloc(lj.cast(), layout) };
+
+    let status = match result {
+        Ok(()) => LUA_OK,
+        Err(payload) => {
+            if let Some(unwind) = payload.downcast_ref::<LuaUnwind>() {
+                if unwind.target == lj {
+                    unsafe { (*lj).status }
+                } else {
+                    resume_unwind(payload)
+                }
+            } else {
+                resume_unwind(payload)
+            }
+        }
+    };
+
+    unsafe { free_longjmp(lj) };
     status
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_errerr(L: *mut lua_State) -> ! {
+pub unsafe extern "C-unwind" fn luaD_errerr(L: *mut lua_State) -> ! {
     let msg = unsafe { luaS_new(L, c"error in error handling".as_ptr()) };
     unsafe {
         setsvalue2s(L, (*L).top.p, msg);
@@ -384,7 +414,7 @@ pub unsafe extern "C" fn luaD_errerr(L: *mut lua_State) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_checkminstack(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn luaD_checkminstack(L: *mut lua_State) -> c_int {
     ((unsafe { stacksize(L) } < MAXSTACK - BASIC_STACK_SIZE)
         && (unsafe { getCcalls(L) } < LUAI_MAXCCALLS - 2)) as c_int
 }
@@ -437,7 +467,7 @@ unsafe fn correctstack(L: *mut lua_State, _oldstack: StkId) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_reallocstack(
+pub unsafe extern "C-unwind" fn luaD_reallocstack(
     L: *mut lua_State,
     newsize: c_int,
     raiseerror: c_int,
@@ -477,7 +507,7 @@ pub unsafe extern "C" fn luaD_reallocstack(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_growstack(
+pub unsafe extern "C-unwind" fn luaD_growstack(
     L: *mut lua_State,
     n: c_int,
     raiseerror: c_int,
@@ -532,7 +562,7 @@ unsafe fn stackinuse(L: *mut lua_State) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_shrinkstack(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaD_shrinkstack(L: *mut lua_State) {
     let inuse = unsafe { stackinuse(L) };
     let max = if inuse > MAXSTACK / 3 { MAXSTACK } else { inuse * 3 };
     if inuse <= MAXSTACK && unsafe { stacksize(L) } > max {
@@ -543,7 +573,7 @@ pub unsafe extern "C" fn luaD_shrinkstack(L: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_inctop(L: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaD_inctop(L: *mut lua_State) {
     unsafe {
         (*L).top.p = (*L).top.p.add(1);
         checkstack(L, 1);
@@ -551,7 +581,7 @@ pub unsafe extern "C" fn luaD_inctop(L: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_hook(
+pub unsafe extern "C-unwind" fn luaD_hook(
     L: *mut lua_State,
     event: c_int,
     line: c_int,
@@ -609,7 +639,7 @@ pub unsafe extern "C" fn luaD_hook(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_hookcall(L: *mut lua_State, ci: *mut CallInfo) {
+pub unsafe extern "C-unwind" fn luaD_hookcall(L: *mut lua_State, ci: *mut CallInfo) {
     unsafe { (*L).oldpc = 0 };
     if unsafe { (*L).hookmask & LUA_MASKCALL } != 0 {
         let event = if unsafe { (*ci).callstatus & CIST_TAIL } != 0 {
@@ -729,7 +759,7 @@ unsafe fn moveresults(L: *mut lua_State, mut res: StkId, nres: c_int, fwanted: u
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_poscall(L: *mut lua_State, ci: *mut CallInfo, nres: c_int) {
+pub unsafe extern "C-unwind" fn luaD_poscall(L: *mut lua_State, ci: *mut CallInfo, nres: c_int) {
     let fwanted = unsafe { (*ci).callstatus & (CIST_TBC | CIST_NRESULTS) };
     if unsafe { (*L).hookmask } != 0 && fwanted & CIST_TBC == 0 {
         unsafe { rethook(L, ci, nres) };
@@ -778,7 +808,7 @@ unsafe fn precallC(L: *mut lua_State, mut func: StkId, status: u32, f: lua_CFunc
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_pretailcall(
+pub unsafe extern "C-unwind" fn luaD_pretailcall(
     L: *mut lua_State,
     ci: *mut CallInfo,
     mut func: StkId,
@@ -826,7 +856,7 @@ pub unsafe extern "C" fn luaD_pretailcall(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_precall(
+pub unsafe extern "C-unwind" fn luaD_precall(
     L: *mut lua_State,
     mut func: StkId,
     nresults: c_int,
@@ -884,12 +914,12 @@ unsafe fn ccall(L: *mut lua_State, func: StkId, nResults: c_int, inc: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_call(L: *mut lua_State, func: StkId, nResults: c_int) {
+pub unsafe extern "C-unwind" fn luaD_call(L: *mut lua_State, func: StkId, nResults: c_int) {
     unsafe { ccall(L, func, nResults, 1) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_callnoyield(L: *mut lua_State, func: StkId, nResults: c_int) {
+pub unsafe extern "C-unwind" fn luaD_callnoyield(L: *mut lua_State, func: StkId, nResults: c_int) {
     unsafe { ccall(L, func, nResults, NYCI) };
 }
 
@@ -932,7 +962,7 @@ unsafe fn finishCcall(L: *mut lua_State, ci: *mut CallInfo) {
     unsafe { luaD_poscall(L, ci, n) };
 }
 
-unsafe extern "C" fn unroll(L: *mut lua_State, _ud: *mut c_void) {
+unsafe extern "C-unwind" fn unroll(L: *mut lua_State, _ud: *mut c_void) {
     while unsafe { (*L).ci } != ptr::addr_of_mut!(unsafe { &mut *L }.base_ci) {
         let ci = unsafe { (*L).ci };
         if unsafe { !isLua(ci) } {
@@ -967,7 +997,7 @@ unsafe fn resume_error(L: *mut lua_State, msg: *const c_char, narg: c_int) -> c_
     LUA_ERRRUN as c_int
 }
 
-unsafe extern "C" fn resume(L: *mut lua_State, ud: *mut c_void) {
+unsafe extern "C-unwind" fn resume(L: *mut lua_State, ud: *mut c_void) {
     let mut n = unsafe { *(ud.cast::<c_int>()) };
     let firstArg = unsafe { (*L).top.p.sub(n as usize) };
     let ci = unsafe { (*L).ci };
@@ -1012,7 +1042,7 @@ unsafe fn precover(L: *mut lua_State, mut status: TStatus) -> TStatus {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_resume(
+pub unsafe extern "C-unwind" fn lua_resume(
     L: *mut lua_State,
     from: *mut lua_State,
     nargs: c_int,
@@ -1056,12 +1086,12 @@ pub unsafe extern "C" fn lua_resume(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_isyieldable(L: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_isyieldable(L: *mut lua_State) -> c_int {
     unsafe { yieldable(L) as c_int }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_yieldk(
+pub unsafe extern "C-unwind" fn lua_yieldk(
     L: *mut lua_State,
     nresults: c_int,
     ctx: lua_KContext,
@@ -1101,13 +1131,13 @@ pub unsafe extern "C" fn lua_yieldk(
     0
 }
 
-unsafe extern "C" fn closepaux(L: *mut lua_State, ud: *mut c_void) {
+unsafe extern "C-unwind" fn closepaux(L: *mut lua_State, ud: *mut c_void) {
     let pcl = unsafe { &mut *ud.cast::<CloseP>() };
     unsafe { luaF_close(L, pcl.level, pcl.status, 0) };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_closeprotected(
+pub unsafe extern "C-unwind" fn luaD_closeprotected(
     L: *mut lua_State,
     level: isize,
     mut status: TStatus,
@@ -1130,8 +1160,7 @@ pub unsafe extern "C" fn luaD_closeprotected(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_pcall(
+pub(crate) unsafe fn luaD_pcall(
     L: *mut lua_State,
     func: Pfunc,
     u: *mut c_void,
@@ -1183,7 +1212,7 @@ unsafe fn zgetc(z: *mut ZIO) -> c_int {
     }
 }
 
-unsafe extern "C" fn f_parser(L: *mut lua_State, ud: *mut c_void) {
+unsafe extern "C-unwind" fn f_parser(L: *mut lua_State, ud: *mut c_void) {
     let p = unsafe { &mut *ud.cast::<SParser>() };
     let mode = if p.mode.is_null() { c"bt".as_ptr() } else { p.mode };
     let c = unsafe { zgetc(p.z) };
@@ -1205,8 +1234,7 @@ unsafe extern "C" fn f_parser(L: *mut lua_State, ud: *mut c_void) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaD_protectedparser(
+pub(crate) unsafe fn luaD_protectedparser(
     L: *mut lua_State,
     z: *mut ZIO,
     name: *const c_char,

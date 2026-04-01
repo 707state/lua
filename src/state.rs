@@ -12,12 +12,12 @@ type TStatus = u8;
 type Instruction = u32;
 type LMem = isize;
 type LuMem = usize;
-type LuaAlloc = Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
-type LuaKFunction = Option<unsafe extern "C" fn(*mut lua_State, c_int, isize) -> c_int>;
-type LuaWarnFunction = Option<unsafe extern "C" fn(*mut c_void, *const c_char, c_int)>;
-type LuaHook = Option<unsafe extern "C" fn(*mut lua_State, *mut lua_Debug)>;
-type Pfunc = Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>;
+type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
+type LuaKFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, isize) -> c_int>;
+type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
+type LuaHook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut lua_Debug)>;
+type Pfunc = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void)>;
 
 const LUA_OK: TStatus = 0;
 const LUA_YIELD: TStatus = 1;
@@ -272,7 +272,7 @@ pub struct global_State {
     mainth: LX,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaC_freeallobjects(state: *mut lua_State);
     fn luaC_newobjdt(state: *mut lua_State, tt: u8, sz: usize, offset: usize) -> *mut GCObject;
     fn luaC_step(state: *mut lua_State);
@@ -423,7 +423,7 @@ unsafe fn free_tstring_hash(state: *mut lua_State, hash: *mut *mut TString, coun
     unsafe { luaM_free_(state, hash.cast(), size_of::<*mut TString>() * count) };
 }
 
-unsafe extern "C" fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
+unsafe extern "C-unwind" fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
     let _ = ud;
     let g = unsafe { g(state) };
     unsafe { stack_init(state, state) };
@@ -582,7 +582,7 @@ unsafe fn close_state(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_setdebt(g: *mut global_State, mut debt: LMem) {
+pub unsafe extern "C-unwind" fn luaE_setdebt(g: *mut global_State, mut debt: LMem) {
     let tb = unsafe { gettotalbytes(g) };
     if debt > MAX_LMEM - tb {
         debt = MAX_LMEM - tb;
@@ -594,7 +594,7 @@ pub unsafe extern "C" fn luaE_setdebt(g: *mut global_State, mut debt: LMem) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
+pub unsafe extern "C-unwind" fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
     let ci = unsafe { new_callinfo(state) };
     unsafe {
         (*(*state).ci).next = ci;
@@ -607,7 +607,7 @@ pub unsafe extern "C" fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_shrinkCI(state: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaE_shrinkCI(state: *mut lua_State) {
     let mut ci = unsafe { (*(*state).ci).next };
     if ci.is_null() {
         return;
@@ -634,7 +634,7 @@ pub unsafe extern "C" fn luaE_shrinkCI(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_checkcstack(state: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaE_checkcstack(state: *mut lua_State) {
     let calls = unsafe { get_ccalls(state) };
     if calls == LUAI_MAXCCALLS {
         unsafe { luaG_runerror(state, c"C stack overflow".as_ptr()) };
@@ -644,7 +644,7 @@ pub unsafe extern "C" fn luaE_checkcstack(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_incCstack(state: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaE_incCstack(state: *mut lua_State) {
     unsafe { (*state).nCcalls += 1 };
     if unsafe { get_ccalls(state) } >= LUAI_MAXCCALLS {
         unsafe { luaE_checkcstack(state) };
@@ -652,7 +652,7 @@ pub unsafe extern "C" fn luaE_incCstack(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_threadsize(state: *mut lua_State) -> LuMem {
+pub unsafe extern "C-unwind" fn luaE_threadsize(state: *mut lua_State) -> LuMem {
     let mut sz =
         size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
     if unsafe { !(*state).stack.p.is_null() } {
@@ -662,7 +662,7 @@ pub unsafe extern "C" fn luaE_threadsize(state: *mut lua_State) -> LuMem {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
+pub unsafe extern "C-unwind" fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
     let g = unsafe { g(state) };
     if unsafe { (*g).GCdebt <= 0 } {
         unsafe { luaC_step(state) };
@@ -690,7 +690,7 @@ pub unsafe extern "C" fn lua_newthread(state: *mut lua_State) -> *mut lua_State 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
+pub unsafe extern "C-unwind" fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
     let l = unsafe { thread.cast::<u8>().sub(offset_of!(LX, l)).cast::<LX>() };
     unsafe { luaF_closeupval(thread, (*thread).stack.p) };
     unsafe { freestack(thread) };
@@ -698,7 +698,7 @@ pub unsafe extern "C" fn luaE_freethread(state: *mut lua_State, thread: *mut lua
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_resetthread(state: *mut lua_State, mut status: TStatus) -> TStatus {
+pub unsafe extern "C-unwind" fn luaE_resetthread(state: *mut lua_State, mut status: TStatus) -> TStatus {
     unsafe { reset_ci(state) };
     if status == LUA_YIELD {
         status = LUA_OK;
@@ -720,7 +720,7 @@ pub unsafe extern "C" fn luaE_resetthread(state: *mut lua_State, mut status: TSt
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_closethread(state: *mut lua_State, from: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn lua_closethread(state: *mut lua_State, from: *mut lua_State) -> c_int {
     unsafe {
         (*state).nCcalls = if from.is_null() { 0 } else { get_ccalls(from) };
     }
@@ -732,7 +732,7 @@ pub unsafe extern "C" fn lua_closethread(state: *mut lua_State, from: *mut lua_S
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
+pub unsafe extern "C-unwind" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
     let Some(frealloc) = f else {
         return ptr::null_mut();
     };
@@ -820,13 +820,12 @@ pub unsafe extern "C" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: u32) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lua_close(state: *mut lua_State) {
+pub unsafe extern "C-unwind" fn lua_close(state: *mut lua_State) {
     let main = unsafe { mainthread(g(state)) };
     unsafe { close_state(main) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) {
+pub(crate) unsafe fn luaE_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) {
     let g = unsafe { g(state) };
     if let Some(warnf) = unsafe { (*g).warnf } {
         unsafe { warnf((*g).ud_warn, msg, tocont) };
@@ -834,7 +833,7 @@ pub unsafe extern "C" fn luaE_warning(state: *mut lua_State, msg: *const c_char,
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
+pub unsafe extern "C-unwind" fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
     let errobj = unsafe { s2v((*state).top.p.sub(1)) };
     let msg = if unsafe { ((*errobj).tt_ & 0x0f) == 4 } {
         unsafe { crate::luaffi::lua_tolstring(state.cast(), -1, ptr::null_mut()) }
@@ -854,7 +853,7 @@ mod tests {
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
     use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
 
-    unsafe extern "C" fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
+    unsafe extern "C-unwind" fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
 
     #[test]
     fn newthread_copies_hook_state_and_closes() {

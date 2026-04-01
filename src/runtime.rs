@@ -17,19 +17,19 @@ pub(crate) type l_mem = isize;
 pub(crate) type TStatus = u8;
 pub(crate) type lu_byte = u8;
 pub(crate) type ls_byte = i8;
-pub(crate) type lua_CFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+pub(crate) type lua_CFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
 pub(crate) type lua_KContext = isize;
 pub(crate) type lua_KFunction =
-    Option<unsafe extern "C" fn(*mut lua_State, c_int, lua_KContext) -> c_int>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, lua_KContext) -> c_int>;
 pub(crate) type lua_Reader =
-    Option<unsafe extern "C" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
 pub(crate) type lua_Writer =
-    Option<unsafe extern "C" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
+    Option<unsafe extern "C-unwind" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 pub(crate) type lua_Alloc =
-    Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-pub(crate) type lua_WarnFunction = Option<unsafe extern "C" fn(*mut c_void, *const c_char, c_int)>;
-pub(crate) type lua_Hook = Option<unsafe extern "C" fn(*mut lua_State, *mut lua_Debug)>;
-pub(crate) type Pfunc = Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>;
+    Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+pub(crate) type lua_WarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
+pub(crate) type lua_Hook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut lua_Debug)>;
+pub(crate) type Pfunc = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void)>;
 pub(crate) type Instruction = u32;
 
 pub(crate) const LUA_VERSION_NUM: lua_Number = 505.0;
@@ -388,7 +388,8 @@ pub(crate) struct CallInfo {
 
 #[repr(C)]
 pub(crate) struct lua_longjmp {
-    pub(crate) _private: [u8; 0],
+    pub(crate) previous: *mut lua_longjmp,
+    pub(crate) status: TStatus,
 }
 
 #[repr(C)]
@@ -499,129 +500,158 @@ pub(crate) struct CallS {
     pub(crate) nresults: c_int,
 }
 
-unsafe extern "C" {
-    pub(crate) fn luaD_growstack(L: *mut lua_State, n: c_int, raiseerror: c_int) -> c_int;
-    pub(crate) fn luaD_call(L: *mut lua_State, func: StkId, nResults: c_int);
-    pub(crate) fn luaD_callnoyield(L: *mut lua_State, func: StkId, nResults: c_int);
-    pub(crate) fn luaD_pcall(
-        L: *mut lua_State,
-        func: Pfunc,
-        u: *mut c_void,
-        oldtop: isize,
-        ef: isize,
-    ) -> TStatus;
-    pub(crate) fn luaD_protectedparser(
-        L: *mut lua_State,
-        z: *mut ZIO,
-        name: *const c_char,
-        mode: *const c_char,
-    ) -> TStatus;
-    pub(crate) fn luaD_throw(L: *mut lua_State, errcode: TStatus) -> !;
+// Direct re-exports from modules that use crate::runtime::* types
+pub(crate) use crate::do_rs::{
+    luaD_call, luaD_callnoyield, luaD_growstack, luaD_pcall, luaD_protectedparser, luaD_throw,
+};
+pub(crate) use crate::vm_rs::{
+    luaV_concat, luaV_equalobj, luaV_finishget, luaV_finishset, luaV_lessequal, luaV_lessthan,
+    luaV_objlen, luaV_tointeger, luaV_tonumber_,
+};
+pub(crate) use crate::gc::{
+    luaC_barrier_, luaC_barrierback_, luaC_changemode, luaC_checkfinalizer, luaC_fullgc,
+    luaC_step,
+};
+#[inline]
+pub(crate) unsafe fn luaU_dump(L: *mut lua_State, p: *mut Proto, writer: lua_Writer, data: *mut c_void, strip: c_int) -> c_int {
+    unsafe { crate::dump::luaU_dump(L as _, p as _, core::mem::transmute(writer), data, strip) }
+}
 
-    pub(crate) fn luaF_close(L: *mut lua_State, level: StkId, status: TStatus, yy: c_int) -> StkId;
-    pub(crate) fn luaF_newCclosure(L: *mut lua_State, nupvals: c_int) -> *mut CClosure;
-    pub(crate) fn luaF_newtbcupval(L: *mut lua_State, level: StkId);
+#[inline]
+pub(crate) unsafe fn luaE_setdebt(g: *mut global_State, debt: l_mem) {
+    unsafe { crate::state::luaE_setdebt(g as _, debt) }
+}
 
-    pub(crate) fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int;
-    pub(crate) fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int;
-    pub(crate) fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int;
-    pub(crate) fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int;
-    pub(crate) fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int;
-    pub(crate) fn luaV_finishget(
-        L: *mut lua_State,
-        t: *const TValue,
-        key: *mut TValue,
-        val: StkId,
-        tag: lu_byte,
-    ) -> lu_byte;
-    pub(crate) fn luaV_finishset(
-        L: *mut lua_State,
-        t: *const TValue,
-        key: *mut TValue,
-        val: *mut TValue,
-        aux: c_int,
-    );
-    pub(crate) fn luaV_concat(L: *mut lua_State, total: c_int);
-    pub(crate) fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue);
+// Wrapper functions for modules with self-contained type definitions.
+// All structs are #[repr(C)] with identical layouts, so pointer casts are safe.
 
-    pub(crate) fn luaC_fullgc(L: *mut lua_State, isemergency: c_int);
-    pub(crate) fn luaC_step(L: *mut lua_State);
-    pub(crate) fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObject);
-    pub(crate) fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject);
-    pub(crate) fn luaC_checkfinalizer(L: *mut lua_State, o: *mut GCObject, mt: *mut Table);
-    pub(crate) fn luaC_changemode(L: *mut lua_State, newmode: c_int);
+#[inline]
+pub(crate) unsafe fn luaF_close(L: *mut lua_State, level: StkId, status: TStatus, yy: c_int) -> StkId {
+    unsafe {
+        crate::func::luaF_close(L as _, level as _, status, yy) as StkId
+    }
+}
+#[inline]
+pub(crate) unsafe fn luaF_newCclosure(L: *mut lua_State, nupvals: c_int) -> *mut CClosure {
+    unsafe { crate::func::luaF_newCclosure(L as _, nupvals) as *mut CClosure }
+}
+#[inline]
+pub(crate) unsafe fn luaF_newtbcupval(L: *mut lua_State, level: StkId) {
+    unsafe { crate::func::luaF_newtbcupval(L as _, level as _) }
+}
 
-    pub(crate) fn luaO_arith(
-        L: *mut lua_State,
-        op: c_int,
-        p1: *const TValue,
-        p2: *const TValue,
-        res: StkId,
-    );
-    pub(crate) fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32;
-    pub(crate) fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize;
-    pub(crate) fn luaO_tostring(L: *mut lua_State, obj: *mut TValue);
-    pub(crate) fn luaO_pushvfstring(
-        L: *mut lua_State,
-        fmt: *const c_char,
-        argp: VaList<'_>,
-    ) -> *const c_char;
-    pub(crate) fn luaO_codeparam(p: u32) -> u8;
-    pub(crate) fn luaO_applyparam(p: u8, x: isize) -> isize;
+#[inline]
+pub(crate) unsafe fn luaO_arith(L: *mut lua_State, op: c_int, p1: *const TValue, p2: *const TValue, res: StkId) {
+    unsafe { crate::object::luaO_arith(L as _, op, p1 as _, p2 as _, res as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
+    unsafe { crate::object::luaO_tostringbuff(obj as _, buff) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
+    unsafe { crate::object::luaO_str2num(s, o as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_tostring(L: *mut lua_State, obj: *mut TValue) {
+    unsafe { crate::object::luaO_tostring(L as _, obj as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_pushvfstring(L: *mut lua_State, fmt: *const c_char, argp: VaList<'_>) -> *const c_char {
+    unsafe { crate::object::luaO_pushvfstring(L as _, fmt, argp) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_codeparam(p: u32) -> u8 {
+    unsafe { crate::object::luaO_codeparam(p) }
+}
+#[inline]
+pub(crate) unsafe fn luaO_applyparam(p: u8, x: isize) -> isize {
+    unsafe { crate::object::luaO_applyparam(p, x) }
+}
 
-    pub(crate) fn luaS_new(L: *mut lua_State, s: *const c_char) -> *mut TString;
-    pub(crate) fn luaS_newlstr(L: *mut lua_State, s: *const c_char, len: usize) -> *mut TString;
-    pub(crate) fn luaS_newextlstr(
-        L: *mut lua_State,
-        s: *const c_char,
-        len: usize,
-        falloc: lua_Alloc,
-        ud: *mut c_void,
-    ) -> *mut TString;
-    pub(crate) fn luaS_newudata(L: *mut lua_State, s: usize, nuvalue: u16) -> *mut Udata;
+#[inline]
+pub(crate) unsafe fn luaS_new(L: *mut lua_State, s: *const c_char) -> *mut TString {
+    unsafe { crate::string::luaS_new(L as _, s) as *mut TString }
+}
+#[inline]
+pub(crate) unsafe fn luaS_newlstr(L: *mut lua_State, s: *const c_char, len: usize) -> *mut TString {
+    unsafe { crate::string::luaS_newlstr(L as _, s, len) as *mut TString }
+}
+#[inline]
+pub(crate) unsafe fn luaS_newextlstr(L: *mut lua_State, s: *const c_char, len: usize, falloc: lua_Alloc, ud: *mut c_void) -> *mut TString {
+    unsafe { crate::string::luaS_newextlstr(L as _, s, len, core::mem::transmute(falloc), ud) as *mut TString }
+}
+#[inline]
+pub(crate) unsafe fn luaS_newudata(L: *mut lua_State, s: usize, nuvalue: u16) -> *mut Udata {
+    unsafe { crate::string::luaS_newudata(L as _, s, nuvalue) as *mut Udata }
+}
 
-    pub(crate) fn luaH_get(t: *mut Table, key: *const TValue, res: *mut TValue) -> lu_byte;
-    pub(crate) fn luaH_getstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> lu_byte;
-    pub(crate) fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> lu_byte;
-    pub(crate) fn luaH_psetstr(t: *mut Table, key: *mut TString, val: *mut TValue) -> c_int;
-    pub(crate) fn luaH_pset(t: *mut Table, key: *const TValue, val: *mut TValue) -> c_int;
-    pub(crate) fn luaH_psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int;
-    pub(crate) fn luaH_finishset(
-        L: *mut lua_State,
-        t: *mut Table,
-        key: *const TValue,
-        value: *mut TValue,
-        hres: c_int,
-    );
-    pub(crate) fn luaH_set(
-        L: *mut lua_State,
-        t: *mut Table,
-        key: *const TValue,
-        value: *mut TValue,
-    );
-    pub(crate) fn luaH_setint(
-        L: *mut lua_State,
-        t: *mut Table,
-        key: lua_Integer,
-        value: *mut TValue,
-    );
-    pub(crate) fn luaH_new(L: *mut lua_State) -> *mut Table;
-    pub(crate) fn luaH_resize(L: *mut lua_State, t: *mut Table, nasize: c_uint, nhsize: c_uint);
-    pub(crate) fn luaH_getn(L: *mut lua_State, t: *mut Table) -> lua_Unsigned;
-    pub(crate) fn luaH_next(L: *mut lua_State, t: *mut Table, key: StkId) -> c_int;
+#[inline]
+pub(crate) unsafe fn luaH_get(t: *mut Table, key: *const TValue, res: *mut TValue) -> lu_byte {
+    unsafe { crate::table::runtime::luaH_get(t as _, key as _, res as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_getstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> lu_byte {
+    unsafe { crate::table::runtime::luaH_getstr(t as _, key as _, res as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> lu_byte {
+    unsafe { crate::table::runtime::luaH_getint(t as _, key, res as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_psetstr(t: *mut Table, key: *mut TString, val: *mut TValue) -> c_int {
+    unsafe { crate::table::runtime::luaH_psetstr(t as _, key as _, val as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_pset(t: *mut Table, key: *const TValue, val: *mut TValue) -> c_int {
+    unsafe { crate::table::runtime::luaH_pset(t as _, key as _, val as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int {
+    unsafe { crate::table::runtime::luaH_psetint(t as _, key, val as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_finishset(L: *mut lua_State, t: *mut Table, key: *const TValue, value: *mut TValue, hres: c_int) {
+    unsafe { crate::table::runtime::luaH_finishset(L as _, t as _, key as _, value as _, hres) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_set(L: *mut lua_State, t: *mut Table, key: *const TValue, value: *mut TValue) {
+    unsafe { crate::table::runtime::luaH_set(L as _, t as _, key as _, value as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_setint(L: *mut lua_State, t: *mut Table, key: lua_Integer, value: *mut TValue) {
+    unsafe { crate::table::runtime::luaH_setint(L as _, t as _, key, value as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_new(L: *mut lua_State) -> *mut Table {
+    unsafe { crate::table::runtime::luaH_new(L as _) as *mut Table }
+}
+#[inline]
+pub(crate) unsafe fn luaH_resize(L: *mut lua_State, t: *mut Table, nasize: c_uint, nhsize: c_uint) {
+    unsafe { crate::table::runtime::luaH_resize(L as _, t as _, nasize, nhsize) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_getn(L: *mut lua_State, t: *mut Table) -> lua_Unsigned {
+    unsafe { crate::table::runtime::luaH_getn(L as _, t as _) }
+}
+#[inline]
+pub(crate) unsafe fn luaH_next(L: *mut lua_State, t: *mut Table, key: StkId) -> c_int {
+    unsafe { crate::table::runtime::luaH_next(L as _, t as _, key as _) }
+}
 
-    pub(crate) fn luaU_dump(
-        L: *mut lua_State,
-        p: *mut Proto,
-        writer: lua_Writer,
-        data: *mut c_void,
-        strip: c_int,
-    ) -> c_int;
+#[inline]
+pub(crate) unsafe fn luaZ_init(L: *mut lua_State, z: *mut ZIO, reader: lua_Reader, data: *mut c_void) {
+    unsafe { crate::zio::luaZ_init(L as _, z as _, core::mem::transmute(reader), data) }
+}
 
-    pub(crate) fn luaZ_init(L: *mut lua_State, z: *mut ZIO, reader: lua_Reader, data: *mut c_void);
+#[inline]
+pub(crate) unsafe fn luaE_warning(L: *mut lua_State, msg: *const c_char, tocont: c_int) {
+    unsafe { crate::state::luaE_warning(L as _, msg, tocont) }
+}
 
-    pub(crate) fn luaE_warning(L: *mut lua_State, msg: *const c_char, tocont: c_int);
-    pub(crate) fn luaT_objtypename(L: *mut lua_State, o: *const TValue) -> *const c_char;
+#[inline]
+pub(crate) unsafe fn luaT_objtypename(L: *mut lua_State, o: *const TValue) -> *const c_char {
+    unsafe { crate::tm::luaT_objtypename(L as _, o as _) }
 }
 
 #[inline]
@@ -1265,7 +1295,7 @@ pub(crate) unsafe fn checknoTM(mt: *mut Table, e: usize) -> bool {
     mt.is_null() || unsafe { (*mt).flags & (1u8 << e) != 0 }
 }
 
-pub(crate) unsafe extern "C" fn f_call(L: *mut lua_State, ud: *mut c_void) {
+pub(crate) unsafe extern "C-unwind" fn f_call(L: *mut lua_State, ud: *mut c_void) {
     let c = ud.cast::<CallS>();
     unsafe { luaD_callnoyield(L, (*c).func, (*c).nresults) };
 }

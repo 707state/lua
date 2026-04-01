@@ -79,7 +79,7 @@ static CO_FUNCS: [luaL_Reg; 9] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn lua_newthread(state: *mut lua_State) -> *mut lua_State;
     fn lua_closethread(state: *mut lua_State, from: *mut lua_State) -> c_int;
 
@@ -97,7 +97,7 @@ unsafe extern "C" {
         state: *mut lua_State,
         nresults: c_int,
         ctx: isize,
-        k: Option<unsafe extern "C" fn(*mut lua_State, c_int, isize) -> c_int>,
+        k: Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, isize) -> c_int>,
     ) -> c_int;
     fn lua_isyieldable(state: *mut lua_State) -> c_int;
     fn lua_pushthread(state: *mut lua_State) -> c_int;
@@ -139,7 +139,7 @@ unsafe fn auxresume(state: *mut lua_State, co: *mut lua_State, narg: c_int) -> c
     }
 }
 
-unsafe extern "C" fn lua_b_coresume(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_coresume(state: *mut lua_State) -> c_int {
     let co = unsafe { getco(state) };
     let r = unsafe { auxresume(state, co, lua_gettop(state) - 1) };
     if r < 0 {
@@ -153,7 +153,7 @@ unsafe extern "C" fn lua_b_coresume(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
     let co = unsafe { lua_tothread(state, lua_upvalueindex(1)) };
     let r = unsafe { auxresume(state, co, lua_gettop(state)) };
     if r < 0 {
@@ -172,7 +172,7 @@ unsafe extern "C" fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
     r
 }
 
-unsafe extern "C" fn lua_b_cocreate(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_cocreate(state: *mut lua_State) -> c_int {
     unsafe { luaL_checktype(state, 1, LUA_TFUNCTION) };
     let new_state = unsafe { lua_newthread(state) };
     unsafe { lua_pushvalue(state, 1) };
@@ -180,13 +180,13 @@ unsafe extern "C" fn lua_b_cocreate(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn lua_b_cowrap(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_cowrap(state: *mut lua_State) -> c_int {
     unsafe { lua_b_cocreate(state) };
     unsafe { lua_pushcclosure(state, Some(lua_b_auxwrap), 1) };
     1
 }
 
-unsafe extern "C" fn lua_b_yield(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_yield(state: *mut lua_State) -> c_int {
     unsafe { lua_yieldk(state, lua_gettop(state), 0, None) }
 }
 
@@ -211,7 +211,7 @@ unsafe fn auxstatus(state: *mut lua_State, co: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn lua_b_costatus(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_costatus(state: *mut lua_State) -> c_int {
     let co = unsafe { getco(state) };
     let status = unsafe { auxstatus(state, co) } as usize;
     unsafe { lua_pushstring(state, STATNAME[status].as_ptr().cast()) };
@@ -227,19 +227,19 @@ unsafe fn getoptco(state: *mut lua_State) -> *mut lua_State {
     }
 }
 
-unsafe extern "C" fn lua_b_yieldable(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_yieldable(state: *mut lua_State) -> c_int {
     let co = unsafe { getoptco(state) };
     unsafe { lua_pushboolean(state, lua_isyieldable(co)) };
     1
 }
 
-unsafe extern "C" fn lua_b_corunning(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_corunning(state: *mut lua_State) -> c_int {
     let ismain = unsafe { lua_pushthread(state) };
     unsafe { lua_pushboolean(state, ismain) };
     2
 }
 
-unsafe extern "C" fn lua_b_close(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn lua_b_close(state: *mut lua_State) -> c_int {
     let co = unsafe { getoptco(state) };
     let status = unsafe { auxstatus(state, co) };
     match status {
@@ -267,8 +267,7 @@ unsafe extern "C" fn lua_b_close(state: *mut lua_State) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_coroutine(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_coroutine(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &CO_FUNCS) };
     1
 }

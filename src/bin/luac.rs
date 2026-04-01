@@ -263,7 +263,7 @@ struct DumpWriter {
     error: Option<String>,
 }
 
-unsafe extern "C" fn write_chunk(
+unsafe extern "C-unwind" fn write_chunk(
     _state: *mut lua_State,
     pointer: *const c_void,
     size: usize,

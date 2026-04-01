@@ -154,8 +154,7 @@ const fn test_it_mode(op: usize) -> bool {
     (luaP_opmodes[op] & (1 << 5)) != 0
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn luaP_isOT(i: Instruction) -> c_int {
+pub(crate) fn luaP_isOT(i: Instruction) -> c_int {
     let op = get_opcode(i);
     match op {
         OP_TAILCALL => 1,
@@ -164,7 +163,7 @@ pub extern "C" fn luaP_isOT(i: Instruction) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn luaP_isIT(i: Instruction) -> c_int {
+pub unsafe extern "C-unwind" fn luaP_isIT(i: Instruction) -> c_int {
     let op = get_opcode(i);
     match op {
         OP_SETLIST => c_int::from(test_it_mode(op) && get_arg_vb(i) == 0),
@@ -207,8 +206,8 @@ mod tests {
         assert_eq!(luaP_isOT(tailcall), 1);
         assert_eq!(luaP_isOT(move_inst), 0);
 
-        assert_eq!(luaP_isIT(call_multi), 1);
-        assert_eq!(luaP_isIT(setlist_multi), 1);
-        assert_eq!(luaP_isIT(move_inst), 0);
+        assert_eq!(unsafe { luaP_isIT(call_multi) }, 1);
+        assert_eq!(unsafe { luaP_isIT(setlist_multi) }, 1);
+        assert_eq!(unsafe { luaP_isIT(move_inst) }, 0);
     }
 }

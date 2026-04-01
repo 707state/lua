@@ -188,7 +188,7 @@ static METAMETH: [luaL_Reg; 5] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
     fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void;
     fn lua_copy(state: *mut lua_State, from: c_int, to: c_int);
@@ -205,7 +205,7 @@ unsafe extern "C" {
 
 use core::ffi::c_uint;
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn fopen(filename: *const c_char, mode: *const c_char) -> *mut File;
     fn fdopen(fd: c_int, mode: *const c_char) -> *mut File;
     fn fclose(file: *mut File) -> c_int;
@@ -242,7 +242,7 @@ const IOLBF_VALUE: c_int = 1;
 const EOF_VALUE: c_int = -1;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __error() -> *mut c_int;
 }
 #[cfg(any(
@@ -252,12 +252,12 @@ unsafe extern "C" {
     target_os = "netbsd",
     target_os = "openbsd"
 ))]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __errno_location() -> *mut c_int;
 }
 
 #[cfg(target_os = "android")]
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn __errno() -> *mut c_int;
 }
 
@@ -352,7 +352,7 @@ unsafe fn lua_replace_local(state: *mut lua_State, index: c_int) {
     unsafe { lua_pop(state, 1) };
 }
 
-unsafe extern "C" fn io_type(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_type(state: *mut lua_State) -> c_int {
     unsafe { luaL_checkany(state, 1) };
     let p = unsafe { luaL_testudata(state, 1, LUA_FILEHANDLE.as_ptr().cast()) as *mut luaL_Stream };
     if p.is_null() {
@@ -365,7 +365,7 @@ unsafe extern "C" fn io_type(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn f_tostring(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_tostring(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     if unsafe { isclosed(p) } {
         unsafe { push_literal(state, STR_FILE_CLOSED) };
@@ -400,26 +400,26 @@ unsafe fn newfile(state: *mut lua_State) -> *mut luaL_Stream {
     p
 }
 
-unsafe extern "C" fn aux_close(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn aux_close(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     let cf = unsafe { (*p).closef };
     unsafe { (*p).closef = None };
     unsafe { cf.expect("open file has close callback")(state) }
 }
 
-unsafe extern "C" fn f_close(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_close(state: *mut lua_State) -> c_int {
     unsafe { tofile(state) };
     unsafe { aux_close(state) }
 }
 
-unsafe extern "C" fn io_close(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_close(state: *mut lua_State) -> c_int {
     if unsafe { is_none(state, 1) } {
         unsafe { lua_getfield(state, LUA_REGISTRYINDEX, IO_OUTPUT.as_ptr().cast()) };
     }
     unsafe { f_close(state) }
 }
 
-unsafe extern "C" fn f_gc(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_gc(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     if !unsafe { isclosed(p) } && !unsafe { (*p).f.is_null() } {
         let _ = unsafe { aux_close(state) };
@@ -427,7 +427,7 @@ unsafe extern "C" fn f_gc(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C" fn io_fclose(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_fclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     unsafe { reset_errno() };
     unsafe { luaL_fileresult(state, (fclose((*p).f) == 0) as c_int, ptr::null()) }
@@ -468,7 +468,7 @@ unsafe fn opencheck(state: *mut lua_State, fname: *const c_char, mode: *const c_
 
 unsafe fn strerror() -> *const c_char {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    unsafe extern "C" {
+    unsafe extern "C-unwind" {
         fn strerror(errnum: c_int) -> *const c_char;
     }
     #[cfg(any(
@@ -479,13 +479,13 @@ unsafe fn strerror() -> *const c_char {
         target_os = "netbsd",
         target_os = "openbsd"
     ))]
-    unsafe extern "C" {
+    unsafe extern "C-unwind" {
         fn strerror(errnum: c_int) -> *const c_char;
     }
     unsafe { strerror(*errno_ptr()) }
 }
 
-unsafe extern "C" fn io_open(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_open(state: *mut lua_State) -> c_int {
     let filename = unsafe { checkstring(state, 1) };
     let mode = unsafe { optstring(state, 2, c"r".to_bytes_with_nul()) };
     let mode_bytes = unsafe { CStr::from_ptr(mode) }.to_bytes();
@@ -503,13 +503,13 @@ unsafe extern "C" fn io_open(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn io_pclose(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_pclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     unsafe { reset_errno() };
     unsafe { luaL_execresult(state, pclose((*p).f)) }
 }
 
-unsafe extern "C" fn io_popen(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_popen(state: *mut lua_State) -> c_int {
     let filename = unsafe { checkstring(state, 1) };
     let mode = unsafe { optstring(state, 2, c"r".to_bytes_with_nul()) };
     let mode_bytes = unsafe { CStr::from_ptr(mode) }.to_bytes();
@@ -528,7 +528,7 @@ unsafe extern "C" fn io_popen(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn io_tmpfile(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_tmpfile(state: *mut lua_State) -> c_int {
     let p = unsafe { newfile(state) };
     unsafe { reset_errno() };
     unsafe { (*p).f = tmpfile() };
@@ -565,11 +565,11 @@ unsafe fn g_iofile(state: *mut lua_State, f: &'static [u8], mode: &'static [u8])
     1
 }
 
-unsafe extern "C" fn io_input(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_input(state: *mut lua_State) -> c_int {
     unsafe { g_iofile(state, IO_INPUT, c"r".to_bytes_with_nul()) }
 }
 
-unsafe extern "C" fn io_output(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_output(state: *mut lua_State) -> c_int {
     unsafe { g_iofile(state, IO_OUTPUT, c"w".to_bytes_with_nul()) }
 }
 
@@ -591,13 +591,13 @@ unsafe fn aux_lines(state: *mut lua_State, toclose: c_int) {
     unsafe { lua_pushcclosure(state, Some(io_readline), 3 + n) };
 }
 
-unsafe extern "C" fn f_lines(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_lines(state: *mut lua_State) -> c_int {
     unsafe { tofile(state) };
     unsafe { aux_lines(state, 0) };
     1
 }
 
-unsafe extern "C" fn io_lines(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_lines(state: *mut lua_State) -> c_int {
     let toclose;
     if unsafe { is_none(state, 1) } {
         unsafe { lua_pushnil(state) };
@@ -826,15 +826,15 @@ unsafe fn g_read(state: *mut lua_State, f: *mut File, first: c_int) -> c_int {
     n - first
 }
 
-unsafe extern "C" fn io_read(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_read(state: *mut lua_State) -> c_int {
     unsafe { g_read(state, getiofile(state, IO_INPUT), 1) }
 }
 
-unsafe extern "C" fn f_read(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_read(state: *mut lua_State) -> c_int {
     unsafe { g_read(state, tofile(state), 2) }
 }
 
-unsafe extern "C" fn io_readline(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_readline(state: *mut lua_State) -> c_int {
     let p = unsafe { lua_touserdata(state, lua_upvalueindex(1)) as *mut luaL_Stream };
     let mut isnum = 0;
     let mut n = unsafe { lua_tointegerx(state, lua_upvalueindex(2), &mut isnum) as c_int };
@@ -899,17 +899,17 @@ unsafe fn g_write(state: *mut lua_State, f: *mut File, mut arg: c_int) -> c_int 
     1
 }
 
-unsafe extern "C" fn io_write(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_write(state: *mut lua_State) -> c_int {
     unsafe { g_write(state, getiofile(state, IO_OUTPUT), 1) }
 }
 
-unsafe extern "C" fn f_write(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_write(state: *mut lua_State) -> c_int {
     let f = unsafe { tofile(state) };
     unsafe { lua_pushvalue(state, 1) };
     unsafe { g_write(state, f, 2) }
 }
 
-unsafe extern "C" fn f_seek(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_seek(state: *mut lua_State) -> c_int {
     let mode_names = [
         c"set".as_ptr(),
         c"cur".as_ptr(),
@@ -934,7 +934,7 @@ unsafe extern "C" fn f_seek(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe extern "C" fn f_setvbuf(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_setvbuf(state: *mut lua_State) -> c_int {
     let mode_names = [
         c"no".as_ptr(),
         c"full".as_ptr(),
@@ -960,11 +960,11 @@ unsafe fn aux_flush(state: *mut lua_State, f: *mut File) -> c_int {
     unsafe { luaL_fileresult(state, (fflush(f) == 0) as c_int, ptr::null()) }
 }
 
-unsafe extern "C" fn f_flush(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn f_flush(state: *mut lua_State) -> c_int {
     unsafe { aux_flush(state, tofile(state)) }
 }
 
-unsafe extern "C" fn io_flush(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_flush(state: *mut lua_State) -> c_int {
     unsafe { aux_flush(state, getiofile(state, IO_OUTPUT)) }
 }
 
@@ -977,7 +977,7 @@ unsafe fn createmeta(state: *mut lua_State) {
     unsafe { lua_pop(state, 1) };
 }
 
-unsafe extern "C" fn io_noclose(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn io_noclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     unsafe { (*p).closef = Some(io_noclose) };
     unsafe { push_fail(state) };
@@ -1003,8 +1003,7 @@ unsafe fn createstdfile(
     unsafe { lua_setfield(state, -2, fname.as_ptr().cast()) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_io(state: *mut lua_State) -> c_int {
+pub(crate) unsafe extern "C-unwind" fn luaopen_io(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &IOLIB) };
     unsafe { createmeta(state) };
     let stdin_file = unsafe { fdopen(0, c"r".as_ptr()) };

@@ -45,7 +45,7 @@ const NULL_STRING: &[u8] = b"(null)\0";
 union Value {
     gc: *mut GCObject,
     p: *mut c_void,
-    f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
     i: lua_Integer,
     n: lua_Number,
     ub: u8,
@@ -65,7 +65,7 @@ struct GCObject {
     marked: u8,
 }
 
-type LuaAlloc = Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
 
 #[repr(C)]
 union TStringUnion {
@@ -126,7 +126,7 @@ struct LConv {
     decimal_point: *mut c_char,
 }
 
-type Pfunc = Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>;
+type Pfunc = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void)>;
 
 #[repr(C)]
 struct BuffFS {
@@ -138,7 +138,7 @@ struct BuffFS {
     space: [c_char; LUA_IDSIZE + LUA_N2SBUFFSZ + 95],
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn luaV_mod(state: *mut lua_State, x: lua_Integer, y: lua_Integer) -> lua_Integer;
     fn luaV_idiv(state: *mut lua_State, x: lua_Integer, y: lua_Integer) -> lua_Integer;
     fn luaV_modf(state: *mut lua_State, x: lua_Number, y: lua_Number) -> lua_Number;
@@ -351,7 +351,7 @@ fn numarith(state: *mut lua_State, op: c_int, v1: lua_Number, v2: lua_Number) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_ceillog2(mut x: u32) -> u8 {
+pub unsafe extern "C-unwind" fn luaO_ceillog2(mut x: u32) -> u8 {
     if x <= 1 {
         0
     } else {
@@ -361,7 +361,7 @@ pub unsafe extern "C" fn luaO_ceillog2(mut x: u32) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_codeparam(mut p: u32) -> u8 {
+pub unsafe extern "C-unwind" fn luaO_codeparam(mut p: u32) -> u8 {
     if p >= ((0x1fu64) << (0xf - 7 - 1)) as u32 * 100 {
         0xff
     } else {
@@ -376,7 +376,7 @@ pub unsafe extern "C" fn luaO_codeparam(mut p: u32) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_applyparam(p: u8, x: isize) -> isize {
+pub unsafe extern "C-unwind" fn luaO_applyparam(p: u8, x: isize) -> isize {
     let mut m = (p & 0x0f) as isize;
     let mut e = (p >> 4) as isize;
     if e > 0 {
@@ -403,7 +403,7 @@ pub unsafe extern "C" fn luaO_applyparam(p: u8, x: isize) -> isize {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_rawarith(
+pub unsafe extern "C-unwind" fn luaO_rawarith(
     state: *mut lua_State,
     op: c_int,
     p1: *const TValue,
@@ -452,7 +452,7 @@ pub unsafe extern "C" fn luaO_rawarith(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_arith(
+pub unsafe extern "C-unwind" fn luaO_arith(
     state: *mut lua_State,
     op: c_int,
     p1: *const TValue,
@@ -465,7 +465,7 @@ pub unsafe extern "C" fn luaO_arith(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_hexavalue(c: c_int) -> u8 {
+pub unsafe extern "C-unwind" fn luaO_hexavalue(c: c_int) -> u8 {
     let byte = c as u8;
     if byte.is_ascii_digit() {
         byte - b'0'
@@ -583,7 +583,7 @@ fn str2int(s: &CStr, result: &mut lua_Integer) -> Option<usize> {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
+pub unsafe extern "C-unwind" fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
     let cstr = unsafe { CStr::from_ptr(s) };
     let mut i = 0;
     let mut n = 0.0;
@@ -599,7 +599,7 @@ pub unsafe extern "C" fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
+pub unsafe extern "C-unwind" fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
     let mut n = 1usize;
     if x < 0x80 {
         unsafe { *buff.add(UTF8BUFFSZ - 1) = x as c_char };
@@ -646,7 +646,7 @@ fn tostringbuff_float(n: lua_Number, buff: *mut c_char) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
+pub unsafe extern "C-unwind" fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     let len = if unsafe { ttisinteger(obj) } {
         unsafe {
             snprintf(
@@ -663,7 +663,7 @@ pub unsafe extern "C" fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_tostring(state: *mut lua_State, obj: *mut TValue) {
+pub unsafe extern "C-unwind" fn luaO_tostring(state: *mut lua_State, obj: *mut TValue) {
     let mut buff = [0 as c_char; LUA_N2SBUFFSZ];
     let len = unsafe { luaO_tostringbuff(obj, buff.as_mut_ptr()) } as usize;
     let string = unsafe { luaS_newlstr(state, buff.as_ptr(), len).cast::<TString>() };
@@ -680,7 +680,7 @@ unsafe fn initbuff(state: *mut lua_State, buff: *mut BuffFS) {
     }
 }
 
-unsafe extern "C" fn pushbuff(state: *mut lua_State, ud: *mut c_void) {
+unsafe extern "C-unwind" fn pushbuff(state: *mut lua_State, ud: *mut c_void) {
     let buff = unsafe { &mut *ud.cast::<BuffFS>() };
     match buff.err {
         1 => unsafe { luaD_throw(state, LUA_ERRMEM) },
@@ -772,7 +772,7 @@ unsafe fn addnum2buff(buff: *mut BuffFS, num: *mut TValue) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_pushvfstring(
+pub unsafe extern "C-unwind" fn luaO_pushvfstring(
     state: *mut lua_State,
     mut fmt: *const c_char,
     mut argp: VaList<'_>,
@@ -847,7 +847,7 @@ pub unsafe extern "C" fn luaO_pushvfstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_pushfstring(
+pub unsafe extern "C-unwind" fn luaO_pushfstring(
     state: *mut lua_State,
     fmt: *const c_char,
     argp: ...
@@ -860,7 +860,7 @@ pub unsafe extern "C" fn luaO_pushfstring(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_chunkid(out: *mut c_char, source: *const c_char, srclen: usize) {
+pub unsafe extern "C-unwind" fn luaO_chunkid(out: *mut c_char, source: *const c_char, srclen: usize) {
     let source = unsafe { CStr::from_ptr(source) }.to_bytes();
     let mut outp = out;
     let mut bufflen = LUA_IDSIZE;

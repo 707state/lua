@@ -9,7 +9,7 @@ use crate::lua_module::{
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 
-mod runtime {
+pub(crate) mod runtime {
     #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
     use crate::lua_module::{lua_Integer, lua_Number, lua_State, lua_Unsigned};
@@ -83,7 +83,7 @@ mod runtime {
     union Value {
         gc: *mut GCObject,
         p: *mut c_void,
-        f: Option<unsafe extern "C" fn(*mut lua_State) -> c_int>,
+        f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
         i: lua_Integer,
         n: lua_Number,
         ub: u8,
@@ -98,14 +98,14 @@ mod runtime {
 
     #[derive(Copy, Clone)]
     #[repr(C)]
-    union StackValue {
+    pub union StackValue {
         val: TValue,
         tbclist: StackValueTbc,
     }
 
     #[derive(Copy, Clone)]
     #[repr(C)]
-    struct StackValueTbc {
+    pub struct StackValueTbc {
         value_: Value,
         tt_: u8,
         delta: u16,
@@ -128,9 +128,9 @@ mod runtime {
     }
 
     type LuaAlloc =
-        Option<unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-    type LuaWarnFunction = Option<unsafe extern "C" fn(*mut c_void, *const c_char, c_int)>;
-    type LuaCFunction = Option<unsafe extern "C" fn(*mut lua_State) -> c_int>;
+        Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
+    type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
+    type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
 
     #[repr(C)]
     union TStringUnion {
@@ -282,7 +282,7 @@ mod runtime {
         nums: [u32; (MAXABITS as usize) + 1],
     }
 
-    unsafe extern "C" {
+    unsafe extern "C-unwind" {
         fn luaC_newobj(state: *mut lua_State, tt: u8, sz: usize) -> *mut GCObject;
         fn luaC_barrierback_(state: *mut lua_State, object: *mut GCObject);
         fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
@@ -385,7 +385,7 @@ mod runtime {
     #[inline]
     unsafe fn fvalue(
         value: *const TValue,
-    ) -> Option<unsafe extern "C" fn(*mut lua_State) -> c_int> {
+    ) -> Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int> {
         unsafe { (*value).value_.f }
     }
 
@@ -1075,7 +1075,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_resize(
+    pub unsafe extern "C-unwind" fn luaH_resize(
         state: *mut lua_State,
         t: *mut Table,
         newasize: u32,
@@ -1126,7 +1126,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_resizearray(state: *mut lua_State, t: *mut Table, nasize: u32) {
+    pub unsafe extern "C-unwind" fn luaH_resizearray(state: *mut lua_State, t: *mut Table, nasize: u32) {
         let nsize = unsafe { allocsizenode(t) };
         unsafe { luaH_resize(state, t, nasize, nsize) };
     }
@@ -1156,7 +1156,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_new(state: *mut lua_State) -> *mut Table {
+    pub unsafe extern "C-unwind" fn luaH_new(state: *mut lua_State) -> *mut Table {
         let o = unsafe { luaC_newobj(state, LUA_VTABLE, size_of::<Table>()) };
         let t = o.cast::<Table>();
         unsafe {
@@ -1170,7 +1170,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_size(t: *mut Table) -> usize {
+    pub unsafe extern "C-unwind" fn luaH_size(t: *mut Table) -> usize {
         let mut sz = size_of::<Table>() + concretesize(unsafe { (*t).asize });
         if !unsafe { isdummy(t) } {
             sz += unsafe { sizehash(t) };
@@ -1179,7 +1179,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_free(state: *mut lua_State, t: *mut Table) {
+    pub unsafe extern "C-unwind" fn luaH_free(state: *mut lua_State, t: *mut Table) {
         unsafe {
             freehash(state, t);
             resizearray(state, t, (*t).asize, 0);
@@ -1295,7 +1295,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> u8 {
+    pub unsafe extern "C-unwind" fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> u8 {
         let k = unsafe { ikeyinarray(t, key) };
         if k > 0 {
             let tag = unsafe { *getArrTag(t, k - 1) };
@@ -1309,7 +1309,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_Hgetshortstr(t: *mut Table, key: *mut TString) -> *const TValue {
+    pub unsafe extern "C-unwind" fn luaH_Hgetshortstr(t: *mut Table, key: *mut TString) -> *const TValue {
         let mut n = unsafe { hashstr(t, key) };
         loop {
             if unsafe { keyisshrstr(n) } && unsafe { keystrval(n) == key } {
@@ -1324,7 +1324,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_getshortstr(
+    pub unsafe extern "C-unwind" fn luaH_getshortstr(
         t: *mut Table,
         key: *mut TString,
         res: *mut TValue,
@@ -1352,12 +1352,12 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_getstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> u8 {
+    pub unsafe extern "C-unwind" fn luaH_getstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> u8 {
         unsafe { finishnodeget(Hgetstr(t, key), res) }
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_get(t: *mut Table, key: *const TValue, res: *mut TValue) -> u8 {
+    pub unsafe extern "C-unwind" fn luaH_get(t: *mut Table, key: *const TValue, res: *mut TValue) -> u8 {
         let slot = match unsafe { ttypetag(key) } {
             LUA_VSHRSTR => unsafe { luaH_Hgetshortstr(t, tsvalue(key)) },
             LUA_VNUMINT => return unsafe { luaH_getint(t, ivalue(key), res) },
@@ -1402,7 +1402,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_psetint(
+    pub unsafe extern "C-unwind" fn luaH_psetint(
         t: *mut Table,
         key: lua_Integer,
         val: *mut TValue,
@@ -1437,7 +1437,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_psetshortstr(
+    pub unsafe extern "C-unwind" fn luaH_psetshortstr(
         t: *mut Table,
         key: *mut TString,
         val: *mut TValue,
@@ -1474,7 +1474,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_psetstr(
+    pub unsafe extern "C-unwind" fn luaH_psetstr(
         t: *mut Table,
         key: *mut TString,
         val: *mut TValue,
@@ -1487,7 +1487,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_pset(
+    pub unsafe extern "C-unwind" fn luaH_pset(
         t: *mut Table,
         key: *const TValue,
         val: *mut TValue,
@@ -1509,7 +1509,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_finishset(
+    pub unsafe extern "C-unwind" fn luaH_finishset(
         state: *mut lua_State,
         t: *mut Table,
         mut key: *const TValue,
@@ -1556,7 +1556,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_set(
+    pub unsafe extern "C-unwind" fn luaH_set(
         state: *mut lua_State,
         t: *mut Table,
         key: *const TValue,
@@ -1569,7 +1569,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_setint(
+    pub unsafe extern "C-unwind" fn luaH_setint(
         state: *mut lua_State,
         t: *mut Table,
         key: lua_Integer,
@@ -1651,7 +1651,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_getn(state: *mut lua_State, t: *mut Table) -> lua_Unsigned {
+    pub unsafe extern "C-unwind" fn luaH_getn(state: *mut lua_State, t: *mut Table) -> lua_Unsigned {
         let asize = unsafe { (*t).asize };
         if asize > 0 {
             let maxvicinity = 4u32;
@@ -1694,7 +1694,7 @@ mod runtime {
     }
 
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn luaH_next(state: *mut lua_State, t: *mut Table, key: StkId) -> c_int {
+    pub unsafe extern "C-unwind" fn luaH_next(state: *mut lua_State, t: *mut Table, key: StkId) -> c_int {
         let asize = unsafe { (*t).asize };
         let mut i = unsafe { findindex(state, t, s2v(key), asize) };
         while i < asize {
@@ -1861,13 +1861,13 @@ static TAB_FUNCS: [luaL_Reg; 10] = [
     },
 ];
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     fn lua_callk(
         state: *mut lua_State,
         nargs: c_int,
         nresults: c_int,
         context: isize,
-        k: Option<unsafe extern "C" fn(*mut lua_State, c_int, isize) -> c_int>,
+        k: Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, isize) -> c_int>,
     );
 
     fn lua_checkstack(state: *mut lua_State, n: c_int) -> c_int;
@@ -1937,7 +1937,7 @@ unsafe fn aux_getn(state: *mut lua_State, n: c_int, what: c_int) -> lua_Integer 
     unsafe { luaL_len(state, n) }
 }
 
-unsafe extern "C" fn tcreate(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tcreate(state: *mut lua_State) -> c_int {
     let sizeseq = { luaL_checkinteger(state, 1) } as lua_Unsigned;
     let sizerest = { luaL_optinteger(state, 2, 0) } as lua_Unsigned;
     unsafe {
@@ -1960,7 +1960,7 @@ unsafe extern "C" fn tcreate(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn tinsert(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tinsert(state: *mut lua_State) -> c_int {
     let pos;
     let mut e = unsafe { aux_getn(state, 1, TAB_RW) };
     e = match e.checked_add(1) {
@@ -1987,7 +1987,7 @@ unsafe extern "C" fn tinsert(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C" fn tremove(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tremove(state: *mut lua_State) -> c_int {
     let size = unsafe { aux_getn(state, 1, TAB_RW) };
     let mut pos = { luaL_optinteger(state, 2, size) };
     if pos != size {
@@ -2011,7 +2011,7 @@ unsafe extern "C" fn tremove(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn tmove(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tmove(state: *mut lua_State) -> c_int {
     let f = { luaL_checkinteger(state, 2) };
     let e = { luaL_checkinteger(state, 3) };
     let t = { luaL_checkinteger(state, 4) };
@@ -2079,7 +2079,7 @@ unsafe fn addfield(state: *mut lua_State, out: &mut Vec<u8>, i: lua_Integer) -> 
     Ok(())
 }
 
-unsafe extern "C" fn tconcat(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tconcat(state: *mut lua_State) -> c_int {
     let mut last = unsafe { aux_getn(state, 1, TAB_R) };
     let mut lsep = 0usize;
     let sep = { luaL_optlstring(state, 2, b"\0".as_ptr().cast(), &mut lsep) };
@@ -2103,7 +2103,7 @@ unsafe extern "C" fn tconcat(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn tpack(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tpack(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     unsafe { crate::lua_module::lua_createtable(state, n, 1) };
     unsafe { crate::luaffi::lua_insert(state, 1) };
@@ -2117,7 +2117,7 @@ unsafe extern "C" fn tpack(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C" fn tunpack(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn tunpack(state: *mut lua_State) -> c_int {
     let i = { luaL_optinteger(state, 2, 1) };
     let e = if is_none_or_nil(state, 3) {
         luaL_len(state, 1)
@@ -2265,7 +2265,7 @@ unsafe fn auxsort(
     Ok(())
 }
 
-unsafe extern "C" fn sort(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn sort(state: *mut lua_State) -> c_int {
     let n = unsafe { aux_getn(state, 1, TAB_RW) };
     if n > 1 {
         unsafe { argcheck(state, n < i32::MAX as lua_Integer, 1, ERR_ARRAY_TOO_BIG) };
@@ -2282,14 +2282,14 @@ unsafe extern "C" fn sort(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C" fn getn(state: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn getn(state: *mut lua_State) -> c_int {
     let n = unsafe { aux_getn(state, 1, TAB_R) };
     unsafe { lua_pushinteger(state, n) };
     1
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaopen_table(state: *mut lua_State) -> c_int {
+pub unsafe extern "C-unwind" fn luaopen_table(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &TAB_FUNCS) };
     1
 }
