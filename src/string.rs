@@ -7,13 +7,6 @@ use core::mem::{offset_of, size_of};
 use core::ptr;
 use std::ffi::CStr;
 
-const LUAI_MAXSHORTLEN: usize = 40;
-const MEMERRMSG: &[u8] = b"not enough memory\0";
-const MINSTRTABSIZE: c_int = 128;
-const LSTRFIX: i8 = -2;
-const LSTRMEM: i8 = -3;
-const MAXSTRTB: c_int = (c_int::MAX as usize / size_of::<*mut TString>()) as c_int;
-
 #[repr(C)]
 struct Udata0 {
     next: *mut GCObject,

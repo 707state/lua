@@ -136,7 +136,7 @@ pub(crate) const BASIC_STACK_SIZE: usize = 2 * LUA_MINSTACK;
 pub(crate) const KGC_INC: u8 = 0;
 pub(crate) const GCSTPGC: u8 = 2;
 pub(crate) const GCSPAUSE: u8 = 8;
-pub(crate) const TM_N: usize = 25;
+pub(crate) const TM_N: c_int = 25;
 pub(crate) const STRCACHE_N: usize = 53;
 pub(crate) const STRCACHE_M: usize = 2;
 pub(crate) const CIST_C: u32 = 1 << 15;
@@ -183,9 +183,9 @@ pub(crate) const HOK: c_int = 0;
 pub(crate) const HNOTFOUND: c_int = 1;
 pub(crate) const HNOTATABLE: c_int = 2;
 pub(crate) const HFIRSTNODE: c_int = 3;
-pub(crate) const TM_NEWINDEX: usize = 1;
-pub(crate) const TM_EQ: usize = 5;
-pub(crate) const MASKFLAGS: u8 = !(!0u8 << (TM_EQ + 1));
+pub(crate) const TM_NEWINDEX: c_int = 1;
+pub(crate) const TM_EQ: c_int = 5;
+pub(crate) const MASKFLAGS: u8 = !(!0u8 << (TM_EQ as u32 + 1));
 
 pub(crate) const MAXUPVAL: c_int = 255;
 pub(crate) const MAXRESULTS: c_int = 250;
@@ -1904,3 +1904,755 @@ pub(crate) unsafe fn udatamemoffset(nuv: u16) -> usize {
         offset_of!(Udata, uv) + size_of::<UValue>() * nuv as usize
     }
 }
+
+// ============================================================
+// Centralized constants (migrated from individual source files)
+// ============================================================
+
+// --- numeric ---
+pub(crate) const F2Iceil: c_int = 2;
+pub(crate) const F2Ieq: c_int = 0;
+pub(crate) const F2Ifloor: c_int = 1;
+pub(crate) const F64_EXP_BIAS: i32 = 1023;
+pub(crate) const F64_EXP_MASK: u64 = 0x7ff_u64 << 52;
+pub(crate) const F64_FRAC_MASK: u64 = (1_u64 << 52) - 1;
+pub(crate) const F64_MANTISSA_BITS: i32 = 52;
+pub(crate) const F64_SIGN_MASK: u64 = 1_u64 << 63;
+
+// --- opcodes ---
+pub(crate) const OP_ADD: c_int = 34;
+pub(crate) const OP_ADDI: c_int = 21;
+pub(crate) const OP_ADDK: c_int = 22;
+pub(crate) const OP_BAND: c_int = 41;
+pub(crate) const OP_BANDK: c_int = 29;
+pub(crate) const OP_BNOT: c_int = 50;
+pub(crate) const OP_BOR: c_int = 42;
+pub(crate) const OP_BORK: c_int = 30;
+pub(crate) const OP_BXOR: c_int = 43;
+pub(crate) const OP_BXORK: c_int = 31;
+pub(crate) const OP_CALL: c_int = 68;
+pub(crate) const OP_CLOSE: c_int = 54;
+pub(crate) const OP_CLOSURE: c_int = 79;
+pub(crate) const OP_CONCAT: c_int = 53;
+pub(crate) const OP_DIV: c_int = 39;
+pub(crate) const OP_DIVK: c_int = 27;
+pub(crate) const OP_EQ: c_int = 57;
+pub(crate) const OP_EQI: c_int = 61;
+pub(crate) const OP_EQK: c_int = 60;
+pub(crate) const OP_ERRNNIL: c_int = 82;
+pub(crate) const OP_EXTRAARG: c_int = 84;
+pub(crate) const OP_FORLOOP: c_int = 73;
+pub(crate) const OP_FORPREP: c_int = 74;
+pub(crate) const OP_GEI: c_int = 65;
+pub(crate) const OP_GETFIELD: c_int = 14;
+pub(crate) const OP_GETI: c_int = 13;
+pub(crate) const OP_GETTABLE: c_int = 12;
+pub(crate) const OP_GETTABUP: c_int = 11;
+pub(crate) const OP_GETUPVAL: c_int = 9;
+pub(crate) const OP_GETVARG: c_int = 81;
+pub(crate) const OP_GTI: c_int = 64;
+pub(crate) const OP_IDIV: c_int = 40;
+pub(crate) const OP_IDIVK: c_int = 28;
+pub(crate) const OP_JMP: c_int = 56;
+pub(crate) const OP_LE: c_int = 59;
+pub(crate) const OP_LEI: c_int = 63;
+pub(crate) const OP_LEN: c_int = 52;
+pub(crate) const OP_LFALSESKIP: c_int = 6;
+pub(crate) const OP_LOADF: c_int = 2;
+pub(crate) const OP_LOADFALSE: c_int = 5;
+pub(crate) const OP_LOADI: c_int = 1;
+pub(crate) const OP_LOADK: c_int = 3;
+pub(crate) const OP_LOADKX: c_int = 4;
+pub(crate) const OP_LOADNIL: c_int = 8;
+pub(crate) const OP_LOADTRUE: c_int = 7;
+pub(crate) const OP_LT: c_int = 58;
+pub(crate) const OP_LTI: c_int = 62;
+pub(crate) const OP_MMBIN: c_int = 46;
+pub(crate) const OP_MMBINI: c_int = 47;
+pub(crate) const OP_MMBINK: c_int = 48;
+pub(crate) const OP_MOD: c_int = 37;
+pub(crate) const OP_MODK: c_int = 25;
+pub(crate) const OP_MOVE: c_int = 0;
+pub(crate) const OP_MUL: c_int = 36;
+pub(crate) const OP_MULK: c_int = 24;
+pub(crate) const OP_NEWTABLE: c_int = 19;
+pub(crate) const OP_NOT: c_int = 51;
+pub(crate) const OP_POW: c_int = 38;
+pub(crate) const OP_POWK: c_int = 26;
+pub(crate) const OP_RETURN: c_int = 70;
+pub(crate) const OP_RETURN0: c_int = 71;
+pub(crate) const OP_RETURN1: c_int = 72;
+pub(crate) const OP_SELF: c_int = 20;
+pub(crate) const OP_SETFIELD: c_int = 18;
+pub(crate) const OP_SETI: c_int = 17;
+pub(crate) const OP_SETLIST: c_int = 78;
+pub(crate) const OP_SETTABLE: c_int = 16;
+pub(crate) const OP_SETTABUP: c_int = 15;
+pub(crate) const OP_SETUPVAL: c_int = 10;
+pub(crate) const OP_SHL: c_int = 44;
+pub(crate) const OP_SHLI: c_int = 32;
+pub(crate) const OP_SHR: c_int = 45;
+pub(crate) const OP_SHRI: c_int = 33;
+pub(crate) const OP_SUB: c_int = 35;
+pub(crate) const OP_SUBK: c_int = 23;
+pub(crate) const OP_TAILCALL: c_int = 69;
+pub(crate) const OP_TBC: c_int = 55;
+pub(crate) const OP_TEST: c_int = 66;
+pub(crate) const OP_TESTSET: c_int = 67;
+pub(crate) const OP_TFORCALL: c_int = 76;
+pub(crate) const OP_TFORLOOP: c_int = 77;
+pub(crate) const OP_TFORPREP: c_int = 75;
+pub(crate) const OP_UNM: c_int = 49;
+pub(crate) const OP_VARARG: c_int = 80;
+pub(crate) const OP_VARARGPREP: c_int = 83;
+
+// --- instruction_format ---
+pub(crate) const MAXARG_A: c_int = 255;
+pub(crate) const MAXARG_Ax: c_int = 33554431;
+pub(crate) const MAXARG_B: c_int = 255;
+pub(crate) const MAXARG_Bx: c_int = 131071;
+pub(crate) const MAXARG_C: c_int = 255;
+pub(crate) const MAXARG_sJ: c_int = 33554431;
+pub(crate) const MAXARG_vB: c_int = 63;
+pub(crate) const MAXARG_vC: c_int = 1023;
+pub(crate) const MAXINDEXRK: c_int = MAXARG_B;
+pub(crate) const MAX_FSTACK: c_int = MAXARG_A;
+pub(crate) const NO_JUMP: c_int = -1;
+pub(crate) const NO_REG: c_int = MAX_FSTACK;
+pub(crate) const OFFSET_SC: c_int = MAXARG_C >> 1;
+pub(crate) const OFFSET_sBx: c_int = MAXARG_Bx >> 1;
+pub(crate) const OFFSET_sC: c_int = MAXARG_C >> 1;
+pub(crate) const OFFSET_sJ: c_int = MAXARG_sJ >> 1;
+pub(crate) const POS_OP: u32 = 0;
+pub(crate) const SIZE_A: u32 = 8;
+pub(crate) const SIZE_B: u32 = 8;
+pub(crate) const SIZE_C: u32 = 8;
+pub(crate) const SIZE_OP: u32 = 7;
+pub(crate) const SIZE_VB: u32 = 6;
+pub(crate) const SIZE_VC: u32 = 10;
+pub(crate) const SIZE_vB: u32 = 6;
+pub(crate) const SIZE_vC: u32 = 10;
+pub(crate) const iABC: u8 = 0;
+pub(crate) const iABx: u8 = 2;
+pub(crate) const iAsBx: u8 = 3;
+pub(crate) const iAx: u8 = 4;
+pub(crate) const isJ: u8 = 5;
+pub(crate) const ivABC: u8 = 1;
+pub(crate) const MAXARG_VC: c_int = ((1u32 << SIZE_VC) - 1) as c_int;
+pub(crate) const POS_A: u32 = POS_OP + SIZE_OP;
+pub(crate) const POS_AX: u32 = POS_A;
+pub(crate) const POS_Ax: u32 = POS_A;
+pub(crate) const POS_K: u32 = POS_A + SIZE_A;
+pub(crate) const POS_SJ: u32 = POS_A;
+pub(crate) const POS_VB: u32 = POS_K + 1;
+pub(crate) const POS_VC: u32 = POS_VB + SIZE_VB;
+pub(crate) const POS_k: u32 = POS_A + SIZE_A;
+pub(crate) const POS_sJ: u32 = POS_A;
+pub(crate) const POS_vB: u32 = POS_k + 1;
+pub(crate) const POS_vC: u32 = POS_vB + SIZE_vB;
+pub(crate) const SIZE_BX: u32 = SIZE_C + SIZE_B + 1;
+pub(crate) const SIZE_Bx: u32 = SIZE_C + SIZE_B + 1;
+pub(crate) const SIZE_SJ: u32 = SIZE_BX + SIZE_A;
+pub(crate) const SIZE_sJ: u32 = SIZE_Bx + SIZE_A;
+pub(crate) const MAXARG_BX: c_int = ((1u32 << SIZE_BX) - 1) as c_int;
+pub(crate) const MAXARG_SJ: c_int = ((1u32 << SIZE_SJ) - 1) as c_int;
+pub(crate) const OFFSET_SBX: c_int = MAXARG_BX >> 1;
+pub(crate) const OFFSET_SJ: c_int = MAXARG_SJ >> 1;
+pub(crate) const POS_B: u32 = POS_k + 1;
+pub(crate) const POS_BX: u32 = POS_K;
+pub(crate) const POS_Bx: u32 = POS_k;
+pub(crate) const POS_C: u32 = POS_B + SIZE_B;
+pub(crate) const SIZE_AX: u32 = SIZE_BX + SIZE_A;
+pub(crate) const SIZE_Ax: u32 = SIZE_Bx + SIZE_A;
+
+// --- tag_methods ---
+pub(crate) const TM_CLOSE: c_int = 24;
+pub(crate) const TM_DIV: c_int = 11;
+pub(crate) const TM_GC: c_int = 2;
+pub(crate) const TM_IDIV: c_int = 12;
+pub(crate) const TM_INDEX: c_int = 0;
+pub(crate) const TM_LEN: c_int = 4;
+pub(crate) const TM_MOD: c_int = 9;
+pub(crate) const TM_MODE: c_int = 3;
+pub(crate) const TM_MUL: c_int = 8;
+pub(crate) const TM_POW: c_int = 10;
+pub(crate) const TM_SUB: c_int = 7;
+
+// --- tokens ---
+pub(crate) const FIRST_RESERVED: c_int = u8::MAX as c_int + 1;
+pub(crate) const TK_AND: c_int = FIRST_RESERVED;
+pub(crate) const TK_BREAK: c_int = TK_AND + 1;
+pub(crate) const TK_DO: c_int = TK_BREAK + 1;
+pub(crate) const TK_ELSE: c_int = TK_DO + 1;
+pub(crate) const TK_ELSEIF: c_int = TK_ELSE + 1;
+pub(crate) const TK_END: c_int = TK_ELSEIF + 1;
+pub(crate) const TK_FALSE: c_int = TK_END + 1;
+pub(crate) const TK_FOR: c_int = TK_FALSE + 1;
+pub(crate) const TK_FUNCTION: c_int = TK_FOR + 1;
+pub(crate) const TK_GLOBAL: c_int = TK_FUNCTION + 1;
+pub(crate) const TK_GOTO: c_int = TK_GLOBAL + 1;
+pub(crate) const TK_IF: c_int = TK_GOTO + 1;
+pub(crate) const TK_IN: c_int = TK_IF + 1;
+pub(crate) const TK_LOCAL: c_int = TK_IN + 1;
+pub(crate) const TK_NIL: c_int = TK_LOCAL + 1;
+pub(crate) const TK_NOT: c_int = TK_NIL + 1;
+pub(crate) const TK_OR: c_int = TK_NOT + 1;
+pub(crate) const TK_REPEAT: c_int = TK_OR + 1;
+pub(crate) const TK_RETURN: c_int = TK_REPEAT + 1;
+pub(crate) const TK_THEN: c_int = TK_RETURN + 1;
+pub(crate) const TK_TRUE: c_int = TK_THEN + 1;
+pub(crate) const TK_UNTIL: c_int = TK_TRUE + 1;
+pub(crate) const TK_WHILE: c_int = TK_UNTIL + 1;
+pub(crate) const NUM_RESERVED: usize = (TK_WHILE - FIRST_RESERVED + 1) as usize;
+pub(crate) const TK_IDIV: c_int = TK_WHILE + 1;
+pub(crate) const TK_CONCAT: c_int = TK_IDIV + 1;
+pub(crate) const TK_DOTS: c_int = TK_CONCAT + 1;
+pub(crate) const TK_EQ: c_int = TK_DOTS + 1;
+pub(crate) const TK_GE: c_int = TK_EQ + 1;
+pub(crate) const TK_LE: c_int = TK_GE + 1;
+pub(crate) const TK_NE: c_int = TK_LE + 1;
+pub(crate) const TK_SHL: c_int = TK_NE + 1;
+pub(crate) const TK_SHR: c_int = TK_SHL + 1;
+pub(crate) const TK_DBCOLON: c_int = TK_SHR + 1;
+pub(crate) const TK_EOS: c_int = TK_DBCOLON + 1;
+pub(crate) const TK_FLT: c_int = TK_EOS + 1;
+pub(crate) const TK_INT: c_int = TK_FLT + 1;
+pub(crate) const TK_NAME: c_int = TK_INT + 1;
+pub(crate) const TK_STRING: c_int = TK_NAME + 1;
+
+// --- gc ---
+pub(crate) const AGEBITS: u8 = 7;
+pub(crate) const CWUFIN: l_mem = 10;
+pub(crate) const FINALIZEDBIT: u8 = 6;
+pub(crate) const GCSWEEPMAX: l_mem = 20;
+pub(crate) const GCSatomic: u8 = 2;
+pub(crate) const GCScallfin: u8 = 7;
+pub(crate) const GCSenteratomic: u8 = 1;
+pub(crate) const GCSpropagate: u8 = 0;
+pub(crate) const GCSswpallgc: u8 = 3;
+pub(crate) const GCSswpend: u8 = 6;
+pub(crate) const GCSswpfinobj: u8 = 4;
+pub(crate) const GCSswptobefnz: u8 = 5;
+pub(crate) const G_NEW: u8 = 0;
+pub(crate) const G_OLD: u8 = 4;
+pub(crate) const G_OLD0: u8 = 2;
+pub(crate) const G_OLD1: u8 = 3;
+pub(crate) const G_SURVIVAL: u8 = 1;
+pub(crate) const G_TOUCHED1: u8 = 5;
+pub(crate) const G_TOUCHED2: u8 = 6;
+pub(crate) const TESTBIT: u8 = 7;
+
+// --- lua_constants ---
+pub(crate) const LUA_CMOD_SUFFIX: &str = ".dll";
+pub(crate) const LUA_COPYRIGHT: &str = "Lua 5.5.0  Copyright (C) 1994-2025 Lua.org, PUC-Rio";
+pub(crate) const LUA_CPATH_DEFAULT: &str = "/usr/local/lib/lua/5.5/?;/usr/local/lib/lua/5.5/loadall;./?";
+pub(crate) const LUA_CPATH_VAR: &str = "LUA_CPATH";
+pub(crate) const LUA_DIRSEP: &str = "/";
+pub(crate) const LUA_ENV: &[u8] = b"_ENV\0";
+pub(crate) const LUA_EXEC_DIR: &str = "!";
+pub(crate) const LUA_FILEHANDLE: &[u8] = b"FILE*\0";
+pub(crate) const LUA_FLOORN2I_FLOOR: c_int = 1;  // F2Ifloor, distinct from runtime's LUA_FLOORN2I (F2Ieq=0)
+pub(crate) const LUA_GLIBK: c_int = 1;
+pub(crate) const LUA_GNAME: &[u8] = b"_G\0";
+pub(crate) const LUA_HOOKCOUNT: c_int = 3;
+pub(crate) const LUA_HOOKLINE: c_int = 2;
+pub(crate) const LUA_IGMARK: &str = "-";
+pub(crate) const LUA_INIT_VAR: &str = "LUA_INIT";
+pub(crate) const LUA_INIT_VAR_VERSION: &str = "LUA_INIT_5_5";
+pub(crate) const LUA_LOADED_TABLE: &[u8] = b"_LOADED\0";
+pub(crate) const LUA_LOADLIBK: c_int = LUA_GLIBK << 1;
+pub(crate) const LUA_LSUBSEP: &str = LUA_DIRSEP;
+pub(crate) const LUA_MASKCOUNT: c_int = 8;
+pub(crate) const LUA_MASKLINE: c_int = 4;
+pub(crate) const LUA_MAXINTEGER: lua_Integer = i64::MAX;
+pub(crate) const LUA_MINBUFFER: usize = 32;
+pub(crate) const LUA_MININTEGER: lua_Integer = i64::MIN;
+pub(crate) const LUA_OFSEP: &str = "_";
+pub(crate) const LUA_PATH_DEFAULT: &str = "/usr/local/share/lua/5.5/?.lua;/usr/local/share/lua/5.5/?/init.lua;/usr/local/lib/lua/5.5/?.lua;/usr/local/lib/lua/5.5/?/init.lua;./?.lua;./?/init.lua";
+pub(crate) const LUA_PATH_MARK: &str = "?";
+pub(crate) const LUA_PATH_SEP: &str = ";";
+pub(crate) const LUA_PATH_VAR: &str = "LUA_PATH";
+pub(crate) const LUA_POF: &str = "luaopen_";
+pub(crate) const LUA_PRELOAD_TABLE: &[u8] = b"_PRELOAD\0";
+pub(crate) const LUA_PROMPT: &str = "> ";
+pub(crate) const LUA_PROMPT2: &str = ">> ";
+pub(crate) const LUA_REFNIL: c_int = -1;
+pub(crate) const LUA_SIGNATURE: &[u8] = b"\x1bLua";
+pub(crate) const LUA_STRFTIMEOPTIONS: &str = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%||EcECExEXEyEYOdOeOHOIOmOMOSOuOUOVOwOWOy";
+pub(crate) const LUA_VERSION: &[u8] = b"Lua 5.5\0";
+pub(crate) const LUA_VERSUFFIX: &str = "_5_5";
+pub(crate) const LUA_VNOTABLE: u8 = LUA_TNIL | (3 << 4);
+pub(crate) const LUA_COLIBK: c_int = LUA_LOADLIBK << 1;
+pub(crate) const LUA_CSUBSEP: &str = LUA_DIRSEP;
+pub(crate) const LUA_DBLIBK: c_int = LUA_COLIBK << 1;
+pub(crate) const LUA_IOLIBK: c_int = LUA_DBLIBK << 1;
+pub(crate) const LUA_MATHLIBK: c_int = LUA_IOLIBK << 1;
+pub(crate) const LUA_OSLIBK: c_int = LUA_MATHLIBK << 1;
+pub(crate) const LUA_STRLIBK: c_int = LUA_OSLIBK << 1;
+pub(crate) const LUA_TABLIBK: c_int = LUA_STRLIBK << 1;
+pub(crate) const LUA_UTF8LIBK: c_int = LUA_TABLIBK << 1;
+
+// --- lua_internal ---
+pub(crate) const LUAI_MAXSHORTLEN: usize = 40;
+
+// --- errors ---
+pub(crate) const ERR_ARRAY_TOO_BIG: &[u8] = b"array too big\0";
+pub(crate) const ERR_ASSERTION_FAILED: &[u8] = b"assertion failed!\0";
+pub(crate) const ERR_ATTEMPT_CLOSED: &[u8] = b"attempt to use a closed file\0";
+pub(crate) const ERR_BAD_SEEK_INT: &[u8] = b"not an integer in proper range\0";
+pub(crate) const ERR_BASE_OUT_OF_RANGE: &[u8] = b"base out of range\0";
+pub(crate) const ERR_CANNOT_CHANGE_PROTECTED_METATABLE: &[u8] = b"cannot change a protected metatable\0";
+pub(crate) const ERR_CANNOT_CLOSE_MAIN_THREAD: &[u8] = b"cannot close main thread\0";
+pub(crate) const ERR_CANNOT_CLOSE_NORMAL_COROUTINE: &[u8] = b"cannot close a normal coroutine\0";
+pub(crate) const ERR_CANNOT_CLOSE_STANDARD_FILE: &[u8] = b"cannot close standard file\0";
+pub(crate) const ERR_DATE_NOT_REPRESENTABLE: &[u8] = b"date result cannot be represented in this installation\0";
+pub(crate) const ERR_DEST_WRAP_AROUND: &[u8] = b"destination wrap around\0";
+pub(crate) const ERR_EXPECTED_4_LANES: &[u8] = b"expected exactly 4 lanes\0";
+pub(crate) const ERR_EXPECTED_VECTOR_TABLE: &[u8] = b"expected a Lua array table\0";
+pub(crate) const ERR_FILE_ALREADY_CLOSED: &[u8] = b"file is already closed\0";
+pub(crate) const ERR_FINAL_POSITION_OUT_OF_BOUNDS: &[u8] = b"final position out of bounds\0";
+pub(crate) const ERR_I32_RANGE: &[u8] = b"lane value is out of i32 range\0";
+pub(crate) const ERR_INDEX_OUT_OF_RANGE: &[u8] = b"index out of range\0";
+pub(crate) const ERR_INITIAL_CONTINUATION: &[u8] = b"initial position is a continuation byte\0";
+pub(crate) const ERR_INITIAL_POSITION_OUT_OF_BOUNDS: &[u8] = b"initial position out of bounds\0";
+pub(crate) const ERR_INTERVAL_EMPTY: &[u8] = b"interval is empty\0";
+pub(crate) const ERR_INVALID_CONCAT_VALUE: &[u8] = b"invalid value in table for 'concat'\0";
+pub(crate) const ERR_INVALID_FORMAT: &[u8] = b"invalid format\0";
+pub(crate) const ERR_INVALID_MODE: &[u8] = b"invalid mode\0";
+pub(crate) const ERR_INVALID_ORDER_FUNCTION: &[u8] = b"invalid order function for sorting\0";
+pub(crate) const ERR_OUT_OF_BOUNDS: &[u8] = b"out of bounds\0";
+pub(crate) const ERR_OUT_OF_RANGE: &[u8] = b"out of range\0";
+pub(crate) const ERR_POSITION_OUT_OF_BOUNDS: &[u8] = b"position out of bounds\0";
+pub(crate) const ERR_READER_MUST_RETURN_STRING: &[u8] = b"reader function must return a string\0";
+pub(crate) const ERR_TIME_NOT_REPRESENTABLE: &[u8] = b"time result cannot be represented in this installation\0";
+pub(crate) const ERR_TOO_MANY_ARGUMENTS: &[u8] = b"too many arguments\0";
+pub(crate) const ERR_TOO_MANY_ARGUMENTS_TO_RESUME: &[u8] = b"too many arguments to resume\0";
+pub(crate) const ERR_TOO_MANY_ELEMENTS_TO_MOVE: &[u8] = b"too many elements to move\0";
+pub(crate) const ERR_TOO_MANY_NESTED_FUNCTIONS: &[u8] = b"too many nested functions\0";
+pub(crate) const ERR_TOO_MANY_READ_ARGS: &[u8] = b"too many arguments\0";
+pub(crate) const ERR_TOO_MANY_RESULTS_TO_RESUME: &[u8] = b"too many results to resume\0";
+pub(crate) const ERR_TOO_MANY_RESULTS_TO_UNPACK: &[u8] = b"too many results to unpack\0";
+pub(crate) const ERR_UNABLE_TMPNAME: &[u8] = b"unable to generate a unique filename\0";
+pub(crate) const ERR_VALUE_EXPECTED: &[u8] = b"value expected\0";
+pub(crate) const ERR_WRONG_INSERT_ARGS: &[u8] = b"wrong number of arguments to 'insert'\0";
+pub(crate) const ERR_WRONG_NUMBER_OF_ARGUMENTS: &[u8] = b"wrong number of arguments\0";
+pub(crate) const ERR_ZERO: &[u8] = b"zero\0";
+
+// --- misc ---
+pub(crate) const ABSLINEINFO: i8 = -0x80;
+pub(crate) const ALPHA: u8 = 1 << 0;
+pub(crate) const BITDUMMY: u8 = 1 << 6;
+pub(crate) const CAT_ALL: &[u8] = b"all\0";
+pub(crate) const CAT_COLLATE: &[u8] = b"collate\0";
+pub(crate) const CAT_CTYPE: &[u8] = b"ctype\0";
+pub(crate) const CAT_MONETARY: &[u8] = b"monetary\0";
+pub(crate) const CAT_NUMERIC: &[u8] = b"numeric\0";
+pub(crate) const CAT_TIME: &[u8] = b"time\0";
+pub(crate) const CLIBS: &[u8] = b"_CLIBS\0";
+pub(crate) const CLOCKS_PER_SEC_VALUE: lua_Number = 1_000_000.0;
+pub(crate) const COMMENT: &str = "\t; ";
+pub(crate) const COS_DEAD: c_int = 1;
+pub(crate) const COS_NORM: c_int = 3;
+pub(crate) const COS_RUN: c_int = 0;
+pub(crate) const COS_YIELD: c_int = 2;
+pub(crate) const DIGIT: u8 = 1 << 1;
+pub(crate) const DLMSG: &[u8] = b"dynamic libraries not enabled; check your Lua installation\0";
+pub(crate) const EMPTY_STRING: &[u8] = b"\0";
+pub(crate) const EOFMARK: &str = "<eof>";
+pub(crate) const EOF_VALUE: c_int = -1;
+pub(crate) const ERRFUNC: c_int = 2;
+pub(crate) const ERRLIB: c_int = 1;
+pub(crate) const EXIT_FAILURE_CODE: c_int = 1;
+pub(crate) const EXIT_SUCCESS_CODE: c_int = 0;
+pub(crate) const FIELD_CHARPATTERN: &[u8] = b"charpattern\0";
+pub(crate) const FIELD_CONFIG: &[u8] = b"config\0";
+pub(crate) const FIELD_CPATH: &[u8] = b"cpath\0";
+pub(crate) const FIELD_F64X4: &[u8] = b"f64x4\0";
+pub(crate) const FIELD_HUGE: &[u8] = b"huge\0";
+pub(crate) const FIELD_I32X4: &[u8] = b"i32x4\0";
+pub(crate) const FIELD_LANES: &[u8] = b"lanes\0";
+pub(crate) const FIELD_LEN: &[u8] = b"__len\0";
+pub(crate) const FIELD_LOADED: &[u8] = b"loaded\0";
+pub(crate) const FIELD_LUA_NOENV: &[u8] = b"LUA_NOENV\0";
+pub(crate) const FIELD_MAXINTEGER: &[u8] = b"maxinteger\0";
+pub(crate) const FIELD_MININTEGER: &[u8] = b"mininteger\0";
+pub(crate) const FIELD_NEWINDEX: &[u8] = b"__newindex\0";
+pub(crate) const FIELD_PATH: &[u8] = b"path\0";
+pub(crate) const FIELD_PI: &[u8] = b"pi\0";
+pub(crate) const FIELD_PRELOAD: &[u8] = b"preload\0";
+pub(crate) const FIELD_SEARCHERS: &[u8] = b"searchers\0";
+pub(crate) const FIELD_SIMD: &[u8] = b"simd\0";
+pub(crate) const FIGS: u32 = 53;
+pub(crate) const GDKCONST: u8 = 6;
+pub(crate) const GDKREG: u8 = 5;
+pub(crate) const HAS_E: i32 = 8;
+pub(crate) const HAS_ERROR: i32 = 1;
+pub(crate) const HAS_E_CAP: i32 = 16;
+pub(crate) const HAS_I: i32 = 2;
+pub(crate) const HAS_V: i32 = 4;
+pub(crate) const HOOKKEY: &[u8] = b"_HOOKKEY\0";
+pub(crate) const I2D_SCALE: lua_Number = 1.0 / ((1_u64 << FIGS) as lua_Number);
+pub(crate) const I2D_SHIFT: u32 = 64 - FIGS;
+pub(crate) const IOFBF_VALUE: c_int = 0;
+pub(crate) const IOLBF_VALUE: c_int = 1;
+pub(crate) const IONBF_VALUE: c_int = 2;
+pub(crate) const IOPREF_LEN: usize = 4;
+pub(crate) const IO_INPUT: &[u8] = b"_IO_input\0";
+pub(crate) const IO_OUTPUT: &[u8] = b"_IO_output\0";
+pub(crate) const KEY_DAY: &[u8] = b"day\0";
+pub(crate) const KEY_HOUR: &[u8] = b"hour\0";
+pub(crate) const KEY_ISDST: &[u8] = b"isdst\0";
+pub(crate) const KEY_MIN: &[u8] = b"min\0";
+pub(crate) const KEY_MONTH: &[u8] = b"month\0";
+pub(crate) const KEY_SEC: &[u8] = b"sec\0";
+pub(crate) const KEY_WDAY: &[u8] = b"wday\0";
+pub(crate) const KEY_YDAY: &[u8] = b"yday\0";
+pub(crate) const KEY_YEAR: &[u8] = b"year\0";
+pub(crate) const KGC_GENMAJOR: u8 = 2;
+pub(crate) const LEVELS1: i32 = 10;
+pub(crate) const LEVELS2: i32 = 11;
+pub(crate) const LIB_FAIL_ABSENT: &[u8] = b"absent\0";
+pub(crate) const LIB_FAIL_OPEN: &[u8] = b"open\0";
+pub(crate) const LIMLINEDIFF: c_int = 0x80;
+pub(crate) const LSTRFIX: i8 = -2;
+pub(crate) const LSTRMEM: i8 = -3;
+pub(crate) const LUAC_DATA: &[u8] = b"\x19\x93\r\n\x1a\n";
+pub(crate) const LUAC_FORMAT: u8 = 0;
+pub(crate) const LUAC_INST: Instruction = 0x1234_5678;
+pub(crate) const LUAC_INT: c_int = -0x5678;
+pub(crate) const LUAC_NUM: lua_Number = -370.5;
+pub(crate) const LUAC_VERSION: u8 = 0x55;
+pub(crate) const LUAL_BUFFERSIZE: usize = 8192;
+pub(crate) const L_MAXLENNUM: usize = 200;
+pub(crate) const MAXABITS: u32 = u32::BITS - 1;
+pub(crate) const MAXARGLINE: c_int = 250;
+pub(crate) const MAXASIZEB: usize = usize::MAX / (size_of::<Value>() + 1);
+pub(crate) const MAXDELTA: usize = u16::MAX as usize;
+pub(crate) const MAXHBITS: u32 = MAXABITS - 1;
+pub(crate) const MAXHSIZE: u32 = {
+    let by_bits = 1usize << MAXHBITS;
+    let by_mem = usize::MAX / size_of::<Node>();
+    if by_bits < by_mem {
+        by_bits as u32
+    } else {
+        by_mem as u32
+    }
+};
+pub(crate) const MAXIWTHABS: c_int = 128;
+pub(crate) const MAXSTRTB: c_int = (c_int::MAX as usize / size_of::<*mut TString>()) as c_int;
+pub(crate) const MAXTAGLOOP: c_int = 2000;
+pub(crate) const MAXUNICODE: u32 = 0x10FFFF;
+pub(crate) const MAXUTF: u32 = 0x7FFF_FFFF;
+pub(crate) const MAXVARS: c_int = 200;
+pub(crate) const MEMERRMSG: &[u8] = b"not enough memory\0";
+pub(crate) const META_CLOSE: &[u8] = b"__close\0";
+pub(crate) const META_GC: &[u8] = b"__gc\0";
+pub(crate) const META_INDEX: &[u8] = b"__index\0";
+pub(crate) const META_METATABLE: &[u8] = b"__metatable\0";
+pub(crate) const META_PAIRS: &[u8] = b"__pairs\0";
+pub(crate) const META_TOSTRING: &[u8] = b"__tostring\0";
+pub(crate) const MINSIZEARRAY: c_int = 4;
+pub(crate) const MINSTRTABSIZE: c_int = 128;
+pub(crate) const MSG_INVALID: &[u8] = b"invalid UTF-8 code\0";
+pub(crate) const NAME_ABS: &[u8] = b"abs\0";
+pub(crate) const NAME_ABS_VEC: &[u8] = b"abs\0";
+pub(crate) const NAME_ACOS: &[u8] = b"acos\0";
+pub(crate) const NAME_ADD: &[u8] = b"add\0";
+pub(crate) const NAME_ASIN: &[u8] = b"asin\0";
+pub(crate) const NAME_ATAN: &[u8] = b"atan\0";
+pub(crate) const NAME_BITAND: &[u8] = b"bitand\0";
+pub(crate) const NAME_BITOR: &[u8] = b"bitor\0";
+pub(crate) const NAME_BITXOR: &[u8] = b"bitxor\0";
+pub(crate) const NAME_CEIL: &[u8] = b"ceil\0";
+pub(crate) const NAME_CEIL_VEC: &[u8] = b"ceil\0";
+pub(crate) const NAME_CLOCK: &[u8] = b"clock\0";
+pub(crate) const NAME_CLOSE: &[u8] = b"close\0";
+pub(crate) const NAME_CODEPOINT: &[u8] = b"codepoint\0";
+pub(crate) const NAME_CODES: &[u8] = b"codes\0";
+pub(crate) const NAME_CONCAT: &[u8] = b"concat\0";
+pub(crate) const NAME_COS: &[u8] = b"cos\0";
+pub(crate) const NAME_CREATE: &[u8] = b"create\0";
+pub(crate) const NAME_DATE: &[u8] = b"date\0";
+pub(crate) const NAME_DEG: &[u8] = b"deg\0";
+pub(crate) const NAME_DIFFTIME: &[u8] = b"difftime\0";
+pub(crate) const NAME_DIV: &[u8] = b"div\0";
+pub(crate) const NAME_DOT: &[u8] = b"dot\0";
+pub(crate) const NAME_EQ: &[u8] = b"eq\0";
+pub(crate) const NAME_EXECUTE: &[u8] = b"execute\0";
+pub(crate) const NAME_EXIT: &[u8] = b"exit\0";
+pub(crate) const NAME_EXP: &[u8] = b"exp\0";
+pub(crate) const NAME_FLOOR: &[u8] = b"floor\0";
+pub(crate) const NAME_FLOOR_VEC: &[u8] = b"floor\0";
+pub(crate) const NAME_FLUSH: &[u8] = b"flush\0";
+pub(crate) const NAME_FMOD: &[u8] = b"fmod\0";
+pub(crate) const NAME_FREXP: &[u8] = b"frexp\0";
+pub(crate) const NAME_GE: &[u8] = b"ge\0";
+pub(crate) const NAME_GETENV: &[u8] = b"getenv\0";
+pub(crate) const NAME_GETN: &[u8] = b"getn\0";
+pub(crate) const NAME_GT: &[u8] = b"gt\0";
+pub(crate) const NAME_INPUT: &[u8] = b"input\0";
+pub(crate) const NAME_INSERT: &[u8] = b"insert\0";
+pub(crate) const NAME_ISYIELDABLE: &[u8] = b"isyieldable\0";
+pub(crate) const NAME_LDEXP: &[u8] = b"ldexp\0";
+pub(crate) const NAME_LE: &[u8] = b"le\0";
+pub(crate) const NAME_LINES: &[u8] = b"lines\0";
+pub(crate) const NAME_LOG: &[u8] = b"log\0";
+pub(crate) const NAME_LT: &[u8] = b"lt\0";
+pub(crate) const NAME_MAX: &[u8] = b"max\0";
+pub(crate) const NAME_MIN: &[u8] = b"min\0";
+pub(crate) const NAME_MODF: &[u8] = b"modf\0";
+pub(crate) const NAME_MOVE: &[u8] = b"move\0";
+pub(crate) const NAME_MUL: &[u8] = b"mul\0";
+pub(crate) const NAME_N: &[u8] = b"n\0";
+pub(crate) const NAME_NE: &[u8] = b"ne\0";
+pub(crate) const NAME_NEG: &[u8] = b"neg\0";
+pub(crate) const NAME_OFFSET: &[u8] = b"offset\0";
+pub(crate) const NAME_OPEN: &[u8] = b"open\0";
+pub(crate) const NAME_OUTPUT: &[u8] = b"output\0";
+pub(crate) const NAME_POPEN: &[u8] = b"popen\0";
+pub(crate) const NAME_PRODUCT: &[u8] = b"product\0";
+pub(crate) const NAME_RAD: &[u8] = b"rad\0";
+pub(crate) const NAME_RANDOM: &[u8] = b"random\0";
+pub(crate) const NAME_RANDOMSEED: &[u8] = b"randomseed\0";
+pub(crate) const NAME_READ: &[u8] = b"read\0";
+pub(crate) const NAME_RECIP: &[u8] = b"recip\0";
+pub(crate) const NAME_REMOVE: &[u8] = b"remove\0";
+pub(crate) const NAME_RENAME: &[u8] = b"rename\0";
+pub(crate) const NAME_RESUME: &[u8] = b"resume\0";
+pub(crate) const NAME_ROUND_VEC: &[u8] = b"round\0";
+pub(crate) const NAME_RUNNING: &[u8] = b"running\0";
+pub(crate) const NAME_SEEK: &[u8] = b"seek\0";
+pub(crate) const NAME_SETLOCALE: &[u8] = b"setlocale\0";
+pub(crate) const NAME_SETVBUF: &[u8] = b"setvbuf\0";
+pub(crate) const NAME_SHL: &[u8] = b"shl\0";
+pub(crate) const NAME_SHR: &[u8] = b"shr\0";
+pub(crate) const NAME_SIMD_MAX: &[u8] = b"max\0";
+pub(crate) const NAME_SIMD_MIN: &[u8] = b"min\0";
+pub(crate) const NAME_SIMD_SQRT: &[u8] = b"sqrt\0";
+pub(crate) const NAME_SIN: &[u8] = b"sin\0";
+pub(crate) const NAME_SORT: &[u8] = b"sort\0";
+pub(crate) const NAME_SPLAT: &[u8] = b"splat\0";
+pub(crate) const NAME_SQRT: &[u8] = b"sqrt\0";
+pub(crate) const NAME_STATUS: &[u8] = b"status\0";
+pub(crate) const NAME_STDERR: &[u8] = b"stderr\0";
+pub(crate) const NAME_STDIN: &[u8] = b"stdin\0";
+pub(crate) const NAME_STDOUT: &[u8] = b"stdout\0";
+pub(crate) const NAME_SUM: &[u8] = b"sum\0";
+pub(crate) const NAME_TAN: &[u8] = b"tan\0";
+pub(crate) const NAME_TIME: &[u8] = b"time\0";
+pub(crate) const NAME_TMPFILE: &[u8] = b"tmpfile\0";
+pub(crate) const NAME_TMPNAME: &[u8] = b"tmpname\0";
+pub(crate) const NAME_TOINTEGER: &[u8] = b"tointeger\0";
+pub(crate) const NAME_TRUNC_VEC: &[u8] = b"trunc\0";
+pub(crate) const NAME_TYPE: &[u8] = b"type\0";
+pub(crate) const NAME_ULT: &[u8] = b"ult\0";
+pub(crate) const NAME_WRAP: &[u8] = b"wrap\0";
+pub(crate) const NAME_WRITE: &[u8] = b"write\0";
+pub(crate) const NAME_YIELD: &[u8] = b"yield\0";
+pub(crate) const NON_STRING_ERROR: &[u8] = b"(error object is not a string value)\0";
+pub(crate) const NOTBITDUMMY: u8 = !BITDUMMY;
+pub(crate) const NO_ERROR_OBJECT: &[u8] = b"<no error object>\0";
+pub(crate) const NUM_OPCODES: usize = 85;
+pub(crate) const OPNAMES: &[&str] = &[
+    "MOVE",
+    "LOADI",
+    "LOADF",
+    "LOADK",
+    "LOADKX",
+    "LOADFALSE",
+    "LFALSESKIP",
+    "LOADTRUE",
+    "LOADNIL",
+    "GETUPVAL",
+    "SETUPVAL",
+    "GETTABUP",
+    "GETTABLE",
+    "GETI",
+    "GETFIELD",
+    "SETTABUP",
+    "SETTABLE",
+    "SETI",
+    "SETFIELD",
+    "NEWTABLE",
+    "SELF",
+    "ADDI",
+    "ADDK",
+    "SUBK",
+    "MULK",
+    "MODK",
+    "POWK",
+    "DIVK",
+    "IDIVK",
+    "BANDK",
+    "BORK",
+    "BXORK",
+    "SHLI",
+    "SHRI",
+    "ADD",
+    "SUB",
+    "MUL",
+    "MOD",
+    "POW",
+    "DIV",
+    "IDIV",
+    "BAND",
+    "BOR",
+    "BXOR",
+    "SHL",
+    "SHR",
+    "MMBIN",
+    "MMBINI",
+    "MMBINK",
+    "UNM",
+    "BNOT",
+    "NOT",
+    "LEN",
+    "CONCAT",
+    "CLOSE",
+    "TBC",
+    "JMP",
+    "EQ",
+    "LT",
+    "LE",
+    "EQK",
+    "EQI",
+    "LTI",
+    "LEI",
+    "GTI",
+    "GEI",
+    "TEST",
+    "TESTSET",
+    "CALL",
+    "TAILCALL",
+    "RETURN",
+    "RETURN0",
+    "RETURN1",
+    "FORLOOP",
+    "FORPREP",
+    "TFORPREP",
+    "TFORCALL",
+    "TFORLOOP",
+    "SETLIST",
+    "CLOSURE",
+    "VARARG",
+    "GETVARG",
+    "ERRNNIL",
+    "VARARGPREP",
+    "EXTRAARG",
+];
+pub(crate) const OPR_ADD: c_int = 0;
+pub(crate) const OPR_AND: c_int = 19;
+pub(crate) const OPR_BAND: c_int = 7;
+pub(crate) const OPR_BNOT: c_int = 1;
+pub(crate) const OPR_BOR: c_int = 8;
+pub(crate) const OPR_BXOR: c_int = 9;
+pub(crate) const OPR_CONCAT: c_int = 12;
+pub(crate) const OPR_DIV: c_int = 5;
+pub(crate) const OPR_EQ: c_int = 13;
+pub(crate) const OPR_GE: c_int = 18;
+pub(crate) const OPR_GT: c_int = 17;
+pub(crate) const OPR_IDIV: c_int = 6;
+pub(crate) const OPR_LE: c_int = 15;
+pub(crate) const OPR_LEN: c_int = 3;
+pub(crate) const OPR_LT: c_int = 14;
+pub(crate) const OPR_MINUS: c_int = 0;
+pub(crate) const OPR_MOD: c_int = 3;
+pub(crate) const OPR_MUL: c_int = 2;
+pub(crate) const OPR_NE: c_int = 16;
+pub(crate) const OPR_NOBINOPR: c_int = 21;
+pub(crate) const OPR_NOT: c_int = 2;
+pub(crate) const OPR_NOUNOPR: c_int = 4;
+pub(crate) const OPR_OR: c_int = 20;
+pub(crate) const OPR_POW: c_int = 4;
+pub(crate) const OPR_SHL: c_int = 10;
+pub(crate) const OPR_SHR: c_int = 11;
+pub(crate) const OPR_SUB: c_int = 1;
+pub(crate) const OUTPUT: &str = "luac.out";
+pub(crate) const PI: lua_Number = core::f64::consts::PI;
+pub(crate) const PRINT: u8 = 1 << 2;
+pub(crate) const PROGNAME: &str = "luac";
+pub(crate) const RANLIMIT: u32 = 100;
+pub(crate) const RDKCONST: u8 = 1;
+pub(crate) const RDKCTC: u8 = 4;
+pub(crate) const RDKTOCLOSE: u8 = 3;
+pub(crate) const RDKVAVAR: u8 = 2;
+pub(crate) const RESERVEDSLOT: c_int = 5;
+pub(crate) const RTLD_GLOBAL: c_int = 8;
+pub(crate) const RTLD_LOCAL: c_int = 4;
+pub(crate) const RTLD_NOW: c_int = 2;
+pub(crate) const SEEK_CUR_VALUE: c_int = 1;
+pub(crate) const SEEK_END_VALUE: c_int = 2;
+pub(crate) const SEEK_SET_VALUE: c_int = 0;
+pub(crate) const SIZETIMEFMT: usize = 250;
+pub(crate) const SPACE: u8 = 1 << 3;
+pub(crate) const STR_CLOSED_FILE: &[u8] = b"closed file\0";
+pub(crate) const STR_CONSTANT: &[u8] = b"constant\0";
+pub(crate) const STR_CTEMP: &[u8] = b"(C temporary)\0";
+pub(crate) const STR_C_SOURCE: &[u8] = b"=[C]\0";
+pub(crate) const STR_C_WHAT: &[u8] = b"C\0";
+pub(crate) const STR_DEAD: &[u8] = b"dead\0";
+pub(crate) const STR_EMPTY: &[u8] = b"\0";
+pub(crate) const STR_FIELD: &[u8] = b"field\0";
+pub(crate) const STR_FILE: &[u8] = b"file\0";
+pub(crate) const STR_FILE_CLOSED: &[u8] = b"file (closed)\0";
+pub(crate) const STR_FLOAT: &[u8] = b"float\0";
+pub(crate) const STR_FOR_ITER: &[u8] = b"for iterator\0";
+pub(crate) const STR_GC: &[u8] = b"__gc\0";
+pub(crate) const STR_GLOBAL: &[u8] = b"global\0";
+pub(crate) const STR_HOOK: &[u8] = b"hook\0";
+pub(crate) const STR_INTEGER: &[u8] = b"integer\0";
+pub(crate) const STR_INTEGER_INDEX: &[u8] = b"integer index\0";
+pub(crate) const STR_LOCAL: &[u8] = b"local\0";
+pub(crate) const STR_LUA: &[u8] = b"Lua\0";
+pub(crate) const STR_MAIN: &[u8] = b"main\0";
+pub(crate) const STR_META: &[u8] = b"metamethod\0";
+pub(crate) const STR_METHOD: &[u8] = b"method\0";
+pub(crate) const STR_NORMAL: &[u8] = b"normal\0";
+pub(crate) const STR_QUESTION: &[u8] = b"?\0";
+pub(crate) const STR_RUNNING: &[u8] = b"running\0";
+pub(crate) const STR_SUSPENDED: &[u8] = b"suspended\0";
+pub(crate) const STR_TEMP: &[u8] = b"(temporary)\0";
+pub(crate) const STR_THREAD: &[u8] = b"thread\0";
+pub(crate) const STR_UNKNOWN_SOURCE: &[u8] = b"=?\0";
+pub(crate) const STR_UPVALUE: &[u8] = b"upvalue\0";
+pub(crate) const STR_VARARG: &[u8] = b"(vararg)\0";
+pub(crate) const TAB_L: c_int = 4;
+pub(crate) const TAB_R: c_int = 1;
+pub(crate) const TAB_W: c_int = 2;
+pub(crate) const TMP_TEMPLATE: &[u8] = b"/tmp/lua_XXXXXX\0";
+pub(crate) const UNARY_PRIORITY: c_int = 12;
+pub(crate) const UTF8PATT: &[u8] = b"[\0-\x7F\xC2-\xFD][\x80-\xBF]*";
+pub(crate) const VCALL: c_int = 21;
+pub(crate) const VCONST: c_int = 13;
+pub(crate) const VDKREG: u8 = 0;
+pub(crate) const VFALSE: c_int = 3;
+pub(crate) const VGLOBAL: c_int = 11;
+pub(crate) const VINDEXED: c_int = 14;
+pub(crate) const VINDEXI: c_int = 17;
+pub(crate) const VINDEXSTR: c_int = 18;
+pub(crate) const VINDEXUP: c_int = 16;
+pub(crate) const VJMP: c_int = 19;
+pub(crate) const VK: c_int = 4;
+pub(crate) const VKFLT: c_int = 5;
+pub(crate) const VKINT: c_int = 6;
+pub(crate) const VKSTR: c_int = 7;
+pub(crate) const VLOCAL: c_int = 9;
+pub(crate) const VNIL: c_int = 1;
+pub(crate) const VNONRELOC: c_int = 8;
+pub(crate) const VRELOC: c_int = 20;
+pub(crate) const VTRUE: c_int = 2;
+pub(crate) const VUPVAL: c_int = 12;
+pub(crate) const VVARARG: c_int = 22;
+pub(crate) const VVARGIND: c_int = 15;
+pub(crate) const VVARGVAR: c_int = 10;
+pub(crate) const VVOID: c_int = 0;
+pub(crate) const XDIGIT: u8 = 1 << 4;
+pub(crate) const atomicstep: l_mem = -2;
+pub(crate) const step2minor: l_mem = -1;
+pub(crate) const step2pause: l_mem = -3;
+pub(crate) const MAXASIZE: u32 = if (1usize << MAXABITS) < MAXASIZEB {
+    (1usize << MAXABITS) as u32
+} else {
+    MAXASIZEB as u32
+};
+pub(crate) const TAB_RW: c_int = TAB_R | TAB_W;

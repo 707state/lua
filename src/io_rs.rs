@@ -11,50 +11,6 @@ use core::ffi::{c_char, c_int, c_long, c_void};
 use core::{mem, ptr};
 use std::ffi::CStr;
 
-const LUA_TNONE: c_int = -1;
-const LUA_FILEHANDLE: &[u8] = b"FILE*\0";
-const IO_INPUT: &[u8] = b"_IO_input\0";
-const IO_OUTPUT: &[u8] = b"_IO_output\0";
-const IOPREF_LEN: usize = 4;
-const LUAL_BUFFERSIZE: usize = 8192;
-const L_MAXLENNUM: usize = 200;
-const LUA_N2SBUFFSZ: usize = 64;
-const MAXARGLINE: c_int = 250;
-
-const NAME_CLOSE: &[u8] = b"close\0";
-const NAME_FLUSH: &[u8] = b"flush\0";
-const NAME_INPUT: &[u8] = b"input\0";
-const NAME_LINES: &[u8] = b"lines\0";
-const NAME_OPEN: &[u8] = b"open\0";
-const NAME_OUTPUT: &[u8] = b"output\0";
-const NAME_POPEN: &[u8] = b"popen\0";
-const NAME_READ: &[u8] = b"read\0";
-const NAME_TMPFILE: &[u8] = b"tmpfile\0";
-const NAME_TYPE: &[u8] = b"type\0";
-const NAME_WRITE: &[u8] = b"write\0";
-const NAME_SEEK: &[u8] = b"seek\0";
-const NAME_SETVBUF: &[u8] = b"setvbuf\0";
-const NAME_STDIN: &[u8] = b"stdin\0";
-const NAME_STDOUT: &[u8] = b"stdout\0";
-const NAME_STDERR: &[u8] = b"stderr\0";
-const META_INDEX: &[u8] = b"__index\0";
-const META_GC: &[u8] = b"__gc\0";
-const META_CLOSE: &[u8] = b"__close\0";
-const META_TOSTRING: &[u8] = b"__tostring\0";
-
-const ERR_ATTEMPT_CLOSED: &[u8] = b"attempt to use a closed file\0";
-const ERR_INVALID_MODE: &[u8] = b"invalid mode\0";
-const ERR_TOO_MANY_ARGUMENTS: &[u8] = b"too many arguments\0";
-const ERR_INVALID_FORMAT: &[u8] = b"invalid format\0";
-const ERR_FILE_ALREADY_CLOSED: &[u8] = b"file is already closed\0";
-const ERR_CANNOT_CLOSE_STANDARD_FILE: &[u8] = b"cannot close standard file\0";
-const ERR_TOO_MANY_READ_ARGS: &[u8] = b"too many arguments\0";
-const ERR_BAD_SEEK_INT: &[u8] = b"not an integer in proper range\0";
-const STR_CLOSED_FILE: &[u8] = b"closed file\0";
-const STR_FILE: &[u8] = b"file\0";
-const STR_FILE_CLOSED: &[u8] = b"file (closed)\0";
-const EMPTY_STRING: &[u8] = b"\0";
-
 #[repr(C)]
 struct File {
     _private: [u8; 0],
@@ -185,7 +141,6 @@ static METAMETH: [luaL_Reg; 5] = [
     },
 ];
 
-
 use core::ffi::c_uint;
 
 // localeconv：使用 luaffi 的 Rust 实现
@@ -213,14 +168,6 @@ unsafe extern "C" {
     fn funlockfile(stream: *mut File);
     fn getc_unlocked(stream: *mut File) -> c_int;
 }
-
-const SEEK_SET_VALUE: c_int = 0;
-const SEEK_CUR_VALUE: c_int = 1;
-const SEEK_END_VALUE: c_int = 2;
-const IONBF_VALUE: c_int = 2;
-const IOFBF_VALUE: c_int = 0;
-const IOLBF_VALUE: c_int = 1;
-const EOF_VALUE: c_int = -1;
 
 /// 获取当前 errno 值（用 Rust std 方式）
 #[inline]

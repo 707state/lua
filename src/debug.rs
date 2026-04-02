@@ -17,93 +17,6 @@ use crate::runtime::*;
 use core::ffi::*;
 use core::mem::ManuallyDrop;
 
-const ABSLINEINFO: i8 = -0x80;
-const MAXIWTHABS: c_int = 128;
-const PF_VAHID: u8 = 1;
-
-const CIST_CCMT: u32 = 8;
-const MAX_CCMT: u32 = 0xfu32 << CIST_CCMT;
-const CIST_HOOKED: u32 = 1 << 20;
-const CIST_TAIL: u32 = 1 << 22;
-const CIST_HOOKYIELD: u32 = 1 << 23;
-const CIST_FIN: u32 = 1 << 24;
-
-const LUA_HOOKCOUNT: c_int = 3;
-const LUA_HOOKLINE: c_int = 2;
-const LUA_MASKLINE: c_int = 1 << LUA_HOOKLINE;
-const LUA_MASKCOUNT: c_int = 1 << LUA_HOOKCOUNT;
-const LUA_FLOORN2I_FLOOR: c_int = 1;  // F2Ifloor, distinct from runtime's LUA_FLOORN2I (F2Ieq=0)
-
-const TM_INDEX: usize = 0;
-const TM_LEN: usize = 4;
-const TM_UNM: usize = 18;
-const TM_BNOT: usize = 19;
-const TM_LT: usize = 20;
-const TM_LE: usize = 21;
-const TM_CONCAT: usize = 22;
-const TM_CLOSE: usize = 24;
-
-const OP_MOVE: usize = 0;
-const OP_LOADK: usize = 3;
-const OP_LOADKX: usize = 4;
-const OP_LOADNIL: usize = 8;
-const OP_GETUPVAL: usize = 9;
-const OP_GETTABUP: usize = 11;
-const OP_GETTABLE: usize = 12;
-const OP_GETI: usize = 13;
-const OP_GETFIELD: usize = 14;
-const OP_SETTABUP: usize = 15;
-const OP_SETTABLE: usize = 16;
-const OP_SETI: usize = 17;
-const OP_SETFIELD: usize = 18;
-const OP_SELF: usize = 20;
-const OP_UNM: usize = 49;
-const OP_BNOT: usize = 50;
-const OP_LEN: usize = 52;
-const OP_CONCAT: usize = 53;
-const OP_CLOSE: usize = 54;
-const OP_JMP: usize = 56;
-const OP_EQ: usize = 57;
-const OP_LT: usize = 58;
-const OP_LE: usize = 59;
-const OP_LTI: usize = 62;
-const OP_LEI: usize = 63;
-const OP_GTI: usize = 64;
-const OP_GEI: usize = 65;
-const OP_CALL: usize = 68;
-const OP_TAILCALL: usize = 69;
-const OP_RETURN: usize = 70;
-const OP_TFORCALL: usize = 76;
-const OP_MMBIN: usize = 46;
-const OP_MMBINI: usize = 47;
-const OP_MMBINK: usize = 48;
-const OP_VARARGPREP: usize = 83;
-
-const LUA_ENV: &[u8] = b"_ENV\0";
-const STR_LOCAL: &[u8] = b"local\0";
-const STR_UPVALUE: &[u8] = b"upvalue\0";
-const STR_VARARG: &[u8] = b"(vararg)\0";
-const STR_TEMP: &[u8] = b"(temporary)\0";
-const STR_CTEMP: &[u8] = b"(C temporary)\0";
-const STR_QUESTION: &[u8] = b"?\0";
-const STR_C_SOURCE: &[u8] = b"=[C]\0";
-const STR_UNKNOWN_SOURCE: &[u8] = b"=?\0";
-const STR_C_WHAT: &[u8] = b"C\0";
-const STR_MAIN: &[u8] = b"main\0";
-const STR_LUA: &[u8] = b"Lua\0";
-const STR_EMPTY: &[u8] = b"\0";
-const STR_HOOK: &[u8] = b"hook\0";
-const STR_GC: &[u8] = b"__gc\0";
-const STR_META: &[u8] = b"metamethod\0";
-const STR_FOR_ITER: &[u8] = b"for iterator\0";
-const STR_CONSTANT: &[u8] = b"constant\0";
-const STR_GLOBAL: &[u8] = b"global\0";
-const STR_FIELD: &[u8] = b"field\0";
-const STR_METHOD: &[u8] = b"method\0";
-const STR_INTEGER_INDEX: &[u8] = b"integer index\0";
-const NO_ERROR_OBJECT: &[u8] = b"<no error object>\0";
-
-
 #[repr(C)]
 union Closure {
     c: ManuallyDrop<CClosure>,
@@ -599,7 +512,7 @@ unsafe fn findsetreg(p: *const Proto, mut lastpc: c_int, reg: c_int) -> c_int {
         let i = unsafe { *(*p).code.add(pc as usize) };
         let op = unsafe { get_opcode(i) };
         let a = unsafe { getarg_a(i) };
-        let change = match op {
+        let change = match op as c_int {
             OP_LOADNIL => {
                 let b = unsafe { getarg_b(i) };
                 a <= reg && reg <= a + b
@@ -649,7 +562,7 @@ unsafe fn basicgetobjname(
     unsafe { *ppc = pc };
     if pc != -1 {
         let i = unsafe { *(*p).code.add(pc as usize) };
-        match unsafe { get_opcode(i) } {
+        match unsafe { get_opcode(i) } as c_int {
             OP_MOVE => {
                 let b = unsafe { getarg_b(i) };
                 if b < unsafe { getarg_a(i) } {
@@ -715,7 +628,7 @@ unsafe fn getobjname(
     }
     if pc != -1 {
         let i = unsafe { *(*p).code.add(pc as usize) };
-        match unsafe { get_opcode(i) } {
+        match unsafe { get_opcode(i) } as c_int {
             OP_GETTABUP => {
                 unsafe { kname(p, getarg_c(i), name) };
                 return unsafe { is_env(p, pc, i, true) };
@@ -749,7 +662,7 @@ unsafe fn funcnamefromcode(
     name: *mut *const c_char,
 ) -> *const c_char {
     let i = unsafe { *(*p).code.add(pc as usize) };
-    let tm = match unsafe { get_opcode(i) } {
+    let tm = match unsafe { get_opcode(i) } as c_int {
         OP_CALL | OP_TAILCALL => return unsafe { getobjname(p, pc, getarg_a(i), name) },
         OP_TFORCALL => {
             unsafe { *name = STR_FOR_ITER.as_ptr().cast() };
@@ -757,7 +670,7 @@ unsafe fn funcnamefromcode(
         }
         OP_SELF | OP_GETTABUP | OP_GETTABLE | OP_GETI | OP_GETFIELD => TM_INDEX,
         OP_SETTABUP | OP_SETTABLE | OP_SETI | OP_SETFIELD => TM_NEWINDEX,
-        OP_MMBIN | OP_MMBINI | OP_MMBINK => unsafe { getarg_c(i) as usize },
+        OP_MMBIN | OP_MMBINI | OP_MMBINK => unsafe { getarg_c(i) },
         OP_UNM => TM_UNM,
         OP_BNOT => TM_BNOT,
         OP_LEN => TM_LEN,
@@ -768,7 +681,7 @@ unsafe fn funcnamefromcode(
         OP_CLOSE | OP_RETURN => TM_CLOSE,
         _ => return ptr::null(),
     };
-    unsafe { *name = getstr((*G(L)).tmname[tm]).add(2) };
+    unsafe { *name = getstr((*G(L)).tmname[tm as usize]).add(2) };
     STR_META.as_ptr().cast()
 }
 

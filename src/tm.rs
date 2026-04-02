@@ -62,7 +62,7 @@ fn tagisfalse(tag: u8) -> bool {
 }
 
 pub(crate) unsafe fn luaT_init(state: *mut lua_State) {
-    static EVENT_NAMES: [&[u8]; TM_N] = [
+    static EVENT_NAMES: [&[u8]; TM_N as usize] = [
         b"__index\0",
         b"__newindex\0",
         b"__gc\0",

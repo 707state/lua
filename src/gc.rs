@@ -3,35 +3,6 @@
 use crate::{luavm::GlobalState, runtime::*};
 use core::mem::size_of;
 
-const GCSWEEPMAX: l_mem = 20;
-const CWUFIN: l_mem = 10;
-
-const GCSpropagate: u8 = 0;
-const GCSenteratomic: u8 = 1;
-const GCSatomic: u8 = 2;
-const GCSswpallgc: u8 = 3;
-const GCSswpfinobj: u8 = 4;
-const GCSswptobefnz: u8 = 5;
-const GCSswpend: u8 = 6;
-const GCScallfin: u8 = 7;
-
-const FINALIZEDBIT: u8 = 6;
-const TESTBIT: u8 = 7;
-const AGEBITS: u8 = 7;
-
-const G_NEW: u8 = 0;
-const G_SURVIVAL: u8 = 1;
-const G_OLD0: u8 = 2;
-const G_OLD1: u8 = 3;
-const G_OLD: u8 = 4;
-const G_TOUCHED1: u8 = 5;
-const G_TOUCHED2: u8 = 6;
-
-const TM_GC: usize = 2;
-const TM_MODE: usize = 3;
-const LSTRMEM: i8 = -3;
-const KGC_GENMAJOR: u8 = 2;
-
 #[inline] unsafe fn luaM_malloc_(s: *mut lua_State, size: usize, tag: c_int) -> *mut c_void { unsafe { crate::mem::luaM_malloc_(s, size, tag) } }
 #[inline] unsafe fn luaM_free_(s: *mut lua_State, b: *mut c_void, os: usize) { unsafe { crate::mem::luaM_free_(s, b, os) } }
 #[inline] unsafe fn luaH_size(t: *mut Table) -> usize { unsafe { crate::table::luaH_size(t) } }
@@ -699,7 +670,7 @@ unsafe fn notm(tm: *const TValue) -> bool {
 }
 
 unsafe fn getmode(g: *mut GlobalState, h: *mut Table) -> c_int {
-    let mode = gfasttm(g, (*h).metatable, TM_MODE);
+    let mode = gfasttm(g, (*h).metatable, TM_MODE as usize);
     if mode.is_null() || !ttisstring(mode) {
         0
     } else {
@@ -1089,7 +1060,7 @@ unsafe fn correctpointers(g: *mut GlobalState, o: *mut GCObject) {
 
 pub(crate) unsafe fn luaC_checkfinalizer(L: *mut lua_State, o: *mut GCObject, mt: *mut Table) {
     let g = G(L);
-    if tofinalize(o) || gfasttm(g, mt, TM_GC).is_null() || ((*g).gcstp & GCSTPCLS) != 0 {
+    if tofinalize(o) || gfasttm(g, mt, TM_GC as usize).is_null() || ((*g).gcstp & GCSTPCLS) != 0 {
         return;
     }
     if issweepphase(g) {
@@ -1464,10 +1435,6 @@ unsafe fn sweepstep(
         (*g).sweepgc = nextlist;
     }
 }
-
-const step2pause: l_mem = -3;
-const atomicstep: l_mem = -2;
-const step2minor: l_mem = -1;
 
 unsafe fn singlestep(L: *mut lua_State, fast: c_int) -> l_mem {
     let g = G(L);

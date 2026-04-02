@@ -14,19 +14,6 @@ use crate::utf8_rs::luaopen_utf8;
 use core::ffi::c_int;
 use core::ptr;
 
-const LUA_PRELOAD_TABLE: &[u8] = b"_PRELOAD\0";
-
-const LUA_GLIBK: c_int = 1;
-const LUA_LOADLIBK: c_int = LUA_GLIBK << 1;
-const LUA_COLIBK: c_int = LUA_LOADLIBK << 1;
-const LUA_DBLIBK: c_int = LUA_COLIBK << 1;
-const LUA_IOLIBK: c_int = LUA_DBLIBK << 1;
-const LUA_MATHLIBK: c_int = LUA_IOLIBK << 1;
-const LUA_OSLIBK: c_int = LUA_MATHLIBK << 1;
-const LUA_STRLIBK: c_int = LUA_OSLIBK << 1;
-const LUA_TABLIBK: c_int = LUA_STRLIBK << 1;
-const LUA_UTF8LIBK: c_int = LUA_TABLIBK << 1;
-
 static STDLIBS: [luaL_Reg; 11] = [
     luaL_Reg {
         name: c"_G".as_ptr(),

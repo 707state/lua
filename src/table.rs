@@ -14,28 +14,6 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
 
-const BITDUMMY: u8 = 1 << 6;
-const NOTBITDUMMY: u8 = !BITDUMMY;
-
-const LUA_MAXINTEGER: lua_Integer = i64::MAX;
-const MAXABITS: u32 = u32::BITS - 1;
-const MAXASIZEB: usize = usize::MAX / (size_of::<Value>() + 1);
-const MAXASIZE: u32 = if (1usize << MAXABITS) < MAXASIZEB {
-    (1usize << MAXABITS) as u32
-} else {
-    MAXASIZEB as u32
-};
-const MAXHBITS: u32 = MAXABITS - 1;
-const MAXHSIZE: u32 = {
-    let by_bits = 1usize << MAXHBITS;
-    let by_mem = usize::MAX / size_of::<Node>();
-    if by_bits < by_mem {
-        by_bits as u32
-    } else {
-        by_mem as u32
-    }
-};
-
 static TABLE_OVERFLOW_ERR: &[u8] = b"table overflow\0";
 static INVALID_NEXT_KEY_ERR: &[u8] = b"invalid key to 'next'\0";
 static TABLE_INDEX_NIL_ERR: &[u8] = b"table index is nil\0";
@@ -95,7 +73,6 @@ struct Counters {
 fn ctb(tag: u8) -> u8 {
     tag | BIT_ISCOLLECTABLE
 }
-
 
 #[inline]
 unsafe fn getArrTag(t: *mut Table, k: u32) -> *mut u8 {
@@ -1091,7 +1068,7 @@ unsafe fn psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int {
     let u = (key as lua_Unsigned).wrapping_sub(1);
     if u < unsafe { (*t).asize as lua_Unsigned } {
         let tag = unsafe { getArrTag(t, u as u32) };
-        if unsafe { checknoTM((*t).metatable, TM_NEWINDEX) } || !tagisempty(unsafe { *tag }) {
+        if unsafe { checknoTM((*t).metatable, TM_NEWINDEX as usize) } || !tagisempty(unsafe { *tag }) {
             unsafe { fval2arr(t, u as u32, tag, val) };
             HOK
         } else {
@@ -1122,7 +1099,7 @@ pub unsafe  fn luaH_psetshortstr(
     if !unsafe { ttisnil(slot) } {
         unsafe { setobj(slot as *mut TValue, val) };
         HOK
-    } else if unsafe { checknoTM((*t).metatable, TM_NEWINDEX) } {
+    } else if unsafe { checknoTM((*t).metatable, TM_NEWINDEX as usize) } {
         if unsafe { ttisnil(val) } {
             HOK
         } else if unsafe { isabstkey(slot) }
@@ -1456,41 +1433,6 @@ pub(crate) unsafe fn raw_luaH_set(
 ) {
     unsafe { luaH_set(state.cast(), table.cast(), key.cast(), value.cast()) };
 }
-
-const LUA_OPEQ: c_int = 0;
-const LUA_OPLT: c_int = 1;
-
-const TAB_R: c_int = 1;
-const TAB_W: c_int = 2;
-const TAB_L: c_int = 4;
-const TAB_RW: c_int = TAB_R | TAB_W;
-
-const RANLIMIT: u32 = 100;
-
-const NAME_CONCAT: &[u8] = b"concat\0";
-const NAME_CREATE: &[u8] = b"create\0";
-const NAME_GETN: &[u8] = b"getn\0";
-const NAME_INSERT: &[u8] = b"insert\0";
-const NAME_MOVE: &[u8] = b"move\0";
-const NAME_N: &[u8] = b"n\0";
-const NAME_PACK: &[u8] = b"pack\0";
-const NAME_REMOVE: &[u8] = b"remove\0";
-const NAME_SORT: &[u8] = b"sort\0";
-const NAME_UNPACK: &[u8] = b"unpack\0";
-
-const FIELD_INDEX: &[u8] = b"__index\0";
-const FIELD_NEWINDEX: &[u8] = b"__newindex\0";
-const FIELD_LEN: &[u8] = b"__len\0";
-
-const ERR_OUT_OF_RANGE: &[u8] = b"out of range\0";
-const ERR_POSITION_OUT_OF_BOUNDS: &[u8] = b"position out of bounds\0";
-const ERR_WRONG_INSERT_ARGS: &[u8] = b"wrong number of arguments to 'insert'\0";
-const ERR_TOO_MANY_ELEMENTS_TO_MOVE: &[u8] = b"too many elements to move\0";
-const ERR_DEST_WRAP_AROUND: &[u8] = b"destination wrap around\0";
-const ERR_TOO_MANY_RESULTS_TO_UNPACK: &[u8] = b"too many results to unpack\0";
-const ERR_INVALID_ORDER_FUNCTION: &[u8] = b"invalid order function for sorting\0";
-const ERR_ARRAY_TOO_BIG: &[u8] = b"array too big\0";
-const ERR_INVALID_CONCAT_VALUE: &[u8] = b"invalid value in table for 'concat'\0";
 
 type IdxT = u32;
 

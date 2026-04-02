@@ -2,8 +2,6 @@ use crate::luavm::GlobalState;
 use crate::{debug::*, runtime::*};
 use core::ffi::{c_char, c_int, c_void};
 
-const MINSIZEARRAY: c_int = 4;
-
 /// Get the GlobalState from a lua_State (replaces GlobalStatePrefix pattern).
 #[inline]
 unsafe fn global_state(state: *mut lua_State) -> *mut GlobalState {

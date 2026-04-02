@@ -5,14 +5,6 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
 use core::ptr;
 
-const LUA_SIGNATURE: &[u8] = b"\x1bLua";
-const LUAC_DATA: &[u8] = b"\x19\x93\r\n\x1a\n";
-const LUAC_VERSION: u8 = 0x55;
-const LUAC_FORMAT: u8 = 0;
-const LUAC_INT: c_int = -0x5678;
-const LUAC_INST: Instruction = 0x1234_5678;
-const LUAC_NUM: lua_Number = -370.5;
-
 #[repr(C)]
 struct AbsLineInfo {
     pc: c_int,
@@ -29,7 +21,6 @@ struct DumpState {
     h: *mut Table,
     nstr: lua_Unsigned,
 }
-
 
 #[inline]
 fn ctb(tag: u8) -> u8 {

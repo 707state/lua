@@ -16,90 +16,6 @@ use std::simd::num::{SimdFloat, SimdInt};
 struct RanState {
     s: [u64; 4],
 }
-const LUA_OPLT: c_int = 1;
-const LUA_MININTEGER: lua_Integer = i64::MIN;
-const LUA_MAXINTEGER: lua_Integer = i64::MAX;
-const PI: lua_Number = core::f64::consts::PI;
-const FIGS: u32 = 53;
-const I2D_SHIFT: u32 = 64 - FIGS;
-const I2D_SCALE: lua_Number = 1.0 / ((1_u64 << FIGS) as lua_Number);
-const F64_SIGN_MASK: u64 = 1_u64 << 63;
-const F64_EXP_MASK: u64 = 0x7ff_u64 << 52;
-const F64_FRAC_MASK: u64 = (1_u64 << 52) - 1;
-const F64_MANTISSA_BITS: i32 = 52;
-const F64_EXP_BIAS: i32 = 1023;
-
-const NAME_ABS: &[u8] = b"abs\0";
-const NAME_ACOS: &[u8] = b"acos\0";
-const NAME_ASIN: &[u8] = b"asin\0";
-const NAME_ATAN: &[u8] = b"atan\0";
-const NAME_CEIL: &[u8] = b"ceil\0";
-const NAME_COS: &[u8] = b"cos\0";
-const NAME_DEG: &[u8] = b"deg\0";
-const NAME_EXP: &[u8] = b"exp\0";
-const NAME_TOINTEGER: &[u8] = b"tointeger\0";
-const NAME_FLOOR: &[u8] = b"floor\0";
-const NAME_FMOD: &[u8] = b"fmod\0";
-const NAME_FREXP: &[u8] = b"frexp\0";
-const NAME_ULT: &[u8] = b"ult\0";
-const NAME_LDEXP: &[u8] = b"ldexp\0";
-const NAME_LOG: &[u8] = b"log\0";
-const NAME_MAX: &[u8] = b"max\0";
-const NAME_MIN: &[u8] = b"min\0";
-const NAME_MODF: &[u8] = b"modf\0";
-const NAME_RAD: &[u8] = b"rad\0";
-const NAME_SIN: &[u8] = b"sin\0";
-const NAME_SQRT: &[u8] = b"sqrt\0";
-const NAME_TAN: &[u8] = b"tan\0";
-const NAME_TYPE: &[u8] = b"type\0";
-const NAME_RANDOM: &[u8] = b"random\0";
-const NAME_RANDOMSEED: &[u8] = b"randomseed\0";
-const FIELD_SIMD: &[u8] = b"simd\0";
-const FIELD_F64X4: &[u8] = b"f64x4\0";
-const FIELD_I32X4: &[u8] = b"i32x4\0";
-const FIELD_PI: &[u8] = b"pi\0";
-const FIELD_HUGE: &[u8] = b"huge\0";
-const FIELD_MAXINTEGER: &[u8] = b"maxinteger\0";
-const FIELD_MININTEGER: &[u8] = b"mininteger\0";
-const FIELD_LANES: &[u8] = b"lanes\0";
-const NAME_ADD: &[u8] = b"add\0";
-const NAME_SUB: &[u8] = b"sub\0";
-const NAME_MUL: &[u8] = b"mul\0";
-const NAME_DIV: &[u8] = b"div\0";
-const NAME_DOT: &[u8] = b"dot\0";
-const NAME_SUM: &[u8] = b"sum\0";
-const NAME_PRODUCT: &[u8] = b"product\0";
-const NAME_SPLAT: &[u8] = b"splat\0";
-const NAME_NEG: &[u8] = b"neg\0";
-const NAME_EQ: &[u8] = b"eq\0";
-const NAME_NE: &[u8] = b"ne\0";
-const NAME_LT: &[u8] = b"lt\0";
-const NAME_LE: &[u8] = b"le\0";
-const NAME_GT: &[u8] = b"gt\0";
-const NAME_GE: &[u8] = b"ge\0";
-const NAME_FLOOR_VEC: &[u8] = b"floor\0";
-const NAME_CEIL_VEC: &[u8] = b"ceil\0";
-const NAME_ROUND_VEC: &[u8] = b"round\0";
-const NAME_TRUNC_VEC: &[u8] = b"trunc\0";
-const NAME_RECIP: &[u8] = b"recip\0";
-const NAME_BITAND: &[u8] = b"bitand\0";
-const NAME_BITOR: &[u8] = b"bitor\0";
-const NAME_BITXOR: &[u8] = b"bitxor\0";
-const NAME_SHL: &[u8] = b"shl\0";
-const NAME_SHR: &[u8] = b"shr\0";
-const NAME_SIMD_MIN: &[u8] = b"min\0";
-const NAME_SIMD_MAX: &[u8] = b"max\0";
-const NAME_SIMD_SQRT: &[u8] = b"sqrt\0";
-const NAME_ABS_VEC: &[u8] = b"abs\0";
-const STR_INTEGER: &[u8] = b"integer\0";
-const STR_FLOAT: &[u8] = b"float\0";
-const ERR_WRONG_NUMBER_OF_ARGUMENTS: &[u8] = b"wrong number of arguments\0";
-const ERR_INTERVAL_EMPTY: &[u8] = b"interval is empty\0";
-const ERR_ZERO: &[u8] = b"zero\0";
-const ERR_EXPECTED_VECTOR_TABLE: &[u8] = b"expected a Lua array table\0";
-const ERR_EXPECTED_4_LANES: &[u8] = b"expected exactly 4 lanes\0";
-const ERR_I32_RANGE: &[u8] = b"lane value is out of i32 range\0";
-
 static MATHLIB_REGS: [luaL_Reg; 24] = [
     luaL_Reg {
         name: NAME_ABS.as_ptr().cast(),
@@ -407,7 +323,6 @@ static SIMD_I32X4_REGS: [luaL_Reg; 22] = [
         func: None,
     },
 ];
-
 
 #[inline]
 fn number_to_integer(value: lua_Number) -> Option<lua_Integer> {

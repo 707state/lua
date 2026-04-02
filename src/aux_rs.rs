@@ -12,15 +12,6 @@ use std::i32;
 use std::io::{Read, Write};
 use std::os::raw::c_uint;
 use std::time::{SystemTime, UNIX_EPOCH};
-const LUA_REFNIL: c_int = -1;
-const LUA_LOADED_TABLE: &[u8] = b"_LOADED\0";
-const LUA_GNAME: &[u8] = b"_G\0";
-const LUA_SIGNATURE: &[u8] = b"\x1bLua";
-const LEVELS1: i32 = 10;
-const LEVELS2: i32 = 11;
-
-
-
 struct LoadBuffer {
     bytes: Vec<u8>,
     offset: usize,
@@ -227,7 +218,6 @@ unsafe fn lua_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) 
 unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> lua_Alloc {
     unsafe { core::mem::transmute(crate::api::lua_getallocf(state as _, ud)) }
 }
-
 
 #[inline]
 unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {

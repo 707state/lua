@@ -6,48 +6,6 @@ use crate::table::{raw_luaH_getstr, raw_luaH_set};
 use crate::zio::{EOZ, luaZ_fill, luaZ_resizebuffer};
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
-const LUA_MINBUFFER: usize = 32;
-const FIRST_RESERVED: c_int = u8::MAX as c_int + 1;
-const TK_AND: c_int = FIRST_RESERVED;
-const TK_BREAK: c_int = TK_AND + 1;
-const TK_DO: c_int = TK_BREAK + 1;
-const TK_ELSE: c_int = TK_DO + 1;
-const TK_ELSEIF: c_int = TK_ELSE + 1;
-const TK_END: c_int = TK_ELSEIF + 1;
-const TK_FALSE: c_int = TK_END + 1;
-const TK_FOR: c_int = TK_FALSE + 1;
-const TK_FUNCTION: c_int = TK_FOR + 1;
-const TK_GLOBAL: c_int = TK_FUNCTION + 1;
-const TK_GOTO: c_int = TK_GLOBAL + 1;
-const TK_IF: c_int = TK_GOTO + 1;
-const TK_IN: c_int = TK_IF + 1;
-const TK_LOCAL: c_int = TK_IN + 1;
-const TK_NIL: c_int = TK_LOCAL + 1;
-const TK_NOT: c_int = TK_NIL + 1;
-const TK_OR: c_int = TK_NOT + 1;
-const TK_REPEAT: c_int = TK_OR + 1;
-const TK_RETURN: c_int = TK_REPEAT + 1;
-const TK_THEN: c_int = TK_RETURN + 1;
-const TK_TRUE: c_int = TK_THEN + 1;
-const TK_UNTIL: c_int = TK_TRUE + 1;
-const TK_WHILE: c_int = TK_UNTIL + 1;
-const TK_IDIV: c_int = TK_WHILE + 1;
-const TK_CONCAT: c_int = TK_IDIV + 1;
-const TK_DOTS: c_int = TK_CONCAT + 1;
-const TK_EQ: c_int = TK_DOTS + 1;
-const TK_GE: c_int = TK_EQ + 1;
-const TK_LE: c_int = TK_GE + 1;
-const TK_NE: c_int = TK_LE + 1;
-const TK_SHL: c_int = TK_NE + 1;
-const TK_SHR: c_int = TK_SHL + 1;
-const TK_DBCOLON: c_int = TK_SHR + 1;
-const TK_EOS: c_int = TK_DBCOLON + 1;
-const TK_FLT: c_int = TK_EOS + 1;
-const TK_INT: c_int = TK_FLT + 1;
-const TK_NAME: c_int = TK_INT + 1;
-const TK_STRING: c_int = TK_NAME + 1;
-const NUM_RESERVED: usize = (TK_WHILE - FIRST_RESERVED + 1) as usize;
-
 static LUA_ENV: &[u8] = b"_ENV\0";
 static BREAK_NAME: &[u8] = b"break\0";
 static GLOBAL_NAME: &[u8] = b"global\0";
@@ -101,7 +59,6 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
     b"<name>\0",
     b"<string>\0",
 ];
-
 
 #[inline] unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) { unsafe { crate::gc::luaC_fix(s, o) } }
 #[inline] unsafe fn luaC_step(s: *mut lua_State) { unsafe { crate::gc::luaC_step(s) } }

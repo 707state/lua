@@ -1,8 +1,4 @@
-const ALPHA: u8 = 1 << 0;
-const DIGIT: u8 = 1 << 1;
-const PRINT: u8 = 1 << 2;
-const SPACE: u8 = 1 << 3;
-const XDIGIT: u8 = 1 << 4;
+use crate::runtime::{ALPHA, DIGIT, PRINT, SPACE, XDIGIT};
 
 const fn ctype_byte(byte: u8) -> u8 {
     let mut bits = 0;

@@ -11,47 +11,6 @@ use std::env;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 
-const LUA_PATH_VAR: &str = "LUA_PATH";
-const LUA_CPATH_VAR: &str = "LUA_CPATH";
-const LUA_VERSUFFIX: &str = "_5_5";
-const LUA_DIRSEP: &str = "/";
-const LUA_PATH_SEP: &str = ";";
-const LUA_PATH_MARK: &str = "?";
-const LUA_EXEC_DIR: &str = "!";
-const LUA_IGMARK: &str = "-";
-const LUA_CSUBSEP: &str = LUA_DIRSEP;
-const LUA_LSUBSEP: &str = LUA_DIRSEP;
-#[cfg(target_os = "windows")]
-const LUA_CMOD_SUFFIX: &str = ".dll";
-#[cfg(target_os = "macos")]
-const LUA_CMOD_SUFFIX: &str = ".dylib";
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-const LUA_CMOD_SUFFIX: &str = ".so";
-
-const LUA_PATH_DEFAULT: &str = "/usr/local/share/lua/5.5/?.lua;/usr/local/share/lua/5.5/?/init.lua;/usr/local/lib/lua/5.5/?.lua;/usr/local/lib/lua/5.5/?/init.lua;./?.lua;./?/init.lua";
-const LUA_CPATH_DEFAULT: &str = "/usr/local/lib/lua/5.5/?;/usr/local/lib/lua/5.5/loadall;./?";
-
-const LUA_POF: &str = "luaopen_";
-const LUA_OFSEP: &str = "_";
-const LUA_RIDX_GLOBALS: i64 = 2;
-const CLIBS: &[u8] = b"_CLIBS\0";
-const LIB_FAIL_OPEN: &[u8] = b"open\0";
-#[cfg(not(unix))]
-const LIB_FAIL_ABSENT: &[u8] = b"absent\0";
-#[cfg(not(unix))]
-const DLMSG: &[u8] = b"dynamic libraries not enabled; check your Lua installation\0";
-
-const FIELD_PRELOAD: &[u8] = b"preload\0";
-const FIELD_CPATH: &[u8] = b"cpath\0";
-const FIELD_PATH: &[u8] = b"path\0";
-const FIELD_SEARCHERS: &[u8] = b"searchers\0";
-const FIELD_LOADED: &[u8] = b"loaded\0";
-const FIELD_CONFIG: &[u8] = b"config\0";
-const FIELD_LUA_NOENV: &[u8] = b"LUA_NOENV\0";
-
-const LUA_LOADED_TABLE: &[u8] = b"_LOADED\0";
-const LUA_PRELOAD_TABLE: &[u8] = b"_PRELOAD\0";
-
 static PK_FUNCS: [luaL_Reg; 8] = [
     luaL_Reg {
         name: c"loadlib".as_ptr(),
@@ -98,7 +57,6 @@ static LL_FUNCS: [luaL_Reg; 2] = [
     },
 ];
 
-
 #[cfg(unix)]
 unsafe extern  "C"  {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
@@ -108,12 +66,6 @@ unsafe extern  "C"  {
 }
 
 #[cfg(unix)]
-const RTLD_NOW: c_int = 2;
-#[cfg(unix)]
-const RTLD_LOCAL: c_int = 4;
-#[cfg(unix)]
-const RTLD_GLOBAL: c_int = 8;
-
 #[inline]
 unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {
     unsafe { CStr::from_ptr(ptr) }
@@ -242,9 +194,6 @@ unsafe fn addtoclib(state: *mut lua_State, path: &CStr, plib: *mut c_void) {
     let _ = unsafe { luaL_ref(state, -2) };
     unsafe { lua_pop(state, 1) };
 }
-
-const ERRLIB: c_int = 1;
-const ERRFUNC: c_int = 2;
 
 unsafe fn lookforfunc(state: *mut lua_State, path: &CStr, sym: &CStr) -> c_int {
     let mut reg = unsafe { checkclib(state, path) };

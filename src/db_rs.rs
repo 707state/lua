@@ -7,7 +7,6 @@ use crate::aux_rs::{
 use crate::debug::*;
 use crate::lua_module::{create_library, lua_pop, luaL_Reg};
 use crate::runtime::*;
-use crate::mem::*;
 use crate::luaffi::{ LuaThread, lua_call, lua_insert, lua_pcall, lua_remove};
 use crate::runtime::lua_State;
 use core::ffi::{c_char, c_int, c_void};
@@ -15,14 +14,6 @@ use core::ptr;
 use std::ffi::{CStr, CString};
 use std::io::{self, Write};
 use std::ptr::fn_addr_eq;
-
-
-const LUA_MASKCALL: c_int = 1;
-const LUA_MASKRET: c_int = 2;
-const LUA_MASKLINE: c_int = 4;
-const LUA_MASKCOUNT: c_int = 8;
-
-const HOOKKEY: &[u8] = b"_HOOKKEY\0";
 
 static DBLIB: [luaL_Reg; 17] = [
     luaL_Reg {
@@ -94,7 +85,6 @@ static DBLIB: [luaL_Reg; 17] = [
         func: None,
     },
 ];
-
 
 #[inline]
 unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {

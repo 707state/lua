@@ -641,7 +641,7 @@ pub unsafe fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
         let u = (n as lua_Unsigned).wrapping_sub(1);
         if u < unsafe { (*h).asize as lua_Unsigned } {
             let tag = unsafe { getArrTag(h, u as u32) };
-            if unsafe { checknoTM((*h).metatable, TM_NEWINDEX) } || !unsafe { tagisempty(*tag) } {
+            if unsafe { checknoTM((*h).metatable, TM_NEWINDEX as usize) } || !unsafe { tagisempty(*tag) } {
                 unsafe { fval2arr(h, u as u32, tag, s2v((*L).top.p.sub(1))) };
                 HOK
             } else {

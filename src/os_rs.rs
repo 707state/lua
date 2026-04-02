@@ -13,51 +13,6 @@ use core::ffi::{c_char, c_int, c_long, c_ulong};
 use core::{mem, ptr, slice};
 use std::ffi::CString;
 use std::process::exit;
-const EXIT_SUCCESS_CODE: c_int = 0;
-const EXIT_FAILURE_CODE: c_int = 1;
-const CLOCKS_PER_SEC_VALUE: lua_Number = 1_000_000.0;
-const SIZETIMEFMT: usize = 250;
-
-const LUA_STRFTIMEOPTIONS: &str =
-    "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%||EcECExEXEyEYOdOeOHOIOmOMOSOuOUOVOwOWOy";
-
-const ERR_UNABLE_TMPNAME: &[u8] = b"unable to generate a unique filename\0";
-const ERR_DATE_NOT_REPRESENTABLE: &[u8] =
-    b"date result cannot be represented in this installation\0";
-const ERR_TIME_NOT_REPRESENTABLE: &[u8] =
-    b"time result cannot be represented in this installation\0";
-
-const NAME_CLOCK: &[u8] = b"clock\0";
-const NAME_DATE: &[u8] = b"date\0";
-const NAME_DIFFTIME: &[u8] = b"difftime\0";
-const NAME_EXECUTE: &[u8] = b"execute\0";
-const NAME_EXIT: &[u8] = b"exit\0";
-const NAME_GETENV: &[u8] = b"getenv\0";
-const NAME_REMOVE: &[u8] = b"remove\0";
-const NAME_RENAME: &[u8] = b"rename\0";
-const NAME_SETLOCALE: &[u8] = b"setlocale\0";
-const NAME_TIME: &[u8] = b"time\0";
-const NAME_TMPNAME: &[u8] = b"tmpname\0";
-
-const KEY_YEAR: &[u8] = b"year\0";
-const KEY_MONTH: &[u8] = b"month\0";
-const KEY_DAY: &[u8] = b"day\0";
-const KEY_HOUR: &[u8] = b"hour\0";
-const KEY_MIN: &[u8] = b"min\0";
-const KEY_SEC: &[u8] = b"sec\0";
-const KEY_YDAY: &[u8] = b"yday\0";
-const KEY_WDAY: &[u8] = b"wday\0";
-const KEY_ISDST: &[u8] = b"isdst\0";
-
-const CAT_ALL: &[u8] = b"all\0";
-const CAT_COLLATE: &[u8] = b"collate\0";
-const CAT_CTYPE: &[u8] = b"ctype\0";
-const CAT_MONETARY: &[u8] = b"monetary\0";
-const CAT_NUMERIC: &[u8] = b"numeric\0";
-const CAT_TIME: &[u8] = b"time\0";
-
-const TMP_TEMPLATE: &[u8] = b"/tmp/lua_XXXXXX\0";
-
 #[allow(non_camel_case_types)]
 type time_t = c_long;
 #[allow(non_camel_case_types)]

@@ -8,31 +8,6 @@ use crate::state::*;
 use core::ffi::c_int;
 use core::ptr;
 
-const COS_RUN: c_int = 0;
-const COS_DEAD: c_int = 1;
-const COS_YIELD: c_int = 2;
-const COS_NORM: c_int = 3;
-
-const NAME_CREATE: &[u8] = b"create\0";
-const NAME_RESUME: &[u8] = b"resume\0";
-const NAME_RUNNING: &[u8] = b"running\0";
-const NAME_STATUS: &[u8] = b"status\0";
-const NAME_WRAP: &[u8] = b"wrap\0";
-const NAME_YIELD: &[u8] = b"yield\0";
-const NAME_ISYIELDABLE: &[u8] = b"isyieldable\0";
-const NAME_CLOSE: &[u8] = b"close\0";
-
-const STR_THREAD: &[u8] = b"thread\0";
-const STR_RUNNING: &[u8] = b"running\0";
-const STR_DEAD: &[u8] = b"dead\0";
-const STR_SUSPENDED: &[u8] = b"suspended\0";
-const STR_NORMAL: &[u8] = b"normal\0";
-
-const ERR_TOO_MANY_ARGUMENTS_TO_RESUME: &[u8] = b"too many arguments to resume\0";
-const ERR_TOO_MANY_RESULTS_TO_RESUME: &[u8] = b"too many results to resume\0";
-const ERR_CANNOT_CLOSE_NORMAL_COROUTINE: &[u8] = b"cannot close a normal coroutine\0";
-const ERR_CANNOT_CLOSE_MAIN_THREAD: &[u8] = b"cannot close main thread\0";
-
 static STATNAME: [&[u8]; 4] = [STR_RUNNING, STR_DEAD, STR_SUSPENDED, STR_NORMAL];
 
 static CO_FUNCS: [luaL_Reg; 9] = [
@@ -73,7 +48,6 @@ static CO_FUNCS: [luaL_Reg; 9] = [
         func: None,
     },
 ];
-
 
 #[inline]
 unsafe fn getco(state: *mut lua_State) -> *mut lua_State {

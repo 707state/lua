@@ -8,9 +8,6 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr;
 
-const TM_CLOSE: c_int = 24;
-const MAXDELTA: usize = u16::MAX as usize;
-
 #[repr(C)]
 union UpValV {
     p: *mut TValue,

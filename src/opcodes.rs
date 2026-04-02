@@ -1,25 +1,6 @@
 use core::ffi::c_int;
 
-use crate::runtime::Instruction;
-
-const SIZE_C: u32 = 8;
-const SIZE_B: u32 = 8;
-const SIZE_VB: u32 = 6;
-const SIZE_A: u32 = 8;
-const SIZE_OP: u32 = 7;
-
-const POS_OP: u32 = 0;
-const POS_A: u32 = POS_OP + SIZE_OP;
-const POS_K: u32 = POS_A + SIZE_A;
-const POS_B: u32 = POS_K + 1;
-const POS_VB: u32 = POS_K + 1;
-const POS_C: u32 = POS_B + SIZE_B;
-#[cfg(test)]
-const OP_MOVE: usize = 0;
-const OP_TAILCALL: usize = 69;
-const OP_SETLIST: usize = 78;
-
-const NUM_OPCODES: usize = 85;
+use crate::runtime::*;
 
 const fn opmode(mm: u8, ot: u8, it: u8, t: u8, a: u8, m: u8) -> u8 {
     (mm << 7) | (ot << 6) | (it << 5) | (t << 4) | (a << 3) | m
@@ -156,18 +137,20 @@ const fn test_it_mode(op: usize) -> bool {
 
 pub(crate) fn luaP_isOT(i: Instruction) -> c_int {
     let op = get_opcode(i);
-    match op {
-        OP_TAILCALL => 1,
-        _ => c_int::from(test_ot_mode(op) && get_arg_c(i) == 0),
+    if op == OP_TAILCALL as usize {
+        1
+    } else {
+        c_int::from(test_ot_mode(op) && get_arg_c(i) == 0)
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaP_isIT(i: Instruction) -> c_int {
     let op = get_opcode(i);
-    match op {
-        OP_SETLIST => c_int::from(test_it_mode(op) && get_arg_vb(i) == 0),
-        _ => c_int::from(test_it_mode(op) && get_arg_b(i) == 0),
+    if op == OP_SETLIST as usize {
+        c_int::from(test_it_mode(op) && get_arg_vb(i) == 0)  
+    } else {
+        c_int::from(test_it_mode(op) && get_arg_b(i) == 0)
     }
 }
 
@@ -190,9 +173,9 @@ mod tests {
     #[test]
     fn opmode_table_has_expected_shape() {
         assert_eq!(luaP_opmodes.len(), NUM_OPCODES);
-        assert_eq!(luaP_opmodes[OP_MOVE] & 0b111, 0);
-        assert_ne!(luaP_opmodes[OP_TAILCALL] & (1 << 6), 0);
-        assert_ne!(luaP_opmodes[OP_SETLIST] & (1 << 5), 0);
+        assert_eq!(luaP_opmodes[OP_MOVE as usize] & 0b111, 0);
+        assert_ne!(luaP_opmodes[OP_TAILCALL as usize] & (1 << 6), 0);
+        assert_ne!(luaP_opmodes[OP_SETLIST as usize] & (1 << 5), 0);
     }
 
     #[test]

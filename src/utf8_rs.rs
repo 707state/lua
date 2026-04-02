@@ -4,24 +4,6 @@ use crate::lua_module::*;
 use crate::runtime::*;
 use core::ffi::c_int;
 use core::ptr;
-const MAXUNICODE: u32 = 0x10FFFF;
-const MAXUTF: u32 = 0x7FFF_FFFF;
-const MSG_INVALID: &[u8] = b"invalid UTF-8 code\0";
-const ERR_INITIAL_POSITION_OUT_OF_BOUNDS: &[u8] = b"initial position out of bounds\0";
-const ERR_FINAL_POSITION_OUT_OF_BOUNDS: &[u8] = b"final position out of bounds\0";
-const ERR_OUT_OF_BOUNDS: &[u8] = b"out of bounds\0";
-const ERR_STRING_SLICE_TOO_LONG: &[u8] = b"string slice too long\0";
-const ERR_VALUE_OUT_OF_RANGE: &[u8] = b"value out of range\0";
-const ERR_POSITION_OUT_OF_BOUNDS: &[u8] = b"position out of bounds\0";
-const ERR_INITIAL_CONTINUATION: &[u8] = b"initial position is a continuation byte\0";
-const NAME_OFFSET: &[u8] = b"offset\0";
-const NAME_CODEPOINT: &[u8] = b"codepoint\0";
-const NAME_CHAR: &[u8] = b"char\0";
-const NAME_LEN: &[u8] = b"len\0";
-const NAME_CODES: &[u8] = b"codes\0";
-const FIELD_CHARPATTERN: &[u8] = b"charpattern\0";
-const UTF8PATT: &[u8] = b"[\0-\x7F\xC2-\xFD][\x80-\xBF]*";
-
 static UTF8LIB_REGS: [luaL_Reg; 6] = [
     luaL_Reg {
         name: NAME_OFFSET.as_ptr().cast(),
@@ -48,7 +30,6 @@ static UTF8LIB_REGS: [luaL_Reg; 6] = [
         func: None,
     },
 ];
-
 
 #[inline]
 fn iscont(byte: u8) -> bool {

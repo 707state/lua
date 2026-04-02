@@ -7,21 +7,6 @@ use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::ffi::CStr;
 use std::io::{self, Write};
-const RESERVEDSLOT: c_int = 5;
-
-const LUA_GNAME: &[u8] = b"_G\0";
-const LUA_VERSION: &[u8] = b"Lua 5.5\0";
-const META_METATABLE: &[u8] = b"__metatable\0";
-const META_PAIRS: &[u8] = b"__pairs\0";
-const ERR_ASSERTION_FAILED: &[u8] = b"assertion failed!\0";
-const ERR_CANNOT_CHANGE_PROTECTED_METATABLE: &[u8] = b"cannot change a protected metatable\0";
-const ERR_BASE_OUT_OF_RANGE: &[u8] = b"base out of range\0";
-const ERR_VALUE_EXPECTED: &[u8] = b"value expected\0";
-const ERR_INVALID_MODE: &[u8] = b"invalid mode\0";
-const ERR_READER_MUST_RETURN_STRING: &[u8] = b"reader function must return a string\0";
-const ERR_TOO_MANY_NESTED_FUNCTIONS: &[u8] = b"too many nested functions\0";
-const ERR_INDEX_OUT_OF_RANGE: &[u8] = b"index out of range\0";
-
 static BASE_FUNCS: [luaL_Reg; 26] = [
     luaL_Reg {
         name: c"assert".as_ptr(),
@@ -128,7 +113,6 @@ static BASE_FUNCS: [luaL_Reg; 26] = [
         func: None,
     },
 ];
-
 
 #[inline]
 unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {

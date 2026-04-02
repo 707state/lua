@@ -4,9 +4,6 @@ use std::ffi::{c_char, c_int};
 use std::fmt::Write as _;
 use std::ptr;
 
-const ABSLINEINFO: i8 = -0x80;
-const MAXIWTHABS: c_int = 128;
-
 #[repr(C)]
 pub(crate) struct GlobalState {
     pub(crate) frealloc: lua_Alloc,
@@ -53,123 +50,6 @@ pub(crate) struct GlobalState {
     pub(crate) ud_warn: *mut core::ffi::c_void,
     pub(crate) mainth: LX,
 }
-
-
-const SIZE_C: u32 = 8;
-const SIZE_VC: u32 = 10;
-const SIZE_B: u32 = 8;
-const SIZE_VB: u32 = 6;
-const SIZE_BX: u32 = SIZE_C + SIZE_B + 1;
-const SIZE_A: u32 = 8;
-const SIZE_AX: u32 = SIZE_BX + SIZE_A;
-const SIZE_SJ: u32 = SIZE_BX + SIZE_A;
-
-const POS_OP: u32 = 0;
-const POS_A: u32 = POS_OP + 7;
-const POS_K: u32 = POS_A + SIZE_A;
-const POS_B: u32 = POS_K + 1;
-const POS_VB: u32 = POS_K + 1;
-const POS_C: u32 = POS_B + SIZE_B;
-const POS_VC: u32 = POS_VB + SIZE_VB;
-const POS_BX: u32 = POS_K;
-const POS_AX: u32 = POS_A;
-const POS_SJ: u32 = POS_A;
-
-const MAXARG_BX: i32 = (1 << SIZE_BX) - 1;
-const OFFSET_SBX: i32 = MAXARG_BX >> 1;
-const MAXARG_SJ: i32 = (1 << SIZE_SJ) - 1;
-const OFFSET_SJ: i32 = MAXARG_SJ >> 1;
-const MAXARG_C: i32 = (1 << SIZE_C) - 1;
-const OFFSET_SC: i32 = MAXARG_C >> 1;
-const COMMENT: &str = "\t; ";
-
-const OPNAMES: &[&str] = &[
-    "MOVE",
-    "LOADI",
-    "LOADF",
-    "LOADK",
-    "LOADKX",
-    "LOADFALSE",
-    "LFALSESKIP",
-    "LOADTRUE",
-    "LOADNIL",
-    "GETUPVAL",
-    "SETUPVAL",
-    "GETTABUP",
-    "GETTABLE",
-    "GETI",
-    "GETFIELD",
-    "SETTABUP",
-    "SETTABLE",
-    "SETI",
-    "SETFIELD",
-    "NEWTABLE",
-    "SELF",
-    "ADDI",
-    "ADDK",
-    "SUBK",
-    "MULK",
-    "MODK",
-    "POWK",
-    "DIVK",
-    "IDIVK",
-    "BANDK",
-    "BORK",
-    "BXORK",
-    "SHLI",
-    "SHRI",
-    "ADD",
-    "SUB",
-    "MUL",
-    "MOD",
-    "POW",
-    "DIV",
-    "IDIV",
-    "BAND",
-    "BOR",
-    "BXOR",
-    "SHL",
-    "SHR",
-    "MMBIN",
-    "MMBINI",
-    "MMBINK",
-    "UNM",
-    "BNOT",
-    "NOT",
-    "LEN",
-    "CONCAT",
-    "CLOSE",
-    "TBC",
-    "JMP",
-    "EQ",
-    "LT",
-    "LE",
-    "EQK",
-    "EQI",
-    "LTI",
-    "LEI",
-    "GTI",
-    "GEI",
-    "TEST",
-    "TESTSET",
-    "CALL",
-    "TAILCALL",
-    "RETURN",
-    "RETURN0",
-    "RETURN1",
-    "FORLOOP",
-    "FORPREP",
-    "TFORPREP",
-    "TFORCALL",
-    "TFORLOOP",
-    "SETLIST",
-    "CLOSURE",
-    "VARARG",
-    "GETVARG",
-    "ERRNNIL",
-    "VARARGPREP",
-    "EXTRAARG",
-];
 
 pub unsafe fn print_listing(state: *mut lua_State, full: bool) {
     let proto = unsafe { top_proto(state) };
