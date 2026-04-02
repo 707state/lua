@@ -1,64 +1,25 @@
 #![allow(dead_code, non_snake_case, unused_unsafe)]
 
-use crate::lua_module::{
-    LUA_REGISTRYINDEX, LUAL_NUMSIZES, lua_Integer, lua_Number, lua_State, lua_createtable,
-    lua_error, lua_pop, lua_pushboolean, lua_pushcclosure, lua_pushinteger, lua_pushlstring,
-    lua_pushnil, lua_pushstring, lua_pushvalue, lua_setfield, luaL_Reg,
-};
-use crate::luaffi::{LuaThread, lua_call, lua_remove};
+use crate::api::*;
+use crate::lua_module::*;
+use crate::luaffi::*;
+use crate::runtime::*;
 use core::ffi::{c_char, c_int, c_uchar, c_void};
 use core::ptr;
 use std::ffi::{CStr, CString};
 use std::fs::File;
+use std::i32;
 use std::io::{Read, Write};
 use std::os::raw::c_uint;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const LUA_OK: c_int = 0;
-const LUA_TNONE: c_int = -1;
-const LUA_TNIL: c_int = 0;
-const LUA_TBOOLEAN: c_int = 1;
-const LUA_TLIGHTUSERDATA: c_int = 2;
-const LUA_TNUMBER: c_int = 3;
-const LUA_TSTRING: c_int = 4;
-const LUA_TTABLE: c_int = 5;
-const LUA_TFUNCTION: c_int = 6;
-const LUA_TUSERDATA: c_int = 7;
-
 const LUA_REFNIL: c_int = -1;
 const LUA_LOADED_TABLE: &[u8] = b"_LOADED\0";
 const LUA_GNAME: &[u8] = b"_G\0";
 const LUA_SIGNATURE: &[u8] = b"\x1bLua";
-const LUA_IDSIZE: usize = 60;
 const LEVELS1: i32 = 10;
 const LEVELS2: i32 = 11;
 
-type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
-type LuaReader =
-    Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
 
-#[repr(C)]
-struct lua_Debug {
-    event: c_int,
-    name: *const c_char,
-    namewhat: *const c_char,
-    what: *const c_char,
-    source: *const c_char,
-    srclen: usize,
-    currentline: c_int,
-    linedefined: c_int,
-    lastlinedefined: c_int,
-    nups: c_uchar,
-    nparams: c_uchar,
-    isvararg: c_char,
-    extraargs: c_uchar,
-    istailcall: c_char,
-    ftransfer: c_int,
-    ntransfer: c_int,
-    short_src: [c_char; LUA_IDSIZE],
-    i_ci: *mut c_void,
-}
 
 struct LoadBuffer {
     bytes: Vec<u8>,
@@ -68,7 +29,7 @@ struct LoadBuffer {
 #[inline]
 unsafe fn lua_atpanic(
     state: *mut lua_State,
-    panicf: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
+    panicf: Option<unsafe  fn(*mut lua_State) -> c_int>,
 ) {
     unsafe { crate::api::lua_atpanic(state as _, core::mem::transmute(panicf)) };
 }
@@ -139,15 +100,23 @@ unsafe fn lua_len(state: *mut lua_State, idx: c_int) {
 #[inline]
 unsafe fn lua_load(
     state: *mut lua_State,
-    reader: LuaReader,
+    reader: lua_Reader,
     data: *mut c_void,
     chunkname: *const c_char,
     mode: *const c_char,
 ) -> c_int {
-    unsafe { crate::api::lua_load(state as _, core::mem::transmute(reader), data, chunkname, mode) }
+    unsafe {
+        crate::api::lua_load(
+            state as _,
+            core::mem::transmute(reader),
+            data,
+            chunkname,
+            mode,
+        )
+    }
 }
 #[inline]
-unsafe fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: c_uint) -> *mut lua_State {
+unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: c_uint) -> *mut lua_State {
     unsafe { crate::state::lua_newstate(core::mem::transmute(f), ud, seed) as _ }
 }
 #[inline]
@@ -247,7 +216,7 @@ unsafe fn lua_version(state: *mut lua_State) -> lua_Number {
     unsafe { crate::api::lua_version(state as _) }
 }
 #[inline]
-unsafe fn lua_setwarnf(state: *mut lua_State, f: LuaWarnFunction, ud: *mut c_void) {
+unsafe fn lua_setwarnf(state: *mut lua_State, f: lua_WarnFunction, ud: *mut c_void) {
     unsafe { crate::api::lua_setwarnf(state as _, core::mem::transmute(f), ud) }
 }
 #[inline]
@@ -255,14 +224,10 @@ unsafe fn lua_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) 
     unsafe { crate::api::lua_warning(state as _, msg, tocont) }
 }
 #[inline]
-unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> LuaAlloc {
+unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> lua_Alloc {
     unsafe { core::mem::transmute(crate::api::lua_getallocf(state as _, ud)) }
 }
 
-unsafe extern "C-unwind" {
-    fn realloc(ptr: *mut c_void, size: usize) -> *mut c_void;
-    fn free(ptr: *mut c_void);
-}
 
 #[inline]
 unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {
@@ -317,12 +282,12 @@ unsafe fn type_name(state: *mut lua_State, idx: c_int) -> String {
 }
 
 unsafe fn findfield(state: *mut lua_State, objidx: c_int, level: c_int) -> bool {
-    if level == 0 || unsafe { lua_type(state, -1) } != LUA_TTABLE {
+    if level == 0 || unsafe { lua_type(state, -1) } != LUA_TTABLE.into() {
         return false;
     }
     unsafe { lua_pushnil(state) };
     while unsafe { lua_next(state, -2) } != 0 {
-        if unsafe { lua_type(state, -2) } == LUA_TSTRING {
+        if unsafe { lua_type(state, -2) } == LUA_TSTRING.into() {
             if unsafe { lua_rawequal(state, objidx, -1) } != 0 {
                 unsafe { lua_pop(state, 1) };
                 return true;
@@ -448,7 +413,7 @@ fn lua_l_traceback_impl(
             } else {
                 out.push_str(&format!("\n\t{}:{}: in ", src, currentline));
             }
-            let ar_ptr = (&mut ar as *mut crate::luaffi::LuaDebug).cast::<lua_Debug>();
+            let ar_ptr = (&mut ar as *mut lua_Debug).cast::<lua_Debug>();
             out.push_str(&unsafe { pushfuncname_string(state, ar_ptr) });
             if istailcall != 0 {
                 out.push_str("\n\t(...tail calls...)");
@@ -493,7 +458,7 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
     let name = if !ar_ref.name.is_null() {
         cstr_lossy(ar_ref.name)
     } else {
-        let ar_ptr = (&mut ar as *mut crate::luaffi::LuaDebug).cast::<lua_Debug>();
+        let ar_ptr = (&mut ar as *mut lua_Debug).cast::<lua_Debug>();
         if unsafe { pushglobalfuncname(state, ar_ptr) } {
             let name = cstr_lossy(unsafe { tostring_ptr(state, -1) });
             unsafe { lua_pop(state, 1) };
@@ -514,9 +479,9 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
 }
 
 pub fn luaL_typeerror(state: *mut lua_State, arg: c_int, tname: *const c_char) -> c_int {
-    let typearg = if unsafe { luaL_getmetafield(state, arg, c"__name".as_ptr()) } == LUA_TSTRING {
+    let typearg = if unsafe { luaL_getmetafield(state, arg, c"__name".as_ptr()) } == LUA_TSTRING.into() {
         cstr_lossy(unsafe { tostring_ptr(state, -1) })
-    } else if unsafe { lua_type(state, arg) } == LUA_TLIGHTUSERDATA {
+    } else if unsafe { lua_type(state, arg) } == LUA_TLIGHTUSERDATA.into() {
         "light userdata".to_string()
     } else {
         unsafe { type_name(state, arg) }
@@ -601,7 +566,7 @@ pub fn luaL_execresult(state: *mut lua_State, stat: c_int) -> c_int {
 }
 
 pub fn luaL_newmetatable(state: *mut lua_State, tname: *const c_char) -> c_int {
-    if unsafe { lua_getfield(state, LUA_REGISTRYINDEX, tname) } != LUA_TNIL {
+    if unsafe { lua_getfield(state, LUA_REGISTRYINDEX, tname) } != LUA_TNIL.into() {
         return 0;
     }
     unsafe { lua_pop(state, 1) };
@@ -706,7 +671,7 @@ fn lua_l_checkany_impl(state: *mut lua_State, arg: c_int) {
 pub fn luaL_checklstring(state: *mut lua_State, arg: c_int, len: *mut usize) -> *const c_char {
     let s = unsafe { lua_tolstring(state, arg, len) };
     if s.is_null() {
-        let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TSTRING)) };
+        let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TSTRING.into())) };
     }
     s
 }
@@ -717,7 +682,7 @@ pub fn luaL_optlstring(
     def: *const c_char,
     len: *mut usize,
 ) -> *const c_char {
-    if unsafe { lua_type(state, arg) } <= LUA_TNIL {
+    if unsafe { lua_type(state, arg) } <= LUA_TNIL.into() {
         if !len.is_null() {
             unsafe {
                 *len = if def.is_null() {
@@ -737,13 +702,13 @@ pub fn luaL_checknumber(state: *mut lua_State, arg: c_int) -> lua_Number {
     let mut isnum = 0;
     let d = unsafe { lua_tonumberx(state, arg, &mut isnum) };
     if isnum == 0 {
-        let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TNUMBER)) };
+        let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TNUMBER.into())) };
     }
     d
 }
 
 pub fn luaL_optnumber(state: *mut lua_State, arg: c_int, def: lua_Number) -> lua_Number {
-    if unsafe { lua_type(state, arg) } <= LUA_TNIL {
+    if unsafe { lua_type(state, arg) } <= LUA_TNIL.into() {
         def
     } else {
         unsafe { luaL_checknumber(state, arg) }
@@ -759,21 +724,21 @@ pub fn luaL_checkinteger(state: *mut lua_State, arg: c_int) -> lua_Integer {
                 luaL_argerror(state, arg, c"number has no integer representation".as_ptr())
             };
         } else {
-            let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TNUMBER)) };
+            let _ = unsafe { luaL_typeerror(state, arg, lua_typename(state, LUA_TNUMBER.into())) };
         }
     }
     d
 }
 
 pub fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> lua_Integer {
-    if unsafe { lua_type(state, arg) } <= LUA_TNIL {
+    if unsafe { lua_type(state, arg) } <= LUA_TNIL.into() {
         def
     } else {
         unsafe { luaL_checkinteger(state, arg) }
     }
 }
 
-unsafe extern "C-unwind" fn get_s(
+unsafe  fn get_s(
     _state: *mut lua_State,
     ud: *mut c_void,
     size: *mut usize,
@@ -878,11 +843,11 @@ pub fn luaL_loadfilex(
 
 pub fn luaL_getmetafield(state: *mut lua_State, obj: c_int, event: *const c_char) -> c_int {
     if unsafe { lua_getmetatable(state, obj) } == 0 {
-        LUA_TNIL
+        LUA_TNIL.into()
     } else {
         unsafe { lua_pushstring(state, event) };
         let tt = unsafe { lua_rawget(state, -2) };
-        if tt == LUA_TNIL {
+        if tt == LUA_TNIL.into() {
             unsafe { lua_pop(state, 2) };
         } else {
             unsafe { lua_remove(state, -2) };
@@ -893,7 +858,7 @@ pub fn luaL_getmetafield(state: *mut lua_State, obj: c_int, event: *const c_char
 
 pub fn luaL_callmeta(state: *mut lua_State, obj: c_int, event: *const c_char) -> c_int {
     let obj = unsafe { lua_absindex(state, obj) };
-    if unsafe { luaL_getmetafield(state, obj, event) } == LUA_TNIL {
+    if unsafe { luaL_getmetafield(state, obj, event) } == LUA_TNIL.into() {
         0
     } else {
         unsafe { lua_pushvalue(state, obj) };
@@ -922,7 +887,7 @@ pub fn luaL_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *co
             unsafe { lua_error(state) };
         }
     } else {
-        match unsafe { lua_type(state, idx) } {
+        match unsafe { lua_type(state, idx) as u8 } {
             LUA_TNUMBER | LUA_TSTRING => unsafe { lua_pushvalue(state, idx) },
             LUA_TBOOLEAN => unsafe {
                 lua_pushstring(
@@ -939,7 +904,7 @@ pub fn luaL_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *co
             },
             _ => {
                 let tt = unsafe { luaL_getmetafield(state, idx, c"__name".as_ptr()) };
-                let kind = if tt == LUA_TSTRING {
+                let kind = if tt == LUA_TSTRING.into() {
                     cstr_lossy(unsafe { tostring_ptr(state, -1) })
                 } else {
                     unsafe { type_name(state, idx) }
@@ -947,7 +912,7 @@ pub fn luaL_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *co
                 unsafe {
                     push_string(state, &format!("{}: {:p}", kind, lua_topointer(state, idx)))
                 };
-                if tt != LUA_TNIL {
+                if tt != LUA_TNIL.into() {
                     unsafe { lua_remove(state, -2) };
                 }
             }
@@ -976,12 +941,12 @@ pub fn luaL_setfuncs(state: *mut lua_State, regs: *const luaL_Reg, nup: c_int) {
 }
 
 pub fn luaL_ref(state: *mut lua_State, t: c_int) -> c_int {
-    if unsafe { lua_type(state, -1) } == LUA_TNIL {
+    if unsafe { lua_type(state, -1) } == LUA_TNIL.into() {
         unsafe { lua_pop(state, 1) };
         return LUA_REFNIL;
     }
     let t = unsafe { lua_absindex(state, t) };
-    let mut ref_id = if unsafe { lua_rawgeti(state, t, 1) } == LUA_TNUMBER {
+    let mut ref_id = if unsafe { lua_rawgeti(state, t, 1) } == LUA_TNUMBER.into() {
         let mut isnum = 0;
         let value = unsafe { lua_tointegerx(state, -1, &mut isnum) };
         value as c_int
@@ -1012,7 +977,7 @@ pub fn luaL_unref(state: *mut lua_State, t: c_int, ref_id: c_int) {
 }
 
 pub fn luaL_getsubtable(state: *mut lua_State, idx: c_int, fname: *const c_char) -> c_int {
-    if unsafe { lua_getfield(state, idx, fname) } == LUA_TTABLE {
+    if unsafe { lua_getfield(state, idx, fname) } == LUA_TTABLE.into() {
         1
     } else {
         unsafe { lua_pop(state, 1) };
@@ -1027,7 +992,7 @@ pub fn luaL_getsubtable(state: *mut lua_State, idx: c_int, fname: *const c_char)
 pub fn luaL_requiref(
     state: *mut lua_State,
     modname: *const c_char,
-    openf: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
+    openf: Option<unsafe  fn(*mut lua_State) -> c_int>,
     glb: c_int,
 ) {
     unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
@@ -1047,22 +1012,41 @@ pub fn luaL_requiref(
     }
 }
 
-unsafe extern "C-unwind" fn lua_l_alloc(
+unsafe fn lua_l_alloc(
     _ud: *mut c_void,
     ptr: *mut c_void,
-    _osize: usize,
+    osize: usize,
     nsize: usize,
 ) -> *mut c_void {
+    // 使用 Rust 全局 allocator 替代 C realloc/free
+    // Lua 约定：对齐至少 8 字节，size=0 表示 free
+    const ALIGN: usize = 8;
     if nsize == 0 {
-        unsafe { free(ptr) };
+        if !ptr.is_null() && osize > 0 {
+            let layout = unsafe {
+                std::alloc::Layout::from_size_align_unchecked(osize, ALIGN)
+            };
+            unsafe { std::alloc::dealloc(ptr.cast::<u8>(), layout) };
+        }
         ptr::null_mut()
+    } else if ptr.is_null() {
+        // 初次分配
+        let layout = match std::alloc::Layout::from_size_align(nsize, ALIGN) {
+            Ok(l) => l,
+            Err(_) => return ptr::null_mut(),
+        };
+        unsafe { std::alloc::alloc(layout).cast::<c_void>() }
     } else {
-        unsafe { realloc(ptr, nsize) }
+        // realloc：osize 是 Lua 传来的旧块大小
+        let old_layout = unsafe {
+            std::alloc::Layout::from_size_align_unchecked(osize.max(1), ALIGN)
+        };
+        unsafe { std::alloc::realloc(ptr.cast::<u8>(), old_layout, nsize).cast::<c_void>() }
     }
 }
 
-unsafe extern "C-unwind" fn panicf(state: *mut lua_State) -> c_int {
-    let msg = if unsafe { lua_type(state, -1) } == LUA_TSTRING {
+unsafe  fn panicf(state: *mut lua_State) -> c_int {
+    let msg = if unsafe { lua_type(state, -1) } == LUA_TSTRING.into() {
         cstr_lossy(unsafe { tostring_ptr(state, -1) })
     } else {
         "error object is not a string".to_string()
@@ -1075,7 +1059,7 @@ unsafe extern "C-unwind" fn panicf(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe extern "C-unwind" fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe  fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     if tocont == 0 && !message.is_null() {
         let msg = unsafe { cstr(message) }.to_bytes();
         if msg == b"@on" {
@@ -1084,7 +1068,7 @@ unsafe extern "C-unwind" fn warnfoff(ud: *mut c_void, message: *const c_char, to
     }
 }
 
-unsafe extern "C-unwind" fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe  fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let _ = write!(std::io::stderr(), "{}", cstr_lossy(message));
     if tocont != 0 {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfcont), ud) };
@@ -1094,7 +1078,7 @@ unsafe extern "C-unwind" fn warnfcont(ud: *mut c_void, message: *const c_char, t
     }
 }
 
-unsafe extern "C-unwind" fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe  fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let msg = cstr_lossy(message);
     if tocont == 0 && msg == "@off" {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfoff), ud) };

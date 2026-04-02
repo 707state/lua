@@ -1,84 +1,18 @@
-use crate::lua_module::lua_State;
+use crate::luavm::GlobalState;
+use crate::{debug::*, runtime::*};
 use core::ffi::{c_char, c_int, c_void};
 
-type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-type LMem = isize;
-
-const LUA_ERRMEM: u8 = 4;
-const LUA_VNIL: u8 = 0;
 const MINSIZEARRAY: c_int = 4;
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut c_void,
-    p: *mut c_void,
-    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
-    i: i64,
-    n: f64,
-    ub: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[repr(C)]
-struct StringTable {
-    hash: *mut *mut c_void,
-    nuse: c_int,
-    size: c_int,
-}
-
-#[repr(C)]
-struct GlobalStatePrefix {
-    frealloc: LuaAlloc,
-    ud: *mut c_void,
-    gctotalbytes: LMem,
-    gcdebt: LMem,
-    gcmarked: LMem,
-    gcmajorminor: LMem,
-    strt: StringTable,
-    l_registry: TValue,
-    nilvalue: TValue,
-    seed: u32,
-    gcparams: [u8; 6],
-    currentwhite: u8,
-    gcstate: u8,
-    gckind: u8,
-    gcstopem: u8,
-    gcstp: u8,
-    gcemergency: u8,
-}
-
-#[repr(C)]
-struct LuaStatePrefix {
-    _gc_next: *mut c_void,
-    _tt: u8,
-    _marked: u8,
-    _allowhook: u8,
-    _status: u8,
-    _top: usize,
-    l_g: *mut GlobalStatePrefix,
-}
-
-unsafe extern "C-unwind" {
-    fn luaC_fullgc(state: *mut lua_State, isemergency: c_int);
-    fn luaG_runerror(state: *mut lua_State, fmt: *const c_char, ...) -> !;
-    fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
-}
-
+/// Get the GlobalState from a lua_State (replaces GlobalStatePrefix pattern).
 #[inline]
-unsafe fn global_state(state: *mut lua_State) -> *mut GlobalStatePrefix {
-    unsafe { (*(state as *mut LuaStatePrefix)).l_g }
+unsafe fn global_state(state: *mut lua_State) -> *mut GlobalState {
+    unsafe { (*state).l_G }
 }
 
 #[inline]
 unsafe fn callfrealloc(
-    g: *mut GlobalStatePrefix,
+    g: *mut GlobalState,
     block: *mut c_void,
     osize: usize,
     nsize: usize,
@@ -91,12 +25,12 @@ unsafe fn callfrealloc(
 }
 
 #[inline]
-unsafe fn complete_state(g: *const GlobalStatePrefix) -> bool {
+unsafe fn complete_state(g: *const GlobalState) -> bool {
     unsafe { (*g).nilvalue.tt_ == LUA_VNIL }
 }
 
 #[inline]
-unsafe fn can_try_again(g: *const GlobalStatePrefix) -> bool {
+unsafe fn can_try_again(g: *const GlobalState) -> bool {
     unsafe { complete_state(g) && (*g).gcstopem == 0 }
 }
 
@@ -116,7 +50,7 @@ unsafe fn tryagain(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_growaux_(
+pub unsafe  fn luaM_growaux_(
     state: *mut lua_State,
     block: *mut c_void,
     nelems: c_int,
@@ -152,8 +86,7 @@ pub unsafe extern "C-unwind" fn luaM_growaux_(
     newblock
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_shrinkvector_(
+pub unsafe fn luaM_shrinkvector_(
     state: *mut lua_State,
     block: *mut c_void,
     size: *mut c_int,
@@ -168,19 +101,23 @@ pub unsafe extern "C-unwind" fn luaM_shrinkvector_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_toobig(state: *mut lua_State) -> ! {
+pub unsafe  fn luaM_toobig(state: *mut lua_State) -> ! {
     unsafe { luaG_runerror(state, c"memory allocation error: block too big".as_ptr()) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize) {
+pub unsafe  fn luaM_free_(
+    state: *mut lua_State,
+    block: *mut c_void,
+    osize: usize,
+) {
     let g = unsafe { global_state(state) };
     unsafe { callfrealloc(g, block, osize, 0) };
-    unsafe { (*g).gcdebt += osize as LMem };
+    unsafe { (*g).gcdebt += osize as l_mem };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_realloc_(
+pub unsafe  fn luaM_realloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -194,12 +131,12 @@ pub unsafe extern "C-unwind" fn luaM_realloc_(
             return core::ptr::null_mut();
         }
     }
-    unsafe { (*g).gcdebt -= nsize as LMem - osize as LMem };
+    unsafe { (*g).gcdebt -= nsize as l_mem - osize as l_mem };
     newblock
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_saferealloc_(
+pub unsafe  fn luaM_saferealloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -213,7 +150,7 @@ pub unsafe extern "C-unwind" fn luaM_saferealloc_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaM_malloc_(
+pub unsafe  fn luaM_malloc_(
     state: *mut lua_State,
     size: usize,
     tag: c_int,
@@ -229,15 +166,14 @@ pub unsafe extern "C-unwind" fn luaM_malloc_(
             unsafe { luaD_throw(state, LUA_ERRMEM) };
         }
     }
-    unsafe { (*g).gcdebt -= size as LMem };
+    unsafe { (*g).gcdebt -= size as l_mem };
     newblock
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
+    use crate::{aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::LUAL_NUMSIZES, state::lua_close};
 
     #[test]
     fn malloc_realloc_free_update_gcdebt() {

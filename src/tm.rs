@@ -1,6 +1,7 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
-use crate::lua_module::lua_Integer;
+use crate::luavm::GlobalState;
+use crate::runtime::*;
 use crate::string::raw_luaS_new;
 use crate::table::{
     raw_luaH_Hgetshortstr, raw_luaH_getint, raw_luaH_getshortstr, raw_luaH_new, raw_luaH_resize,
@@ -9,342 +10,24 @@ use crate::table::{
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 
-const LUA_TNIL: u8 = 0;
-const LUA_TBOOLEAN: u8 = 1;
-const LUA_TNUMBER: u8 = 3;
-const LUA_TSTRING: u8 = 4;
-const LUA_TTABLE: u8 = 5;
-const LUA_TFUNCTION: u8 = 6;
-const LUA_TUSERDATA: u8 = 7;
-const LUA_TTHREAD: u8 = 8;
-const LUA_TUPVAL: u8 = 9;
-const LUA_TPROTO: u8 = 10;
-const LUA_TOTALTYPES: usize = 12;
-
-const LUA_VNIL: u8 = 0;
-const LUA_VFALSE: u8 = 1;
-const LUA_VNUMINT: u8 = 3;
-const LUA_VNUMFLT: u8 = 19;
-const LUA_VSHRSTR: u8 = 4;
-const LUA_VLNGSTR: u8 = 20;
-const LUA_VTABLE: u8 = 5;
-const LUA_VUSERDATA: u8 = 7;
-
-const BIT_ISCOLLECTABLE: u8 = 1 << 6;
-const TM_EQ: c_int = 5;
-const TM_ADD: c_int = 6;
-const TM_BAND: c_int = 13;
-const TM_BOR: c_int = 14;
-const TM_BXOR: c_int = 15;
-const TM_SHL: c_int = 16;
-const TM_SHR: c_int = 17;
-const TM_UNM: c_int = 18;
-const TM_BNOT: c_int = 19;
-const TM_LT: c_int = 20;
-const TM_LE: c_int = 21;
-const TM_CONCAT: c_int = 22;
-const TM_N: usize = 25;
-const STRCACHE_N: usize = 53;
-const STRCACHE_M: usize = 2;
-const LUA_NUMTYPES: usize = 9;
-const LUA_GCPN: usize = 6;
-
-const PF_VAHID: u8 = 1;
-const PF_VATAB: u8 = 2;
-
-const CIST_C: u32 = 1 << 15;
-const CIST_HOOKED: u32 = 1 << 20;
-const LUA_FLOORN2I: c_int = 0;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut GCObject,
-    p: *mut c_void,
-    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
-    i: lua_Integer,
-    n: f64,
-    ub: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StackValue {
-    val: TValue,
-    tbclist: StackValueTbc,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct StackValueTbc {
-    value_: Value,
-    tt_: u8,
-    delta: u16,
-}
-
-type StkId = *mut StackValue;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StkIdRel {
-    p: StkId,
-    offset: isize,
-}
-
-#[repr(C)]
-struct GCObject {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-#[repr(C)]
-union TStringUnion {
-    lnglen: usize,
-    hnext: *mut TString,
-}
-
-#[repr(C)]
-struct TString {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    extra: u8,
-    shrlen: i8,
-    hash: u32,
-    u: TStringUnion,
-    contents: *mut c_char,
-    falloc: Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
-    ud: *mut c_void,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct NodeKey {
-    value_: Value,
-    tt_: u8,
-    key_tt: u8,
-    next: c_int,
-    key_val: Value,
-}
-
-#[repr(C)]
-union Node {
-    u: NodeKey,
-    i_val: TValue,
-}
-
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 struct SyncCharPtr(*const c_char);
 
 unsafe impl Sync for SyncCharPtr {}
 
-#[repr(C)]
-struct Table {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    flags: u8,
-    lsizenode: u8,
-    asize: u32,
-    array: *mut Value,
-    node: *mut Node,
-    metatable: *mut Table,
-    gclist: *mut GCObject,
-}
-
-#[repr(C)]
-union UValue {
-    uv: TValue,
-    n: f64,
-    p: *mut c_void,
-    i: lua_Integer,
-    l: isize,
-}
-
-#[repr(C)]
-struct Udata {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    nuvalue: u16,
-    len: usize,
-    metatable: *mut Table,
-    gclist: *mut GCObject,
-    uv: [UValue; 1],
-}
-
-#[repr(C)]
-struct Proto {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    numparams: u8,
-    flag: u8,
-    maxstacksize: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct CallInfoLua {
-    savedpc: *const u32,
-    trap: c_int,
-    nextraargs: c_int,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct CallInfoC {
-    k: Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, isize) -> c_int>,
-    old_errfunc: isize,
-    ctx: isize,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union CallInfoU {
-    l: CallInfoLua,
-    c: CallInfoC,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union CallInfoU2 {
-    funcidx: c_int,
-    nyield: c_int,
-    nres: c_int,
-}
-
-#[repr(C)]
-pub struct CallInfo {
-    func: StkIdRel,
-    top: StkIdRel,
-    previous: *mut CallInfo,
-    next: *mut CallInfo,
-    u: CallInfoU,
-    u2: CallInfoU2,
-    callstatus: u32,
-}
-
-#[repr(C)]
-struct stringtable {
-    hash: *mut *mut TString,
-    nuse: c_int,
-    size: c_int,
-}
-
-#[repr(C)]
-struct TransferInfo {
-    ftransfer: c_int,
-    ntransfer: c_int,
-}
-
-#[repr(C)]
-struct lua_longjmp {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct global_State {
-    frealloc: *mut c_void,
-    ud: *mut c_void,
-    GCtotalbytes: isize,
-    GCdebt: isize,
-    GCmarked: isize,
-    GCmajorminor: isize,
-    strt: stringtable,
-    l_registry: TValue,
-    nilvalue: TValue,
-    seed: u32,
-    gcparams: [u8; LUA_GCPN],
-    currentwhite: u8,
-    gcstate: u8,
-    gckind: u8,
-    gcstopem: u8,
-    gcstp: u8,
-    gcemergency: u8,
-    allgc: *mut GCObject,
-    sweepgc: *mut *mut GCObject,
-    finobj: *mut GCObject,
-    gray: *mut GCObject,
-    grayagain: *mut GCObject,
-    weak: *mut GCObject,
-    ephemeron: *mut GCObject,
-    allweak: *mut GCObject,
-    tobefnz: *mut GCObject,
-    fixedgc: *mut GCObject,
-    survival: *mut GCObject,
-    old1: *mut GCObject,
-    reallyold: *mut GCObject,
-    firstold1: *mut GCObject,
-    finobjsur: *mut GCObject,
-    finobjold1: *mut GCObject,
-    finobjrold: *mut GCObject,
-    twups: *mut lua_State,
-    panic: *mut c_void,
-    memerrmsg: *mut TString,
-    tmname: [*mut TString; TM_N],
-    mt: [*mut Table; LUA_NUMTYPES],
-    strcache: [[*mut TString; STRCACHE_M]; STRCACHE_N],
-    warnf: *mut c_void,
-    ud_warn: *mut c_void,
-}
-
-#[repr(C)]
-pub struct lua_State {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    allowhook: u8,
-    status: u8,
-    top: StkIdRel,
-    l_g: *mut global_State,
-    ci: *mut CallInfo,
-    stack_last: StkIdRel,
-    stack: StkIdRel,
-    openupval: *mut c_void,
-    tbclist: StkIdRel,
-    gclist: *mut GCObject,
-    twups: *mut lua_State,
-    errorJmp: *mut lua_longjmp,
-    base_ci: CallInfo,
-    hook: *mut c_void,
-    errfunc: isize,
-    nCcalls: u32,
-    oldpc: c_int,
-    nci: c_int,
-    basehookcount: c_int,
-    hookcount: c_int,
-    hookmask: c_int,
-    transferinfo: TransferInfo,
-}
-
-unsafe extern "C-unwind" {
-    fn luaC_fix(state: *mut lua_State, o: *mut GCObject);
-    fn luaC_step(state: *mut lua_State);
-    fn luaD_call(state: *mut lua_State, func: StkId, nresults: c_int);
-    fn luaD_callnoyield(state: *mut lua_State, func: StkId, nresults: c_int);
-    fn luaD_growstack(state: *mut lua_State, n: c_int, raiseerror: c_int) -> c_int;
-    fn luaG_tointerror(state: *mut lua_State, p1: *const TValue, p2: *const TValue) -> !;
-    fn luaG_opinterror(
-        state: *mut lua_State,
-        p1: *const TValue,
-        p2: *const TValue,
-        msg: *const c_char,
-    ) -> !;
-    fn luaG_concaterror(state: *mut lua_State, p1: *const TValue, p2: *const TValue) -> !;
-    fn luaG_ordererror(state: *mut lua_State, p1: *const TValue, p2: *const TValue) -> !;
-    fn luaG_runerror(state: *mut lua_State, fmt: *const c_char, ...) -> !;
-    fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int;
-}
+#[inline] unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) { unsafe { crate::gc::luaC_fix(s, o) } }
+#[inline] unsafe fn luaC_step(s: *mut lua_State) { unsafe { crate::gc::luaC_step(s) } }
+#[inline] unsafe fn luaD_call(s: *mut lua_State, f: StkId, n: c_int) { unsafe { crate::do_rs::luaD_call(s, f, n) } }
+#[inline] unsafe fn luaD_callnoyield(s: *mut lua_State, f: StkId, n: c_int) { unsafe { crate::do_rs::luaD_callnoyield(s, f, n) } }
+#[inline] unsafe fn luaD_growstack(s: *mut lua_State, n: c_int, r: c_int) -> c_int { unsafe { crate::do_rs::luaD_growstack(s, n, r) } }
+#[inline] unsafe fn luaG_tointerror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_tointerror(s, p1, p2) } }
+#[inline] unsafe fn luaG_opinterror(s: *mut lua_State, p1: *const TValue, p2: *const TValue, m: *const c_char) -> ! { unsafe { crate::debug::luaG_opinterror(s, p1, p2, m) } }
+#[inline] unsafe fn luaG_concaterror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_concaterror(s, p1, p2) } }
+#[inline] unsafe fn luaG_ordererror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_ordererror(s, p1, p2) } }
+/// 单字符串版本，避免变参
+#[inline] unsafe fn luaG_runerror(s: *mut lua_State, msg: *const c_char) -> ! { unsafe { crate::debug::luaG_runerror1(s, msg) } }
+#[inline] unsafe fn luaV_tointegerns(o: *const TValue, p: *mut lua_Integer, m: c_int) -> c_int { unsafe { crate::vm_rs::luaV_tointegerns(o, p, m) } }
 
 static UDATATYPE_NAME: &[u8] = b"userdata\0";
 static NO_VALUE: &[u8] = b"no value\0";
@@ -374,205 +57,8 @@ pub(crate) static luaT_typenames_: [SyncCharPtr; LUA_TOTALTYPES] = [
 ];
 
 #[inline]
-unsafe fn G(state: *mut lua_State) -> *mut global_State {
-    unsafe { (*state).l_g }
-}
-
-#[inline]
-unsafe fn s2v(slot: StkId) -> *mut TValue {
-    unsafe { ptr::addr_of_mut!((*slot).val) }
-}
-
-#[inline]
-unsafe fn settt(obj: *mut TValue, tt: u8) {
-    unsafe { (*obj).tt_ = tt };
-}
-
-#[inline]
-unsafe fn setobj(dst: *mut TValue, src: *const TValue) {
-    unsafe {
-        (*dst).value_ = (*src).value_;
-        (*dst).tt_ = (*src).tt_;
-    }
-}
-
-#[inline]
-unsafe fn setobj2s(_state: *mut lua_State, dst: StkId, src: *const TValue) {
-    unsafe { setobj(s2v(dst), src) };
-}
-
-#[inline]
-unsafe fn setobjs2s(state: *mut lua_State, dst: StkId, src: StkId) {
-    unsafe { setobj2s(state, dst, s2v(src)) };
-}
-
-#[inline]
-unsafe fn setnilvalue(obj: *mut TValue) {
-    unsafe { settt(obj, LUA_VNIL) };
-}
-
-#[inline]
-unsafe fn setivalue(obj: *mut TValue, x: lua_Integer) {
-    unsafe {
-        (*obj).value_.i = x;
-        settt(obj, LUA_VNUMINT);
-    }
-}
-
-#[inline]
-unsafe fn setfltvalue(obj: *mut TValue, x: f64) {
-    unsafe {
-        (*obj).value_.n = x;
-        settt(obj, LUA_VNUMFLT);
-    }
-}
-
-#[inline]
-unsafe fn setsvalue(state: *mut lua_State, obj: *mut TValue, x: *mut TString) {
-    let _ = state;
-    unsafe {
-        (*obj).value_.gc = x.cast();
-        settt(obj, (*x).tt | BIT_ISCOLLECTABLE);
-    }
-}
-
-#[inline]
-unsafe fn sethvalue(state: *mut lua_State, obj: *mut TValue, x: *mut Table) {
-    let _ = state;
-    unsafe {
-        (*obj).value_.gc = x.cast();
-        settt(obj, (*x).tt | BIT_ISCOLLECTABLE);
-    }
-}
-
-#[inline]
-unsafe fn rawtt(obj: *const TValue) -> u8 {
-    unsafe { (*obj).tt_ }
-}
-
-#[inline]
-unsafe fn novariant(tt: u8) -> u8 {
-    tt & 0x0f
-}
-
-#[inline]
-unsafe fn ttype(obj: *const TValue) -> u8 {
-    unsafe { novariant(rawtt(obj)) }
-}
-
-#[inline]
-unsafe fn ttypetag(obj: *const TValue) -> u8 {
-    unsafe { rawtt(obj) & 0x3f }
-}
-
-#[inline]
-unsafe fn ttisnil(obj: *const TValue) -> bool {
-    unsafe { ttype(obj) == LUA_TNIL }
-}
-
-#[inline]
-unsafe fn ttisstring(obj: *const TValue) -> bool {
-    unsafe { ttype(obj) == LUA_TSTRING }
-}
-
-#[inline]
-unsafe fn ttistable(obj: *const TValue) -> bool {
-    unsafe { rawtt(obj) == (LUA_VTABLE | BIT_ISCOLLECTABLE) }
-}
-
-#[inline]
-unsafe fn ttisfulluserdata(obj: *const TValue) -> bool {
-    unsafe { rawtt(obj) == (LUA_VUSERDATA | BIT_ISCOLLECTABLE) }
-}
-
-#[inline]
-unsafe fn ttisinteger(obj: *const TValue) -> bool {
-    unsafe { rawtt(obj) == LUA_VNUMINT }
-}
-
-#[inline]
-unsafe fn ttisnumber(obj: *const TValue) -> bool {
-    unsafe { ttype(obj) == LUA_TNUMBER }
-}
-
-#[inline]
-unsafe fn tsvalue(obj: *const TValue) -> *mut TString {
-    unsafe { (*obj).value_.gc.cast() }
-}
-
-#[inline]
-unsafe fn hvalue(obj: *const TValue) -> *mut Table {
-    unsafe { (*obj).value_.gc.cast() }
-}
-
-#[inline]
-unsafe fn uvalue(obj: *const TValue) -> *mut Udata {
-    unsafe { (*obj).value_.gc.cast() }
-}
-
-#[inline]
-unsafe fn ivalue(obj: *const TValue) -> lua_Integer {
-    unsafe { (*obj).value_.i }
-}
-
-#[inline]
-unsafe fn strisshr(ts: *const TString) -> bool {
-    unsafe { (*ts).shrlen >= 0 }
-}
-
-#[inline]
-unsafe fn rawgetshrstr(ts: *const TString) -> *const c_char {
-    unsafe { ptr::addr_of!((*ts).contents).cast() }
-}
-
-#[inline]
-unsafe fn getstr(ts: *const TString) -> *const c_char {
-    if unsafe { strisshr(ts) } {
-        unsafe { rawgetshrstr(ts) }
-    } else {
-        unsafe { (*ts).contents.cast_const() }
-    }
-}
-
-#[inline]
-unsafe fn isLuacode(ci: *mut CallInfo) -> bool {
-    unsafe { ((*ci).callstatus & (CIST_C | CIST_HOOKED)) == 0 }
-}
-
-#[inline]
-unsafe fn savestack(state: *mut lua_State, pt: StkId) -> isize {
-    unsafe { pt.cast::<u8>().offset_from((*state).stack.p.cast::<u8>()) }
-}
-
-#[inline]
-unsafe fn restorestack(state: *mut lua_State, n: isize) -> StkId {
-    unsafe { (*state).stack.p.cast::<u8>().offset(n).cast() }
-}
-
-#[inline]
-fn tagisempty(tag: u8) -> bool {
-    (tag & 0x0f) == LUA_TNIL
-}
-
-#[inline]
 fn tagisfalse(tag: u8) -> bool {
     tag == LUA_VFALSE || (tag & 0x0f) == LUA_TNIL
-}
-
-#[inline]
-unsafe fn checkstackp(state: *mut lua_State, n: c_int, where_: &mut StkId) {
-    if unsafe { (*state).stack_last.p.offset_from((*state).top.p) as c_int <= n } {
-        let t = unsafe { savestack(state, *where_) };
-        unsafe { luaD_growstack(state, n, 1) };
-        *where_ = unsafe { restorestack(state, t) };
-    }
-}
-
-#[inline]
-unsafe fn luaC_checkGC(state: *mut lua_State) {
-    if unsafe { (*G(state)).GCdebt <= 0 } {
-        unsafe { luaC_step(state) };
-    }
 }
 
 pub(crate) unsafe fn luaT_init(state: *mut lua_State) {
@@ -618,7 +104,7 @@ pub(crate) unsafe fn raw_luaT_init(state: *mut c_void) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_gettm(
+pub unsafe  fn luaT_gettm(
     events: *mut Table,
     event: c_int,
     ename: *mut TString,
@@ -633,7 +119,7 @@ pub unsafe extern "C-unwind" fn luaT_gettm(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_gettmbyobj(
+pub unsafe  fn luaT_gettmbyobj(
     state: *mut lua_State,
     o: *const TValue,
     event: c_int,
@@ -653,10 +139,7 @@ pub unsafe extern "C-unwind" fn luaT_gettmbyobj(
     }
 }
 
-pub(crate) unsafe fn luaT_objtypename(
-    state: *mut lua_State,
-    o: *const TValue,
-) -> *const c_char {
+pub(crate) unsafe fn luaT_objtypename(state: *mut lua_State, o: *const TValue) -> *const c_char {
     let mut mt = ptr::null_mut();
     if unsafe { ttistable(o) } {
         mt = unsafe { (*hvalue(o)).metatable };
@@ -664,7 +147,7 @@ pub(crate) unsafe fn luaT_objtypename(
         mt = unsafe { (*uvalue(o)).metatable };
     }
     if !mt.is_null() {
-        let name = unsafe {
+        let name = unsafe{
             raw_luaH_Hgetshortstr(
                 mt.cast(),
                 raw_luaS_new(state.cast(), c"__name".as_ptr()).cast(),
@@ -679,7 +162,7 @@ pub(crate) unsafe fn luaT_objtypename(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_callTM(
+pub unsafe  fn luaT_callTM(
     state: *mut lua_State,
     f: *const TValue,
     p1: *const TValue,
@@ -702,7 +185,7 @@ pub unsafe extern "C-unwind" fn luaT_callTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_callTMres(
+pub unsafe  fn luaT_callTMres(
     state: *mut lua_State,
     f: *const TValue,
     p1: *const TValue,
@@ -748,8 +231,7 @@ unsafe fn callbinTM(
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_trybinTM(
+pub unsafe fn luaT_trybinTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -773,7 +255,7 @@ pub unsafe extern "C-unwind" fn luaT_trybinTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_tryconcatTM(state: *mut lua_State) {
+pub unsafe  fn luaT_tryconcatTM(state: *mut lua_State) {
     let p1 = unsafe { (*state).top.p.sub(2) };
     if unsafe { callbinTM(state, s2v(p1), s2v(p1.add(1)), p1, TM_CONCAT) } < 0 {
         unsafe { luaG_concaterror(state, s2v(p1), s2v(p1.add(1))) };
@@ -781,7 +263,7 @@ pub unsafe extern "C-unwind" fn luaT_tryconcatTM(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_trybinassocTM(
+pub unsafe  fn luaT_trybinassocTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -797,7 +279,7 @@ pub unsafe extern "C-unwind" fn luaT_trybinassocTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_trybiniTM(
+pub unsafe  fn luaT_trybiniTM(
     state: *mut lua_State,
     p1: *const TValue,
     i2: lua_Integer,
@@ -814,7 +296,7 @@ pub unsafe extern "C-unwind" fn luaT_trybiniTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_callorderTM(
+pub unsafe  fn luaT_callorderTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -829,7 +311,7 @@ pub unsafe extern "C-unwind" fn luaT_callorderTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_callorderiTM(
+pub unsafe  fn luaT_callorderiTM(
     state: *mut lua_State,
     mut p1: *const TValue,
     v2: c_int,
@@ -867,11 +349,10 @@ unsafe fn createvarargtab(state: *mut lua_State, f: StkId, n: c_int) {
     };
     let t = unsafe { raw_luaH_new(state.cast()).cast::<Table>() };
     unsafe {
-        sethvalue(state, s2v((*state).top.p), t);
+        sethvalue(s2v((*state).top.p), t);
         (*state).top.p = (*state).top.p.add(1);
         raw_luaH_resize(state.cast(), t.cast(), n as u32, 1);
         setsvalue(
-            state,
             ptr::addr_of_mut!(key),
             raw_luaS_new(state.cast(), c"n".as_ptr()).cast(),
         );
@@ -924,7 +405,7 @@ unsafe fn buildhiddenargs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_adjustvarargs(
+pub unsafe  fn luaT_adjustvarargs(
     state: *mut lua_State,
     ci: *mut CallInfo,
     p: *const Proto,
@@ -948,7 +429,7 @@ pub unsafe extern "C-unwind" fn luaT_adjustvarargs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue) {
+pub unsafe  fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue) {
     let nextra = unsafe { (*ci).u.l.nextraargs };
     let mut n = 0;
     if unsafe { luaV_tointegerns(rc, ptr::addr_of_mut!(n), LUA_FLOORN2I) } != 0 {
@@ -991,7 +472,7 @@ unsafe fn getnumargs(state: *mut lua_State, ci: *mut CallInfo, h: *mut Table) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaT_getvarargs(
+pub unsafe  fn luaT_getvarargs(
     state: *mut lua_State,
     ci: *mut CallInfo,
     mut where_: StkId,
@@ -1050,7 +531,8 @@ pub unsafe extern "C-unwind" fn luaT_getvarargs(
 mod tests {
     use super::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
+    use crate::luaffi::LUAL_NUMSIZES;
+    use crate::state::lua_close;
     use crate::test_support::run_lua_test;
 
     #[test]

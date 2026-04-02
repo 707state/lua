@@ -8,6 +8,8 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::ptr;
 
+const LUA_OK: i32 = 0;
+
 const LUA_COPYRIGHT: &str = "Lua 5.5.0  Copyright (C) 1994-2025 Lua.org, PUC-Rio";
 const PROGNAME: &str = "luac";
 const OUTPUT: &str = "luac.out";
@@ -263,7 +265,7 @@ struct DumpWriter {
     error: Option<String>,
 }
 
-unsafe extern "C-unwind" fn write_chunk(
+unsafe  fn write_chunk(
     _state: *mut lua_State,
     pointer: *const c_void,
     size: usize,

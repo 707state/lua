@@ -4,11 +4,10 @@ use crate::coro_rs::luaopen_coroutine;
 use crate::db_rs::luaopen_debug;
 use crate::io_rs::luaopen_io;
 use crate::load_rs::luaopen_package;
-use crate::lua_module::{
-    LUA_REGISTRYINDEX, lua_State, lua_pop, lua_setfield, luaL_Reg, push_cfunction,
-};
+use crate::lua_module::{LUA_REGISTRYINDEX, lua_pop, lua_setfield, luaL_Reg, push_cfunction};
 use crate::math_rs::luaopen_math;
 use crate::os_rs::luaopen_os;
+use crate::runtime::*;
 use crate::str_rs::luaopen_string;
 use crate::table::luaopen_table;
 use crate::utf8_rs::luaopen_utf8;
@@ -97,11 +96,11 @@ pub fn luaL_openselectedlibs(state: *mut lua_State, load: c_int, preload: c_int)
 #[cfg(test)]
 mod tests {
     use super::{LUA_DBLIBK, LUA_GLIBK, LUA_LOADLIBK, LUA_MATHLIBK, luaL_openselectedlibs};
+    use crate::api::lua_tolstring;
     use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
-    use crate::lua_module::lua_State;
-    use crate::luaffi::{
-        LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring,
-    };
+    use crate::luaffi::{LUAL_NUMSIZES, lua_pcall};
+    use crate::runtime::*;
+    use crate::state::lua_close;
     use std::ptr;
 
     fn lua_error_string(state: *mut lua_State) -> String {
@@ -140,13 +139,13 @@ mod tests {
             );
             assert_eq!(
                 status,
-                LUA_OK,
+                LUA_OK.into(),
                 "failed to load chunk: {}",
                 lua_error_string(state)
             );
 
             let status = lua_pcall(state, 0, 0, 0);
-            assert_eq!(status, LUA_OK, "chunk failed: {}", lua_error_string(state));
+            assert_eq!(status, LUA_OK.into(), "chunk failed: {}", lua_error_string(state));
         })();
 
         unsafe { lua_close(state) };

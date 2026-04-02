@@ -1,6 +1,6 @@
 use core::ffi::c_int;
 
-pub type Instruction = u32;
+use crate::runtime::Instruction;
 
 const SIZE_C: u32 = 8;
 const SIZE_B: u32 = 8;
@@ -163,7 +163,7 @@ pub(crate) fn luaP_isOT(i: Instruction) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaP_isIT(i: Instruction) -> c_int {
+pub unsafe  fn luaP_isIT(i: Instruction) -> c_int {
     let op = get_opcode(i);
     match op {
         OP_SETLIST => c_int::from(test_it_mode(op) && get_arg_vb(i) == 0),

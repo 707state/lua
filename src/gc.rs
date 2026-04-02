@@ -1,6 +1,6 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
-use crate::runtime::*;
+use crate::{luavm::GlobalState, runtime::*};
 use core::mem::size_of;
 
 const GCSWEEPMAX: l_mem = 20;
@@ -29,41 +29,28 @@ const G_TOUCHED2: u8 = 6;
 
 const TM_GC: usize = 2;
 const TM_MODE: usize = 3;
-const CIST_FIN: u32 = 1 << 24;
-const LUA_VEMPTY: u8 = LUA_TNIL | (1 << 4);
 const LSTRMEM: i8 = -3;
-const MAX_LMEM: l_mem = isize::MAX;
 const KGC_GENMAJOR: u8 = 2;
-const EXTRA_STACK: usize = 5;
 
-#[repr(C)]
-struct LocVar {
-    varname: *mut TString,
-    startpc: c_int,
-    endpc: c_int,
-}
-
-unsafe extern "C-unwind" {
-    fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void;
-    fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
-    fn luaH_size(t: *mut Table) -> usize;
-    fn luaH_free(state: *mut lua_State, t: *mut Table);
-    fn luaF_protosize(p: *mut Proto) -> usize;
-    fn luaF_freeproto(state: *mut lua_State, f: *mut Proto);
-    fn luaE_threadsize(state: *mut lua_State) -> usize;
-    fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State);
-    fn luaE_setdebt(g: *mut global_State, debt: l_mem);
-    fn luaE_warnerror(state: *mut lua_State, where_: *const c_char);
-    fn luaS_sizelngstr(len: usize, kind: c_int) -> usize;
-    fn luaS_resize(state: *mut lua_State, nsize: c_int);
-    fn luaS_remove(state: *mut lua_State, ts: *mut TString);
-    fn luaS_clearcache(g: *mut global_State);
-    fn luaT_gettm(events: *mut Table, event: c_int, ename: *mut TString) -> *const TValue;
-    fn luaT_gettmbyobj(state: *mut lua_State, o: *const TValue, event: c_int) -> *const TValue;
-    fn luaD_shrinkstack(L: *mut lua_State);
-    fn luaD_checkminstack(L: *mut lua_State) -> c_int;
-    fn luaF_unlinkupval(uv: *mut UpVal);
-}
+#[inline] unsafe fn luaM_malloc_(s: *mut lua_State, size: usize, tag: c_int) -> *mut c_void { unsafe { crate::mem::luaM_malloc_(s, size, tag) } }
+#[inline] unsafe fn luaM_free_(s: *mut lua_State, b: *mut c_void, os: usize) { unsafe { crate::mem::luaM_free_(s, b, os) } }
+#[inline] unsafe fn luaH_size(t: *mut Table) -> usize { unsafe { crate::table::luaH_size(t) } }
+#[inline] unsafe fn luaH_free(s: *mut lua_State, t: *mut Table) { unsafe { crate::table::luaH_free(s, t) } }
+#[inline] unsafe fn luaF_protosize(p: *mut Proto) -> usize { unsafe { crate::func::luaF_protosize(p) } }
+#[inline] unsafe fn luaF_freeproto(s: *mut lua_State, f: *mut Proto) { unsafe { crate::func::luaF_freeproto(s, f) } }
+#[inline] unsafe fn luaE_threadsize(s: *mut lua_State) -> usize { unsafe { crate::state::luaE_threadsize(s) } }
+#[inline] unsafe fn luaE_freethread(s: *mut lua_State, t: *mut lua_State) { unsafe { crate::state::luaE_freethread(s, t) } }
+#[inline] unsafe fn luaE_setdebt(g: *mut GlobalState, d: l_mem) { unsafe { crate::state::luaE_setdebt(g, d) } }
+#[inline] unsafe fn luaE_warnerror(s: *mut lua_State, w: *const c_char) { unsafe { crate::state::luaE_warnerror(s, w) } }
+#[inline] unsafe fn luaS_sizelngstr(len: usize, kind: c_int) -> usize { unsafe { crate::string::luaS_sizelngstr(len, kind) } }
+#[inline] unsafe fn luaS_resize(s: *mut lua_State, n: c_int) { unsafe { crate::string::luaS_resize(s, n) } }
+#[inline] unsafe fn luaS_remove(s: *mut lua_State, ts: *mut TString) { unsafe { crate::string::luaS_remove(s, ts) } }
+#[inline] unsafe fn luaS_clearcache(g: *mut GlobalState) { unsafe { crate::string::luaS_clearcache(g) } }
+#[inline] unsafe fn luaT_gettm(e: *mut Table, ev: c_int, en: *mut TString) -> *const TValue { unsafe { crate::tm::luaT_gettm(e, ev, en) } }
+#[inline] unsafe fn luaT_gettmbyobj(s: *mut lua_State, o: *const TValue, ev: c_int) -> *const TValue { unsafe { crate::tm::luaT_gettmbyobj(s, o, ev) } }
+#[inline] unsafe fn luaD_shrinkstack(L: *mut lua_State) { unsafe { crate::do_rs::luaD_shrinkstack(L) } }
+#[inline] unsafe fn luaD_checkminstack(L: *mut lua_State) -> c_int { unsafe { crate::do_rs::luaD_checkminstack(L) } }
+#[inline] unsafe fn luaF_unlinkupval(uv: *mut UpVal) { unsafe { crate::func::luaF_unlinkupval(uv) } }
 
 #[inline]
 unsafe fn bitmask(b: u8) -> u8 {
@@ -71,12 +58,12 @@ unsafe fn bitmask(b: u8) -> u8 {
 }
 
 #[inline]
-unsafe fn otherwhite(g: *mut global_State) -> u8 {
+unsafe fn otherwhite(g: *mut GlobalState) -> u8 {
     (*g).currentwhite ^ WHITEBITS
 }
 
 #[inline]
-unsafe fn luaC_white(g: *mut global_State) -> u8 {
+unsafe fn luaC_white(g: *mut GlobalState) -> u8 {
     (*g).currentwhite & WHITEBITS
 }
 
@@ -91,7 +78,7 @@ unsafe fn isdeadm(ow: u8, marked: u8) -> bool {
 }
 
 #[inline]
-unsafe fn isdead(g: *mut global_State, o: *mut GCObject) -> bool {
+unsafe fn isdead(g: *mut GlobalState, o: *mut GCObject) -> bool {
     isdeadm(otherwhite(g), (*o).marked)
 }
 
@@ -111,7 +98,7 @@ unsafe fn isold(o: *mut GCObject) -> bool {
 }
 
 #[inline]
-unsafe fn makewhite(g: *mut global_State, o: *mut GCObject) {
+unsafe fn makewhite(g: *mut GlobalState, o: *mut GCObject) {
     (*o).marked = ((*o).marked & !((1 << BLACKBIT) | WHITEBITS)) | luaC_white(g);
 }
 
@@ -147,17 +134,17 @@ unsafe fn l_setbit(x: &mut u8, b: u8) {
 }
 
 #[inline]
-unsafe fn gcrunning(g: *mut global_State) -> bool {
+unsafe fn gcrunning(g: *mut GlobalState) -> bool {
     (*g).gcstp == 0
 }
 
 #[inline]
-unsafe fn issweepphase(g: *mut global_State) -> bool {
+unsafe fn issweepphase(g: *mut GlobalState) -> bool {
     GCSswpallgc <= (*g).gcstate && (*g).gcstate <= GCSswpend
 }
 
 #[inline]
-unsafe fn keepinvariant(g: *mut global_State) -> bool {
+unsafe fn keepinvariant(g: *mut GlobalState) -> bool {
     (*g).gcstate <= GCSatomic
 }
 
@@ -273,7 +260,11 @@ unsafe fn gckey(n: *mut Node) -> *mut GCObject {
 
 #[inline]
 unsafe fn gckeyN(n: *mut Node) -> *mut GCObject {
-    if keyiscollectable(n) { gckey(n) } else { ptr::null_mut() }
+    if keyiscollectable(n) {
+        gckey(n)
+    } else {
+        ptr::null_mut()
+    }
 }
 
 #[inline]
@@ -304,7 +295,11 @@ unsafe fn keyiswhite(n: *mut Node) -> bool {
 
 #[inline]
 unsafe fn gcvalueN(o: *const TValue) -> *mut GCObject {
-    if iscollectable(o) { gcvalue(o) } else { ptr::null_mut() }
+    if iscollectable(o) {
+        gcvalue(o)
+    } else {
+        ptr::null_mut()
+    }
 }
 
 #[inline]
@@ -317,21 +312,21 @@ unsafe fn gcvalarr(t: *mut Table, i: u32) -> *mut GCObject {
 }
 
 #[inline]
-unsafe fn markvalue(g: *mut global_State, o: *mut TValue) {
+unsafe fn markvalue(g: *mut GlobalState, o: *mut TValue) {
     if valiswhite(o) {
         reallymarkobject(g, gcvalue(o));
     }
 }
 
 #[inline]
-unsafe fn markkey(g: *mut global_State, n: *mut Node) {
+unsafe fn markkey(g: *mut GlobalState, n: *mut Node) {
     if keyiswhite(n) {
         reallymarkobject(g, gckey(n));
     }
 }
 
 #[inline]
-unsafe fn markobject<T>(g: *mut global_State, t: *mut T) {
+unsafe fn markobject<T>(g: *mut GlobalState, t: *mut T) {
     let o = obj2gco(t);
     if iswhite(o) {
         reallymarkobject(g, o);
@@ -339,7 +334,7 @@ unsafe fn markobject<T>(g: *mut global_State, t: *mut T) {
 }
 
 #[inline]
-unsafe fn markobjectN<T>(g: *mut global_State, t: *mut T) {
+unsafe fn markobjectN<T>(g: *mut GlobalState, t: *mut T) {
     if !t.is_null() {
         markobject(g, t);
     }
@@ -429,7 +424,7 @@ unsafe fn clearkey(n: *mut Node) {
     }
 }
 
-unsafe fn iscleared(g: *mut global_State, o: *mut GCObject) -> bool {
+unsafe fn iscleared(g: *mut GlobalState, o: *mut GCObject) -> bool {
     if o.is_null() {
         false
     } else if novariant((*o).tt) == LUA_TSTRING {
@@ -441,7 +436,11 @@ unsafe fn iscleared(g: *mut global_State, o: *mut GCObject) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObject) {
+pub unsafe  fn luaC_barrier_(
+    L: *mut lua_State,
+    o: *mut GCObject,
+    v: *mut GCObject,
+) {
     let g = G(L);
     debug_assert!(isblack(o) && iswhite(v) && !isdead(g, v) && !isdead(g, o));
     if keepinvariant(g) {
@@ -456,7 +455,7 @@ pub unsafe extern "C-unwind" fn luaC_barrier_(L: *mut lua_State, o: *mut GCObjec
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
+pub unsafe  fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
     let g = G(L);
     debug_assert!(isblack(o) && !isdead(g, o));
     if getage(o) == G_TOUCHED2 {
@@ -470,7 +469,7 @@ pub unsafe extern "C-unwind" fn luaC_barrierback_(L: *mut lua_State, o: *mut GCO
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
+pub unsafe  fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
     let g = G(L);
     debug_assert!((*g).allgc == o);
     set2gray(o);
@@ -481,7 +480,7 @@ pub unsafe extern "C-unwind" fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_newobjdt(
+pub unsafe  fn luaC_newobjdt(
     L: *mut lua_State,
     tt: lu_byte,
     sz: usize,
@@ -498,12 +497,16 @@ pub unsafe extern "C-unwind" fn luaC_newobjdt(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_newobj(L: *mut lua_State, tt: lu_byte, sz: usize) -> *mut GCObject {
+pub unsafe  fn luaC_newobj(
+    L: *mut lua_State,
+    tt: lu_byte,
+    sz: usize,
+) -> *mut GCObject {
     luaC_newobjdt(L, tt, sz, 0)
 }
 
-unsafe fn reallymarkobject(g: *mut global_State, o: *mut GCObject) {
-    (*g).GCmarked += objsize(o);
+unsafe fn reallymarkobject(g: *mut GlobalState, o: *mut GCObject) {
+    (*g).gcmarked += objsize(o);
     match (*o).tt {
         LUA_VSHRSTR | LUA_VLNGSTR => set2black(o),
         LUA_VUPVAL => {
@@ -533,13 +536,13 @@ unsafe fn reallymarkobject(g: *mut global_State, o: *mut GCObject) {
     }
 }
 
-unsafe fn markmt(g: *mut global_State) {
+unsafe fn markmt(g: *mut GlobalState) {
     for i in 0..LUA_NUMTYPES as usize {
         markobjectN(g, (&mut (*g).mt)[i]);
     }
 }
 
-unsafe fn markbeingfnz(g: *mut global_State) {
+unsafe fn markbeingfnz(g: *mut GlobalState) {
     let mut o = (*g).tobefnz;
     while !o.is_null() {
         markobject(g, o);
@@ -547,7 +550,7 @@ unsafe fn markbeingfnz(g: *mut global_State) {
     }
 }
 
-unsafe fn remarkupvals(g: *mut global_State) {
+unsafe fn remarkupvals(g: *mut GlobalState) {
     let p = ptr::addr_of_mut!((*g).twups);
     let mut pcur = p;
     while !(*pcur).is_null() {
@@ -568,7 +571,7 @@ unsafe fn remarkupvals(g: *mut global_State) {
     }
 }
 
-unsafe fn cleargraylists(g: *mut global_State) {
+unsafe fn cleargraylists(g: *mut GlobalState) {
     (*g).gray = ptr::null_mut();
     (*g).grayagain = ptr::null_mut();
     (*g).weak = ptr::null_mut();
@@ -576,16 +579,16 @@ unsafe fn cleargraylists(g: *mut global_State) {
     (*g).ephemeron = ptr::null_mut();
 }
 
-unsafe fn restartcollection(g: *mut global_State) {
+unsafe fn restartcollection(g: *mut GlobalState) {
     cleargraylists(g);
-    (*g).GCmarked = 0;
+    (*g).gcmarked = 0;
     markobject(g, mainthread(g));
     markvalue(g, ptr::addr_of_mut!((*g).l_registry));
     markmt(g);
     markbeingfnz(g);
 }
 
-unsafe fn genlink(g: *mut global_State, o: *mut GCObject) {
+unsafe fn genlink(g: *mut GlobalState, o: *mut GCObject) {
     debug_assert!(isblack(o));
     if getage(o) == G_TOUCHED1 {
         linkobjgclist(o, ptr::addr_of_mut!((*g).grayagain));
@@ -594,7 +597,7 @@ unsafe fn genlink(g: *mut global_State, o: *mut GCObject) {
     }
 }
 
-unsafe fn traverseweakvalue(g: *mut global_State, h: *mut Table) {
+unsafe fn traverseweakvalue(g: *mut GlobalState, h: *mut Table) {
     let limit = gnodelast(h);
     let mut hasclears = (*h).asize > 0;
     let mut n = gnode(h, 0);
@@ -619,7 +622,7 @@ unsafe fn traverseweakvalue(g: *mut global_State, h: *mut Table) {
     }
 }
 
-unsafe fn traversearray(g: *mut global_State, h: *mut Table) -> c_int {
+unsafe fn traversearray(g: *mut GlobalState, h: *mut Table) -> c_int {
     let mut marked = 0;
     for i in 0..(*h).asize {
         let o = gcvalarr(h, i);
@@ -631,7 +634,7 @@ unsafe fn traversearray(g: *mut global_State, h: *mut Table) -> c_int {
     marked
 }
 
-unsafe fn traverseephemeron(g: *mut global_State, h: *mut Table, inv: c_int) -> c_int {
+unsafe fn traverseephemeron(g: *mut GlobalState, h: *mut Table, inv: c_int) -> c_int {
     let mut hasclears = 0;
     let mut hasww = 0;
     let nsize = sizenode(h);
@@ -666,7 +669,7 @@ unsafe fn traverseephemeron(g: *mut global_State, h: *mut Table, inv: c_int) -> 
     marked
 }
 
-unsafe fn traversestrongtable(g: *mut global_State, h: *mut Table) {
+unsafe fn traversestrongtable(g: *mut GlobalState, h: *mut Table) {
     let limit = gnodelast(h);
     traversearray(g, h);
     let mut n = gnode(h, 0);
@@ -683,7 +686,7 @@ unsafe fn traversestrongtable(g: *mut global_State, h: *mut Table) {
     genlink(g, obj2gco(h));
 }
 
-unsafe fn gfasttm(g: *mut global_State, mt: *mut Table, e: usize) -> *const TValue {
+unsafe fn gfasttm(g: *mut GlobalState, mt: *mut Table, e: usize) -> *const TValue {
     if checknoTM(mt, e) {
         ptr::null()
     } else {
@@ -695,7 +698,7 @@ unsafe fn notm(tm: *const TValue) -> bool {
     ttisnil(tm)
 }
 
-unsafe fn getmode(g: *mut global_State, h: *mut Table) -> c_int {
+unsafe fn getmode(g: *mut GlobalState, h: *mut Table) -> c_int {
     let mode = gfasttm(g, (*h).metatable, TM_MODE);
     if mode.is_null() || !ttisstring(mode) {
         0
@@ -707,7 +710,7 @@ unsafe fn getmode(g: *mut global_State, h: *mut Table) -> c_int {
     }
 }
 
-unsafe fn traversetable(g: *mut global_State, h: *mut Table) -> l_mem {
+unsafe fn traversetable(g: *mut GlobalState, h: *mut Table) -> l_mem {
     markobjectN(g, (*h).metatable);
     match getmode(g, h) {
         0 => traversestrongtable(g, h),
@@ -727,7 +730,7 @@ unsafe fn traversetable(g: *mut global_State, h: *mut Table) -> l_mem {
     (1 + 2 * sizenode(h) + (*h).asize) as l_mem
 }
 
-unsafe fn traverseudata(g: *mut global_State, u: *mut Udata) -> l_mem {
+unsafe fn traverseudata(g: *mut GlobalState, u: *mut Udata) -> l_mem {
     markobjectN(g, (*u).metatable);
     for i in 0..(*u).nuvalue as usize {
         let uv = ptr::addr_of_mut!((*(*u).uv.as_mut_ptr().add(i)).uv);
@@ -737,7 +740,7 @@ unsafe fn traverseudata(g: *mut global_State, u: *mut Udata) -> l_mem {
     (1 + (*u).nuvalue as usize) as l_mem
 }
 
-unsafe fn traverseproto(g: *mut global_State, f: *mut Proto) -> l_mem {
+unsafe fn traverseproto(g: *mut GlobalState, f: *mut Proto) -> l_mem {
     markobjectN(g, (*f).source);
     for i in 0..(*f).sizek.max(0) as usize {
         markvalue(g, (*f).k.add(i));
@@ -755,14 +758,14 @@ unsafe fn traverseproto(g: *mut global_State, f: *mut Proto) -> l_mem {
     (1 + (*f).sizek + (*f).sizeupvalues + (*f).sizep + (*f).sizelocvars) as l_mem
 }
 
-unsafe fn traverseCclosure(g: *mut global_State, cl: *mut CClosure) -> l_mem {
+unsafe fn traverseCclosure(g: *mut GlobalState, cl: *mut CClosure) -> l_mem {
     for i in 0..(*cl).nupvalues as usize {
         markvalue(g, (*cl).upvalue.as_mut_ptr().add(i));
     }
     (1 + (*cl).nupvalues as usize) as l_mem
 }
 
-unsafe fn traverseLclosure(g: *mut global_State, cl: *mut LClosure) -> l_mem {
+unsafe fn traverseLclosure(g: *mut GlobalState, cl: *mut LClosure) -> l_mem {
     markobjectN(g, (*cl).p);
     for i in 0..(*cl).nupvalues as usize {
         markobjectN(g, *(*cl).upvals.as_mut_ptr().add(i));
@@ -770,7 +773,7 @@ unsafe fn traverseLclosure(g: *mut global_State, cl: *mut LClosure) -> l_mem {
     (1 + (*cl).nupvalues as usize) as l_mem
 }
 
-unsafe fn traversethread(g: *mut global_State, th: *mut lua_State) -> l_mem {
+unsafe fn traversethread(g: *mut GlobalState, th: *mut lua_State) -> l_mem {
     let mut o = (*th).stack.p;
     if isold(th.cast()) || (*g).gcstate == GCSpropagate {
         linkgclist_thread(th, ptr::addr_of_mut!((*g).grayagain));
@@ -805,7 +808,7 @@ unsafe fn traversethread(g: *mut global_State, th: *mut lua_State) -> l_mem {
     (1 + (*th).top.p.offset_from((*th).stack.p) as usize) as l_mem
 }
 
-unsafe fn propagatemark(g: *mut global_State) -> l_mem {
+unsafe fn propagatemark(g: *mut GlobalState) -> l_mem {
     let o = (*g).gray;
     nw2black(o);
     (*g).gray = *getgclist(o);
@@ -820,13 +823,13 @@ unsafe fn propagatemark(g: *mut global_State) -> l_mem {
     }
 }
 
-unsafe fn propagateall(g: *mut global_State) {
+unsafe fn propagateall(g: *mut GlobalState) {
     while !(*g).gray.is_null() {
         propagatemark(g);
     }
 }
 
-unsafe fn convergeephemerons(g: *mut global_State) {
+unsafe fn convergeephemerons(g: *mut GlobalState) {
     let mut changed;
     let mut dir = 0;
     loop {
@@ -850,7 +853,7 @@ unsafe fn convergeephemerons(g: *mut global_State) {
     }
 }
 
-unsafe fn clearbykeys(g: *mut global_State, mut l: *mut GCObject) {
+unsafe fn clearbykeys(g: *mut GlobalState, mut l: *mut GCObject) {
     while !l.is_null() {
         let h = gco2t(l);
         let limit = gnodelast(h);
@@ -868,7 +871,7 @@ unsafe fn clearbykeys(g: *mut global_State, mut l: *mut GCObject) {
     }
 }
 
-unsafe fn clearbyvalues(g: *mut global_State, mut l: *mut GCObject, f: *mut GCObject) {
+unsafe fn clearbyvalues(g: *mut GlobalState, mut l: *mut GCObject, f: *mut GCObject) {
     while l != f {
         let h = gco2t(l);
         for i in 0..(*h).asize {
@@ -929,13 +932,21 @@ unsafe fn freeobj(L: *mut lua_State, o: *mut GCObject) {
                     falloc((*ts).ud, (*ts).contents.cast(), (*ts).u.lnglen + 1, 0);
                 }
             }
-            luaM_free_(L, ts.cast(), luaS_sizelngstr((*ts).u.lnglen, (*ts).shrlen as c_int));
+            luaM_free_(
+                L,
+                ts.cast(),
+                luaS_sizelngstr((*ts).u.lnglen, (*ts).shrlen as c_int),
+            );
         }
         _ => panic!("invalid freeobj"),
     }
 }
 
-unsafe fn sweeplist(L: *mut lua_State, mut p: *mut *mut GCObject, mut countin: l_mem) -> *mut *mut GCObject {
+unsafe fn sweeplist(
+    L: *mut lua_State,
+    mut p: *mut *mut GCObject,
+    mut countin: l_mem,
+) -> *mut *mut GCObject {
     let g = G(L);
     let ow = otherwhite(g);
     let white = luaC_white(g);
@@ -964,13 +975,13 @@ unsafe fn sweeptolive(L: *mut lua_State, mut p: *mut *mut GCObject) -> *mut *mut
     }
 }
 
-unsafe fn checkSizes(L: *mut lua_State, g: *mut global_State) {
+unsafe fn checkSizes(L: *mut lua_State, g: *mut GlobalState) {
     if (*g).gcemergency == 0 && (*g).strt.nuse < (*g).strt.size / 4 {
         luaS_resize(L, (*g).strt.size / 2);
     }
 }
 
-unsafe fn udata2finalize(g: *mut global_State) -> *mut GCObject {
+unsafe fn udata2finalize(g: *mut GlobalState) -> *mut GCObject {
     let o = (*g).tobefnz;
     (*g).tobefnz = (*o).next;
     (*o).next = (*g).allgc;
@@ -984,7 +995,7 @@ unsafe fn udata2finalize(g: *mut global_State) -> *mut GCObject {
     o
 }
 
-unsafe extern "C-unwind" fn dothecall(L: *mut lua_State, _ud: *mut c_void) {
+unsafe fn dothecall(L: *mut lua_State, _ud: *mut c_void) {
     luaD_callnoyield(L, (*L).top.p.sub(2), 0);
 }
 
@@ -996,7 +1007,12 @@ unsafe fn setgcovalue(L: *mut lua_State, obj: *mut TValue, gcobj: *mut GCObject)
 
 unsafe fn GCTM(L: *mut lua_State) {
     let g = G(L);
-    let mut v = TValue { value_: Value { gc: ptr::null_mut() }, tt_: 0 };
+    let mut v = TValue {
+        value_: Value {
+            gc: ptr::null_mut(),
+        },
+        tt_: 0,
+    };
     setgcovalue(L, ptr::addr_of_mut!(v), udata2finalize(g));
     let tm = luaT_gettmbyobj(L, ptr::addr_of!(v), TM_GC as c_int);
     if !notm(tm) {
@@ -1009,7 +1025,13 @@ unsafe fn GCTM(L: *mut lua_State) {
         setobj2s(L, (*L).top.p, ptr::addr_of!(v));
         (*L).top.p = (*L).top.p.add(1);
         (*(*L).ci).callstatus |= CIST_FIN;
-        let status = luaD_pcall(L, Some(dothecall), ptr::null_mut(), savestack(L, (*L).top.p.sub(2)), 0);
+        let status = luaD_pcall(
+            L,
+            Some(dothecall),
+            ptr::null_mut(),
+            savestack(L, (*L).top.p.sub(2)),
+            0,
+        );
         (*(*L).ci).callstatus &= !CIST_FIN;
         (*L).allowhook = oldah;
         (*g).gcstp = oldgcstp;
@@ -1033,7 +1055,7 @@ unsafe fn findlast(mut p: *mut *mut GCObject) -> *mut *mut GCObject {
     p
 }
 
-unsafe fn separatetobefnz(g: *mut global_State, all: c_int) {
+unsafe fn separatetobefnz(g: *mut GlobalState, all: c_int) {
     let mut p = ptr::addr_of_mut!((*g).finobj);
     let mut lastnext = findlast(ptr::addr_of_mut!((*g).tobefnz));
     while *p != (*g).finobjold1 {
@@ -1058,7 +1080,7 @@ unsafe fn checkpointer(p: *mut *mut GCObject, o: *mut GCObject) {
     }
 }
 
-unsafe fn correctpointers(g: *mut global_State, o: *mut GCObject) {
+unsafe fn correctpointers(g: *mut GlobalState, o: *mut GCObject) {
     checkpointer(ptr::addr_of_mut!((*g).survival), o);
     checkpointer(ptr::addr_of_mut!((*g).old1), o);
     checkpointer(ptr::addr_of_mut!((*g).reallyold), o);
@@ -1088,8 +1110,8 @@ pub(crate) unsafe fn luaC_checkfinalizer(L: *mut lua_State, o: *mut GCObject, mt
     l_setbit(&mut (*o).marked, FINALIZEDBIT);
 }
 
-unsafe fn setpause(g: *mut global_State) {
-    let threshold = luaO_applyparam((*g).gcparams[3], (*g).GCmarked);
+unsafe fn setpause(g: *mut GlobalState) {
+    let threshold = luaO_applyparam((*g).gcparams[3], (*g).gcmarked);
     let mut debt = threshold - gettotalbytes(g);
     if debt < 0 {
         debt = 0;
@@ -1120,13 +1142,15 @@ unsafe fn sweep2old(L: *mut lua_State, mut p: *mut *mut GCObject) {
 
 unsafe fn sweepgen(
     L: *mut lua_State,
-    g: *mut global_State,
+    g: *mut GlobalState,
     mut p: *mut *mut GCObject,
     limit: *mut GCObject,
     pfirstold1: *mut *mut GCObject,
     paddedold: *mut l_mem,
 ) -> *mut *mut GCObject {
-    const NEXTAGE: [u8; 7] = [G_SURVIVAL, G_OLD1, G_OLD1, G_OLD, G_OLD, G_TOUCHED1, G_TOUCHED2];
+    const NEXTAGE: [u8; 7] = [
+        G_SURVIVAL, G_OLD1, G_OLD1, G_OLD, G_OLD, G_TOUCHED1, G_TOUCHED2,
+    ];
     let white = luaC_white(g);
     let mut addedold = 0;
     while *p != limit {
@@ -1137,7 +1161,7 @@ unsafe fn sweepgen(
         } else {
             let age = getage(curr);
             if age == G_NEW {
-                let marked = (*curr).marked & !((((1 << BLACKBIT) | WHITEBITS)) | AGEBITS);
+                let marked = (*curr).marked & !(((1 << BLACKBIT) | WHITEBITS) | AGEBITS);
                 (*curr).marked = marked | G_SURVIVAL | white;
             } else {
                 setage(curr, NEXTAGE[age as usize]);
@@ -1178,7 +1202,7 @@ unsafe fn correctgraylist(mut p: *mut *mut GCObject) -> *mut *mut GCObject {
     p
 }
 
-unsafe fn correctgraylists(g: *mut global_State) {
+unsafe fn correctgraylists(g: *mut GlobalState) {
     let mut list = correctgraylist(ptr::addr_of_mut!((*g).grayagain));
     *list = (*g).weak;
     (*g).weak = ptr::null_mut();
@@ -1191,7 +1215,7 @@ unsafe fn correctgraylists(g: *mut global_State) {
     correctgraylist(list);
 }
 
-unsafe fn markold(g: *mut global_State, from: *mut GCObject, to: *mut GCObject) {
+unsafe fn markold(g: *mut GlobalState, from: *mut GCObject, to: *mut GCObject) {
     let mut p = from;
     while p != to {
         if getage(p) == G_OLD1 {
@@ -1204,7 +1228,7 @@ unsafe fn markold(g: *mut global_State, from: *mut GCObject, to: *mut GCObject) 
     }
 }
 
-unsafe fn finishgencycle(L: *mut lua_State, g: *mut global_State) {
+unsafe fn finishgencycle(L: *mut lua_State, g: *mut GlobalState) {
     correctgraylists(g);
     checkSizes(L, g);
     (*g).gcstate = GCSpropagate;
@@ -1213,8 +1237,8 @@ unsafe fn finishgencycle(L: *mut lua_State, g: *mut global_State) {
     }
 }
 
-unsafe fn minor2inc(L: *mut lua_State, g: *mut global_State, kind: u8) {
-    (*g).GCmajorminor = (*g).GCmarked;
+unsafe fn minor2inc(L: *mut lua_State, g: *mut GlobalState, kind: u8) {
+    (*g).gcmajorminor = (*g).gcmarked;
     (*g).gckind = kind;
     (*g).reallyold = ptr::null_mut();
     (*g).old1 = ptr::null_mut();
@@ -1226,17 +1250,17 @@ unsafe fn minor2inc(L: *mut lua_State, g: *mut global_State, kind: u8) {
     luaE_setdebt(g, luaO_applyparam((*g).gcparams[5], 100));
 }
 
-unsafe fn checkminormajor(g: *mut global_State) -> c_int {
-    let limit = luaO_applyparam((*g).gcparams[2], (*g).GCmajorminor);
+unsafe fn checkminormajor(g: *mut GlobalState) -> c_int {
+    let limit = luaO_applyparam((*g).gcparams[2], (*g).gcmajorminor);
     if limit == 0 {
         return 0;
     }
-    ((*g).GCmarked >= limit) as c_int
+    ((*g).gcmarked >= limit) as c_int
 }
 
-unsafe fn youngcollection(L: *mut lua_State, g: *mut global_State) {
+unsafe fn youngcollection(L: *mut lua_State, g: *mut GlobalState) {
     let mut addedold1 = 0;
-    let marked = (*g).GCmarked;
+    let marked = (*g).gcmarked;
     let mut dummy = ptr::null_mut();
     if !(*g).firstold1.is_null() {
         markold(g, (*g).firstold1, (*g).reallyold);
@@ -1246,27 +1270,62 @@ unsafe fn youngcollection(L: *mut lua_State, g: *mut global_State) {
     markold(g, (*g).tobefnz, ptr::null_mut());
     atomic(L);
     (*g).gcstate = GCSswpallgc;
-    let psurvival = sweepgen(L, g, ptr::addr_of_mut!((*g).allgc), (*g).survival, ptr::addr_of_mut!((*g).firstold1), ptr::addr_of_mut!(addedold1));
-    sweepgen(L, g, psurvival, (*g).old1, ptr::addr_of_mut!((*g).firstold1), ptr::addr_of_mut!(addedold1));
+    let psurvival = sweepgen(
+        L,
+        g,
+        ptr::addr_of_mut!((*g).allgc),
+        (*g).survival,
+        ptr::addr_of_mut!((*g).firstold1),
+        ptr::addr_of_mut!(addedold1),
+    );
+    sweepgen(
+        L,
+        g,
+        psurvival,
+        (*g).old1,
+        ptr::addr_of_mut!((*g).firstold1),
+        ptr::addr_of_mut!(addedold1),
+    );
     (*g).reallyold = (*g).old1;
     (*g).old1 = *psurvival;
     (*g).survival = (*g).allgc;
-    let psurvival2 = sweepgen(L, g, ptr::addr_of_mut!((*g).finobj), (*g).finobjsur, ptr::addr_of_mut!(dummy), ptr::addr_of_mut!(addedold1));
-    sweepgen(L, g, psurvival2, (*g).finobjold1, ptr::addr_of_mut!(dummy), ptr::addr_of_mut!(addedold1));
+    let psurvival2 = sweepgen(
+        L,
+        g,
+        ptr::addr_of_mut!((*g).finobj),
+        (*g).finobjsur,
+        ptr::addr_of_mut!(dummy),
+        ptr::addr_of_mut!(addedold1),
+    );
+    sweepgen(
+        L,
+        g,
+        psurvival2,
+        (*g).finobjold1,
+        ptr::addr_of_mut!(dummy),
+        ptr::addr_of_mut!(addedold1),
+    );
     (*g).finobjrold = (*g).finobjold1;
     (*g).finobjold1 = *psurvival2;
     (*g).finobjsur = (*g).finobj;
-    sweepgen(L, g, ptr::addr_of_mut!((*g).tobefnz), ptr::null_mut(), ptr::addr_of_mut!(dummy), ptr::addr_of_mut!(addedold1));
-    (*g).GCmarked = marked + addedold1;
+    sweepgen(
+        L,
+        g,
+        ptr::addr_of_mut!((*g).tobefnz),
+        ptr::null_mut(),
+        ptr::addr_of_mut!(dummy),
+        ptr::addr_of_mut!(addedold1),
+    );
+    (*g).gcmarked = marked + addedold1;
     if checkminormajor(g) != 0 {
         minor2inc(L, g, KGC_GENMAJOR);
-        (*g).GCmarked = 0;
+        (*g).gcmarked = 0;
     } else {
         finishgencycle(L, g);
     }
 }
 
-unsafe fn atomic2gen(L: *mut lua_State, g: *mut global_State) {
+unsafe fn atomic2gen(L: *mut lua_State, g: *mut GlobalState) {
     cleargraylists(g);
     (*g).gcstate = GCSswpallgc;
     sweep2old(L, ptr::addr_of_mut!((*g).allgc));
@@ -1280,16 +1339,16 @@ unsafe fn atomic2gen(L: *mut lua_State, g: *mut global_State) {
     (*g).finobjsur = (*g).finobj;
     sweep2old(L, ptr::addr_of_mut!((*g).tobefnz));
     (*g).gckind = KGC_GENMINOR as u8;
-    (*g).GCmajorminor = (*g).GCmarked;
-    (*g).GCmarked = 0;
+    (*g).gcmajorminor = (*g).gcmarked;
+    (*g).gcmarked = 0;
     finishgencycle(L, g);
 }
 
-unsafe fn setminordebt(g: *mut global_State) {
-    luaE_setdebt(g, luaO_applyparam((*g).gcparams[0], (*g).GCmajorminor));
+unsafe fn setminordebt(g: *mut GlobalState) {
+    luaE_setdebt(g, luaO_applyparam((*g).gcparams[0], (*g).gcmajorminor));
 }
 
-unsafe fn entergen(L: *mut lua_State, g: *mut global_State) {
+unsafe fn entergen(L: *mut lua_State, g: *mut GlobalState) {
     luaC_runtilstate(L, GCSpause as c_int, 1);
     luaC_runtilstate(L, GCSpropagate as c_int, 1);
     atomic(L);
@@ -1311,24 +1370,24 @@ pub(crate) unsafe fn luaC_changemode(L: *mut lua_State, newmode: c_int) {
     }
 }
 
-unsafe fn fullgen(L: *mut lua_State, g: *mut global_State) {
+unsafe fn fullgen(L: *mut lua_State, g: *mut GlobalState) {
     minor2inc(L, g, KGC_INC);
     entergen(L, g);
 }
 
-unsafe fn checkmajorminor(L: *mut lua_State, g: *mut global_State) -> c_int {
+unsafe fn checkmajorminor(L: *mut lua_State, g: *mut GlobalState) -> c_int {
     if (*g).gckind == KGC_GENMAJOR {
         let numbytes = gettotalbytes(g);
-        let addedbytes = numbytes - (*g).GCmajorminor;
+        let addedbytes = numbytes - (*g).gcmajorminor;
         let limit = luaO_applyparam((*g).gcparams[1], addedbytes);
-        let tobecollected = numbytes - (*g).GCmarked;
+        let tobecollected = numbytes - (*g).gcmarked;
         if tobecollected > limit {
             atomic2gen(L, g);
             setminordebt(g);
             return 1;
         }
     }
-    (*g).GCmajorminor = (*g).GCmarked;
+    (*g).gcmajorminor = (*g).gcmarked;
     0
 }
 
@@ -1347,7 +1406,7 @@ unsafe fn deletelist(L: *mut lua_State, mut p: *mut GCObject, limit: *mut GCObje
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_freeallobjects(L: *mut lua_State) {
+pub unsafe  fn luaC_freeallobjects(L: *mut lua_State) {
     let g = G(L);
     (*g).gcstp = GCSTPCLS;
     luaC_changemode(L, KGC_INC as c_int);
@@ -1387,9 +1446,19 @@ unsafe fn atomic(L: *mut lua_State) {
     (*g).currentwhite = otherwhite(g);
 }
 
-unsafe fn sweepstep(L: *mut lua_State, g: *mut global_State, nextstate: u8, nextlist: *mut *mut GCObject, fast: c_int) {
+unsafe fn sweepstep(
+    L: *mut lua_State,
+    g: *mut GlobalState,
+    nextstate: u8,
+    nextlist: *mut *mut GCObject,
+    fast: c_int,
+) {
     if !(*g).sweepgc.is_null() {
-        (*g).sweepgc = sweeplist(L, (*g).sweepgc, if fast != 0 { MAX_LMEM } else { GCSWEEPMAX });
+        (*g).sweepgc = sweeplist(
+            L,
+            (*g).sweepgc,
+            if fast != 0 { MAX_LMEM } else { GCSWEEPMAX },
+        );
     } else {
         (*g).gcstate = nextstate;
         (*g).sweepgc = nextlist;
@@ -1466,9 +1535,12 @@ pub(crate) unsafe fn luaC_runtilstate(L: *mut lua_State, state: c_int, fast: c_i
     }
 }
 
-unsafe fn incstep(L: *mut lua_State, g: *mut global_State) {
+unsafe fn incstep(L: *mut lua_State, g: *mut GlobalState) {
     let stepsize = luaO_applyparam((*g).gcparams[5], 100);
-    let mut work2do = luaO_applyparam((*g).gcparams[4], stepsize / size_of::<*const c_void>() as isize);
+    let mut work2do = luaO_applyparam(
+        (*g).gcparams[4],
+        stepsize / size_of::<*const c_void>() as isize,
+    );
     let fast = (work2do == 0) as c_int;
     loop {
         let stres = singlestep(L, fast);
@@ -1491,7 +1563,7 @@ unsafe fn incstep(L: *mut lua_State, g: *mut global_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_step(L: *mut lua_State) {
+pub unsafe  fn luaC_step(L: *mut lua_State) {
     let g = G(L);
     if !gcrunning(g) {
         if (*g).gcstp & GCSTPUSR != 0 {
@@ -1509,7 +1581,7 @@ pub unsafe extern "C-unwind" fn luaC_step(L: *mut lua_State) {
     }
 }
 
-unsafe fn fullinc(L: *mut lua_State, g: *mut global_State) {
+unsafe fn fullinc(L: *mut lua_State, g: *mut GlobalState) {
     if keepinvariant(g) {
         entersweep(L);
     }
@@ -1520,7 +1592,7 @@ unsafe fn fullinc(L: *mut lua_State, g: *mut global_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaC_fullgc(L: *mut lua_State, isemergency: c_int) {
+pub unsafe  fn luaC_fullgc(L: *mut lua_State, isemergency: c_int) {
     let g = G(L);
     (*g).gcemergency = isemergency as u8;
     match (*g).gckind {

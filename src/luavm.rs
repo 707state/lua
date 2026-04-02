@@ -1,234 +1,59 @@
-use crate::lua_module::lua_State;
+use crate::luaffi::LuaCFunction;
+use crate::runtime::*;
 use std::ffi::{c_char, c_int};
 use std::fmt::Write as _;
 use std::ptr;
 
-pub type Instruction = u32;
-type StkId = *mut StackValue;
-
-const BIT_ISCOLLECTABLE: u8 = 1 << 6;
-const LUA_TFUNCTION: u8 = 6;
-const LUA_VLCL: u8 = LUA_TFUNCTION;
 const ABSLINEINFO: i8 = -0x80;
 const MAXIWTHABS: c_int = 128;
 
 #[repr(C)]
-struct GCObject {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
+pub(crate) struct GlobalState {
+    pub(crate) frealloc: lua_Alloc,
+    pub(crate) ud: *mut core::ffi::c_void,
+    pub(crate) gctotalbytes: isize,
+    pub(crate) gcdebt: isize,
+    pub(crate) gcmarked: isize,
+    pub(crate) gcmajorminor: isize,
+    pub(crate) strt: stringtable,
+    pub(crate) l_registry: TValue,
+    pub(crate) nilvalue: TValue,
+    pub(crate) seed: u32,
+    pub(crate) gcparams: [u8; LUA_GCPN],
+    pub(crate) currentwhite: u8,
+    pub(crate) gcstate: u8,
+    pub(crate) gckind: u8,
+    pub(crate) gcstopem: u8,
+    pub(crate) gcstp: u8,
+    pub(crate) gcemergency: u8,
+    pub(crate) allgc: *mut GCObject,
+    pub(crate) sweepgc: *mut *mut GCObject,
+    pub(crate) finobj: *mut GCObject,
+    pub(crate) gray: *mut GCObject,
+    pub(crate) grayagain: *mut GCObject,
+    pub(crate) weak: *mut GCObject,
+    pub(crate) ephemeron: *mut GCObject,
+    pub(crate) allweak: *mut GCObject,
+    pub(crate) tobefnz: *mut GCObject,
+    pub(crate) fixedgc: *mut GCObject,
+    pub(crate) survival: *mut GCObject,
+    pub(crate) old1: *mut GCObject,
+    pub(crate) reallyold: *mut GCObject,
+    pub(crate) firstold1: *mut GCObject,
+    pub(crate) finobjsur: *mut GCObject,
+    pub(crate) finobjold1: *mut GCObject,
+    pub(crate) finobjrold: *mut GCObject,
+    pub(crate) twups: *mut lua_State,
+    pub(crate) panic: LuaCFunction,
+    pub(crate) memerrmsg: *mut TString,
+    pub(crate) tmname: [*mut TString; 25],
+    pub(crate) mt: [*mut Table; LUA_NUMTYPES as usize],
+    pub(crate) strcache: [[*mut TString; 2]; 53],
+    pub(crate) warnf: lua_WarnFunction,
+    pub(crate) ud_warn: *mut core::ffi::c_void,
+    pub(crate) mainth: LX,
 }
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut GCObject,
-    p: *mut core::ffi::c_void,
-    f: *mut core::ffi::c_void,
-    i: i64,
-    n: f64,
-    ub: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StackValue {
-    val: TValue,
-    tbclist: StackValueTbc,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct StackValueTbc {
-    value_: Value,
-    tt_: u8,
-    delta: u16,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StkIdRel {
-    p: StkId,
-    offset: isize,
-}
-
-#[repr(C)]
-union TStringUnion {
-    lnglen: usize,
-    hnext: *mut TString,
-}
-
-#[repr(C)]
-pub struct TString {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    extra: u8,
-    shrlen: i8,
-    hash: u32,
-    u: TStringUnion,
-    contents: *mut c_char,
-    falloc: *mut core::ffi::c_void,
-    ud: *mut core::ffi::c_void,
-}
-
-#[repr(C)]
-pub struct Upvaldesc {
-    name: *const TString,
-    instack: u8,
-    idx: u8,
-    kind: u8,
-}
-
-#[repr(C)]
-pub struct LocVar {
-    varname: *const TString,
-    startpc: c_int,
-    endpc: c_int,
-}
-
-#[repr(C)]
-pub struct AbsLineInfo {
-    pc: c_int,
-    line: c_int,
-}
-
-#[repr(C)]
-pub struct Proto {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    numparams: u8,
-    flag: u8,
-    maxstacksize: u8,
-    sizeupvalues: c_int,
-    sizek: c_int,
-    sizecode: c_int,
-    sizelineinfo: c_int,
-    sizep: c_int,
-    sizelocvars: c_int,
-    sizeabslineinfo: c_int,
-    linedefined: c_int,
-    lastlinedefined: c_int,
-    k: *const TValue,
-    code: *const Instruction,
-    p: *const *const Proto,
-    upvalues: *const Upvaldesc,
-    lineinfo: *const i8,
-    abslineinfo: *const AbsLineInfo,
-    locvars: *const LocVar,
-    source: *const TString,
-    gclist: *mut GCObject,
-}
-
-#[repr(C)]
-struct LClosure {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    nupvalues: u8,
-    gclist: *mut GCObject,
-    p: *const Proto,
-}
-
-#[repr(C)]
-struct stringtable {
-    hash: *mut *mut TString,
-    nuse: c_int,
-    size: c_int,
-}
-
-#[repr(C)]
-struct Table {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-type LuaAlloc = Option<
-    unsafe extern "C-unwind" fn(
-        *mut core::ffi::c_void,
-        *mut core::ffi::c_void,
-        usize,
-        usize,
-    ) -> *mut core::ffi::c_void,
->;
-type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
-type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut core::ffi::c_void, *const c_char, c_int)>;
-
-#[repr(C)]
-struct GlobalState {
-    frealloc: LuaAlloc,
-    ud: *mut core::ffi::c_void,
-    gctotalbytes: isize,
-    gcdebt: isize,
-    gcmarked: isize,
-    gcmajorminor: isize,
-    strt: stringtable,
-    l_registry: TValue,
-    nilvalue: TValue,
-    seed: u32,
-    gcparams: [u8; 6],
-    currentwhite: u8,
-    gcstate: u8,
-    gckind: u8,
-    gcstopem: u8,
-    gcstp: u8,
-    gcemergency: u8,
-    allgc: *mut GCObject,
-    sweepgc: *mut *mut GCObject,
-    finobj: *mut GCObject,
-    gray: *mut GCObject,
-    grayagain: *mut GCObject,
-    weak: *mut GCObject,
-    ephemeron: *mut GCObject,
-    allweak: *mut GCObject,
-    tobefnz: *mut GCObject,
-    fixedgc: *mut GCObject,
-    survival: *mut GCObject,
-    old1: *mut GCObject,
-    reallyold: *mut GCObject,
-    firstold1: *mut GCObject,
-    finobjsur: *mut GCObject,
-    finobjold1: *mut GCObject,
-    finobjrold: *mut GCObject,
-    twups: *mut lua_State,
-    panic: LuaCFunction,
-    memerrmsg: *mut TString,
-    tmname: [*mut TString; 25],
-    mt: [*mut Table; 9],
-    strcache: [[*mut TString; 2]; 53],
-    warnf: LuaWarnFunction,
-    ud_warn: *mut core::ffi::c_void,
-}
-
-#[repr(C)]
-struct LuaStatePrefix {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    allowhook: u8,
-    status: u8,
-    top: StkIdRel,
-    l_g: *mut GlobalState,
-}
-
-const LUA_VNIL: u8 = 0;
-const LUA_VFALSE: u8 = 1;
-const LUA_VTRUE: u8 = 17;
-const LUA_VNUMINT: u8 = 3;
-const LUA_VNUMFLT: u8 = 19;
-const LUA_VSHRSTR: u8 = 68;
-const LUA_VLNGSTR: u8 = 84;
-const PF_VAHID: u8 = 1;
-const PF_VATAB: u8 = 2;
 
 const SIZE_C: u32 = 8;
 const SIZE_VC: u32 = 10;
@@ -778,14 +603,6 @@ fn event_name(state: *mut lua_State, index: i32) -> String {
     tstring_to_string(name)
 }
 
-unsafe fn lstate(state: *mut lua_State) -> *mut LuaStatePrefix {
-    state.cast()
-}
-
-unsafe fn s2v(stack: StkId) -> *mut TValue {
-    unsafe { ptr::addr_of_mut!((*stack).val) }
-}
-
 unsafe fn cl_lvalue(value: *const TValue) -> *const LClosure {
     debug_assert_eq!(
         unsafe { (*value).tt_ & !BIT_ISCOLLECTABLE },
@@ -796,7 +613,7 @@ unsafe fn cl_lvalue(value: *const TValue) -> *const LClosure {
 }
 
 unsafe fn top_proto(state: *mut lua_State) -> *const Proto {
-    let top = unsafe { (*lstate(state)).top.p };
+    let top = unsafe { (*state).top.p };
     unsafe { (*cl_lvalue(s2v(top.sub(1)))).p }
 }
 
@@ -834,7 +651,7 @@ fn getfuncline(proto: *const Proto, pc: c_int) -> c_int {
 }
 
 unsafe fn eventname(state: *mut lua_State, index: c_int) -> *const TString {
-    unsafe { (*(*lstate(state)).l_g).tmname[index as usize] }
+    unsafe { (*(*state).l_G).tmname[index as usize] }
 }
 
 fn getarg(i: Instruction, pos: u32, size: u32) -> i32 {
@@ -895,8 +712,8 @@ mod tests {
 
     #[test]
     fn getfuncline_uses_relative_and_absolute_entries() {
-        let lineinfo = [0, 1, 2, ABSLINEINFO, 1, -2];
-        let abslineinfo = [AbsLineInfo { pc: 3, line: 20 }];
+        let mut lineinfo = [0, 1, 2, ABSLINEINFO, 1, -2];
+        let mut abslineinfo = [AbsLineInfo { pc: 3, line: 20 }];
         let proto = Proto {
             next: ptr::null_mut(),
             tt: 0,
@@ -913,14 +730,14 @@ mod tests {
             sizeabslineinfo: abslineinfo.len() as c_int,
             linedefined: 10,
             lastlinedefined: 0,
-            k: ptr::null(),
-            code: ptr::null(),
-            p: ptr::null(),
-            upvalues: ptr::null(),
-            lineinfo: lineinfo.as_ptr(),
-            abslineinfo: abslineinfo.as_ptr(),
-            locvars: ptr::null(),
-            source: ptr::null(),
+            k: ptr::null_mut(),
+            code: ptr::null_mut(),
+            p: ptr::null_mut(),
+            upvalues: ptr::null_mut(),
+            lineinfo: lineinfo.as_mut_ptr(),
+            abslineinfo: abslineinfo.as_mut_ptr(),
+            locvars: ptr::null_mut(),
+            source: ptr::null_mut(),
             gclist: ptr::null_mut(),
         };
 
@@ -948,14 +765,14 @@ mod tests {
             sizeabslineinfo: 0,
             linedefined: 0,
             lastlinedefined: 0,
-            k: ptr::null(),
-            code: ptr::null(),
-            p: ptr::null(),
-            upvalues: ptr::null(),
-            lineinfo: ptr::null(),
-            abslineinfo: ptr::null(),
-            locvars: ptr::null(),
-            source: ptr::null(),
+            k: ptr::null_mut(),
+            code: ptr::null_mut(),
+            p: ptr::null_mut(),
+            upvalues: ptr::null_mut(),
+            lineinfo: ptr::null_mut(),
+            abslineinfo: ptr::null_mut(),
+            locvars: ptr::null_mut(),
+            source: ptr::null_mut(),
             gclist: ptr::null_mut(),
         };
 

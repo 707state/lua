@@ -1,107 +1,43 @@
 use core::ffi::{VaList, c_char, c_int};
-use core::mem::size_of;
 
-use crate::aux_rs::luaL_where;
-pub use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
-
-#[allow(non_camel_case_types)]
-pub type lua_Integer = i64;
-#[allow(non_camel_case_types)]
-pub type lua_Number = f64;
-#[allow(non_camel_case_types)]
-pub type lua_Unsigned = u64;
-
-#[repr(C)]
-pub struct lua_State {
-    _private: [u8; 0],
-}
+pub(crate) use crate::api::*;
+use crate::{aux_rs::luaL_where, luaffi::LuaCFunction};
+pub(crate) use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
+use crate::luaffi::LUAL_NUMSIZES;
+pub use crate::runtime::{
+    lua_CFunction, lua_Integer, lua_Number, lua_State, lua_Unsigned,
+    LUA_REGISTRYINDEX, LUA_VERSION_NUM,
+};
+use crate::runtime::*;
 
 #[repr(C)]
-pub struct luaL_Reg {
-    pub name: *const c_char,
-    pub func: LuaCFunction,
+pub(crate) struct luaL_Reg {
+    pub(crate) name: *const c_char,
+    pub(crate) func: LuaCFunction,
 }
 
 unsafe impl Sync for luaL_Reg {}
 
-pub type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
-
-pub const LUA_VERSION_NUM: lua_Number = 505.0;
-pub const LUAL_NUMSIZES: usize = size_of::<lua_Integer>() * 16 + size_of::<lua_Number>();
-pub const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
 
 #[inline]
 pub fn link_anchor() {}
 
-#[inline]
-pub unsafe fn lua_gettop(state: *mut lua_State) -> c_int {
-    unsafe { crate::api::lua_gettop(state as _) }
-}
-#[inline]
-pub unsafe fn lua_settop(state: *mut lua_State, index: c_int) {
-    unsafe { crate::api::lua_settop(state as _, index) }
-}
-#[inline]
-pub unsafe fn lua_pushvalue(state: *mut lua_State, index: c_int) {
-    unsafe { crate::api::lua_pushvalue(state as _, index) }
-}
-#[inline]
-pub unsafe fn lua_pushnil(state: *mut lua_State) {
-    unsafe { crate::api::lua_pushnil(state as _) }
-}
-#[inline]
-pub unsafe fn lua_pushnumber(state: *mut lua_State, n: lua_Number) {
-    unsafe { crate::api::lua_pushnumber(state as _, n) }
-}
-#[inline]
-pub unsafe fn lua_pushinteger(state: *mut lua_State, n: lua_Integer) {
-    unsafe { crate::api::lua_pushinteger(state as _, n) }
-}
-#[inline]
-pub unsafe fn lua_pushlstring(state: *mut lua_State, s: *const c_char, len: usize) -> *const c_char {
-    unsafe { crate::api::lua_pushlstring(state as _, s, len) }
-}
-#[inline]
-pub unsafe fn lua_pushstring(state: *mut lua_State, s: *const c_char) -> *const c_char {
-    unsafe { crate::api::lua_pushstring(state as _, s) }
-}
-#[inline]
-pub unsafe fn lua_pushvfstring(
+
+pub(crate) unsafe extern "C" fn luaL_error(
     state: *mut lua_State,
     fmt: *const c_char,
-    argp: VaList<'_>,
-) -> *const c_char {
-    unsafe { crate::api::lua_pushvfstring(state as _, fmt, argp) }
-}
-#[inline]
-pub unsafe fn lua_pushboolean(state: *mut lua_State, b: c_int) {
-    unsafe { crate::api::lua_pushboolean(state as _, b) }
-}
-#[inline]
-pub unsafe fn lua_pushcclosure(state: *mut lua_State, function: LuaCFunction, n: c_int) {
-    unsafe { crate::api::lua_pushcclosure(state as _, core::mem::transmute(function), n) }
-}
-#[inline]
-pub unsafe fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int) {
-    unsafe { crate::api::lua_createtable(state as _, narr, nrec) }
-}
-#[inline]
-pub unsafe fn lua_concat(state: *mut lua_State, n: c_int) {
-    unsafe { crate::api::lua_concat(state as _, n) }
-}
-#[inline]
-pub unsafe fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char) {
-    unsafe { crate::api::lua_setfield(state as _, index, key) }
-}
-#[inline]
-pub unsafe fn lua_error(state: *mut lua_State) -> c_int {
-    unsafe { crate::api::lua_error(state as _) }
+    argp: ...
+) -> c_int {
+    unsafe { luaL_where(state, 1) };
+    unsafe { lua_pushvfstring(state, fmt, argp) };
+    unsafe { lua_concat(state, 2) };
+    unsafe { lua_error(state) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaL_error(state: *mut lua_State, fmt: *const c_char, argp: ...) -> c_int {
-    luaL_where(state, 1);
-    unsafe { lua_pushvfstring(state, fmt, argp) };
+/// 非变参版本的 luaL_error，接受预格式化的字符串（消除变参调用）
+pub(crate) unsafe fn luaL_error_str(state: *mut lua_State, msg: *const c_char) -> c_int {
+    unsafe { luaL_where(state, 1) };
+    unsafe { lua_pushstring(state, msg) };
     unsafe { lua_concat(state, 2) };
     unsafe { lua_error(state) }
 }
@@ -117,36 +53,36 @@ pub unsafe fn lua_pop(state: *mut lua_State, count: c_int) {
 }
 
 #[inline]
-pub unsafe fn push_fail(state: *mut lua_State) {
+pub(crate) unsafe fn push_fail(state: *mut lua_State) {
     unsafe { lua_pushnil(state) };
 }
 
 #[inline]
-pub unsafe fn checkversion(state: *mut lua_State) {
+pub(crate) unsafe fn checkversion(state: *mut lua_State) {
     luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
 }
 
 #[inline]
-pub unsafe fn create_library(state: *mut lua_State, regs: &[luaL_Reg]) {
+pub(crate) unsafe fn create_library(state: *mut lua_State, regs: &[luaL_Reg]) {
     unsafe { create_library_with_nrec(state, regs, (regs.len() - 1) as c_int) };
 }
 
 #[inline]
-pub unsafe fn create_library_with_nrec(state: *mut lua_State, regs: &[luaL_Reg], nrec: c_int) {
+pub(crate) unsafe fn create_library_with_nrec(state: *mut lua_State, regs: &[luaL_Reg], nrec: c_int) {
     unsafe { checkversion(state) };
     unsafe { lua_createtable(state, 0, nrec) };
     luaL_setfuncs(state, regs.as_ptr(), 0);
 }
 
 #[inline]
-pub unsafe fn argcheck(state: *mut lua_State, condition: bool, arg: c_int, message: &'static [u8]) {
+pub(crate) unsafe fn argcheck(state: *mut lua_State, condition: bool, arg: c_int, message: &'static [u8]) {
     if !condition {
         let _ = luaL_argerror(state, arg, message.as_ptr().cast());
     }
 }
 
 #[inline]
-pub unsafe fn raise_error(state: *mut lua_State, message: &'static [u8]) -> c_int {
+pub(crate) unsafe fn raise_error(state: *mut lua_State, message: &'static [u8]) -> c_int {
     unsafe {
         lua_pushstring(state, message.as_ptr().cast());
         lua_error(state)
@@ -154,28 +90,26 @@ pub unsafe fn raise_error(state: *mut lua_State, message: &'static [u8]) -> c_in
 }
 
 #[inline]
-pub unsafe fn push_cfunction(state: *mut lua_State, function: LuaCFunction) {
+pub(crate) unsafe fn push_cfunction(state: *mut lua_State, function: LuaCFunction) {
     unsafe { lua_pushcclosure(state, function, 0) };
 }
 
 #[cfg(test)]
 mod tests {
     use super::lua_State;
+    use crate::api::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
     use crate::init::luaL_openselectedlibs;
-    use crate::luaffi::{
-        LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_pushcclosure,
-        lua_setglobal, lua_tolstring,
-    };
+    use crate::lua_module::luaL_error;
+    use crate::luaffi::{LUAL_NUMSIZES, lua_pcall};
+    use crate::runtime::{LUA_OK, LUA_VERSION_NUM};
+    use crate::state::lua_close;
     use core::ffi::{c_char, c_int};
     use std::ptr;
 
-    unsafe extern "C-unwind" {
-        fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
-    }
 
-    unsafe extern "C-unwind" fn boom(state: *mut lua_State) -> c_int {
-        unsafe { luaL_error(state, c"broken %s %d".as_ptr(), c"item".as_ptr(), 7) }
+    unsafe fn boom(state: *mut lua_State) -> c_int {
+        luaL_error(state, c"broken %s %d".as_ptr(), c"item".as_ptr(), 7)
     }
 
     fn error_string(state: *mut lua_State) -> String {
@@ -210,13 +144,13 @@ mod tests {
             );
             assert_eq!(
                 status,
-                LUA_OK,
+                LUA_OK.into(),
                 "failed to load chunk: {}",
                 error_string(state)
             );
 
             let status = lua_pcall(state, 0, 0, 0);
-            assert_ne!(status, LUA_OK, "chunk should fail");
+            assert_ne!(status, LUA_OK.into(), "chunk should fail");
 
             let err = error_string(state);
             assert_eq!(err, "lua_module_variadic_error.lua:1: broken item 7");

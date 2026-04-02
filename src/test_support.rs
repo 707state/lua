@@ -1,7 +1,9 @@
+use crate::api::lua_tolstring;
 use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
 use crate::init::luaL_openselectedlibs;
-use crate::lua_module::lua_State;
-use crate::luaffi::{LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_pcall, lua_tolstring};
+use crate::luaffi::{LUAL_NUMSIZES, lua_pcall};
+use crate::runtime::*;
+use crate::state::lua_close;
 use std::ptr;
 
 fn lua_error_string(state: *mut lua_State) -> String {
@@ -34,12 +36,12 @@ pub(crate) fn run_lua_test(script_name: &str, source: &str) {
             chunk_name.as_ptr().cast(),
             ptr::null(),
         );
-        if status != LUA_OK {
+        if status != LUA_OK.into() {
             return Err(lua_error_string(state));
         }
 
         let status = lua_pcall(state, 0, 0, 0);
-        if status != LUA_OK {
+        if status != LUA_OK.into() {
             return Err(lua_error_string(state));
         }
 

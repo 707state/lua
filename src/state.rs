@@ -1,6 +1,13 @@
+use crate::api::lua_tolstring;
+use crate::debug::*;
+use crate::do_rs::*;
+use crate::func::luaF_closeupval;
+use crate::gc::*;
 use crate::lex::raw_luaX_init;
-use crate::lua_module::{lua_Integer, lua_Number};
+use crate::luavm::GlobalState;
+use crate::mem::{luaM_free_, luaM_malloc_};
 use crate::object::luaO_codeparam;
+use crate::runtime::*;
 use crate::string::raw_luaS_init;
 use crate::table::{raw_luaH_new, raw_luaH_resize, raw_luaH_setint};
 use crate::tm::raw_luaT_init;
@@ -8,354 +15,16 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr;
 
-type TStatus = u8;
-type Instruction = u32;
-type LMem = isize;
-type LuMem = usize;
-type LuaAlloc = Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>;
-type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
-type LuaKFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, isize) -> c_int>;
-type LuaWarnFunction = Option<unsafe extern "C-unwind" fn(*mut c_void, *const c_char, c_int)>;
-type LuaHook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut lua_Debug)>;
-type Pfunc = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void)>;
-
-const LUA_OK: TStatus = 0;
-const LUA_YIELD: TStatus = 1;
-const LUA_TTHREAD: u8 = 8;
-const LUA_VNIL: u8 = 0;
-const LUA_VFALSE: u8 = 1;
-const LUA_VTHREAD: u8 = 8;
-const BIT_ISCOLLECTABLE: u8 = 1 << 6;
-const LUA_MINSTACK: usize = 20;
-const LUA_RIDX_GLOBALS: lua_Integer = 2;
-const LUA_RIDX_MAINTHREAD: lua_Integer = 3;
-const LUA_RIDX_LAST: c_int = 3;
-const LUA_NUMTYPES: usize = 9;
-const LUA_EXTRASPACE: usize = size_of::<*mut c_void>();
-const LUA_GCPMINORMUL: usize = 0;
-const LUA_GCPMAJORMINOR: usize = 1;
-const LUA_GCPMINORMAJOR: usize = 2;
-const LUA_GCPPAUSE: usize = 3;
-const LUA_GCPSTEPMUL: usize = 4;
-const LUA_GCPSTEPSIZE: usize = 5;
-const LUA_GCPN: usize = 6;
-const LUAI_MAXCCALLS: u32 = 200;
-const LUAI_GCPAUSE: c_int = 250;
-const LUAI_GCMUL: c_int = 200;
-const LUAI_MINORMAJOR: c_int = 70;
-const LUAI_MAJORMINOR: c_int = 50;
-const LUAI_GENMINORMUL: c_int = 20;
-const EXTRA_STACK: usize = 5;
-const BASIC_STACK_SIZE: usize = 2 * LUA_MINSTACK;
-const KGC_INC: u8 = 0;
-const GCSTPGC: u8 = 2;
-const GCSPAUSE: u8 = 8;
-const WHITE0BIT: u8 = 3;
-const WHITE1BIT: u8 = 4;
-const WHITEBITS: u8 = (1 << WHITE0BIT) | (1 << WHITE1BIT);
-const TM_N: usize = 25;
-const STRCACHE_N: usize = 53;
-const STRCACHE_M: usize = 2;
-const CIST_C: u32 = 1 << 15;
-const MAX_LMEM: LMem = isize::MAX;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut GCObject,
-    p: *mut c_void,
-    f: LuaCFunction,
-    i: lua_Integer,
-    n: lua_Number,
-    ub: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StackValue {
-    val: TValue,
-    tbclist: StackValueTbc,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct StackValueTbc {
-    value_: Value,
-    tt_: u8,
-    delta: u16,
-}
-
-type StkId = *mut StackValue;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StkIdRel {
-    p: StkId,
-    offset: isize,
-}
-
-#[repr(C)]
-struct GCObject {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-#[repr(C)]
-struct TString {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    extra: u8,
-    shrlen: i8,
-    hash: u32,
-}
-
-#[repr(C)]
-struct Table {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-#[repr(C)]
-struct stringtable {
-    hash: *mut *mut TString,
-    nuse: c_int,
-    size: c_int,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct CallInfoLua {
-    savedpc: *const Instruction,
-    trap: c_int,
-    nextraargs: c_int,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct CallInfoC {
-    k: LuaKFunction,
-    old_errfunc: isize,
-    ctx: isize,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union CallInfoU {
-    l: CallInfoLua,
-    c: CallInfoC,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union CallInfoU2 {
-    funcidx: c_int,
-    nyield: c_int,
-    nres: c_int,
-}
-
-#[repr(C)]
-pub struct CallInfo {
-    func: StkIdRel,
-    top: StkIdRel,
-    previous: *mut CallInfo,
-    next: *mut CallInfo,
-    u: CallInfoU,
-    u2: CallInfoU2,
-    callstatus: u32,
-}
-
-#[repr(C)]
-struct TransferInfo {
-    ftransfer: c_int,
-    ntransfer: c_int,
-}
-
-#[repr(C)]
-struct lua_longjmp {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct lua_Debug {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-pub struct lua_State {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    allowhook: u8,
-    status: TStatus,
-    top: StkIdRel,
-    l_g: *mut global_State,
-    ci: *mut CallInfo,
-    stack_last: StkIdRel,
-    stack: StkIdRel,
-    openupval: *mut c_void,
-    tbclist: StkIdRel,
-    gclist: *mut GCObject,
-    twups: *mut lua_State,
-    errorJmp: *mut lua_longjmp,
-    base_ci: CallInfo,
-    hook: LuaHook,
-    errfunc: isize,
-    nCcalls: u32,
-    oldpc: c_int,
-    nci: c_int,
-    basehookcount: c_int,
-    hookcount: c_int,
-    hookmask: c_int,
-    transferinfo: TransferInfo,
-}
-
-#[repr(C)]
-struct LX {
-    extra_: [u8; LUA_EXTRASPACE],
-    l: lua_State,
-}
-
-#[repr(C)]
-pub struct global_State {
-    frealloc: LuaAlloc,
-    ud: *mut c_void,
-    GCtotalbytes: LMem,
-    GCdebt: LMem,
-    GCmarked: LMem,
-    GCmajorminor: LMem,
-    strt: stringtable,
-    l_registry: TValue,
-    nilvalue: TValue,
-    seed: u32,
-    gcparams: [u8; LUA_GCPN],
-    currentwhite: u8,
-    gcstate: u8,
-    gckind: u8,
-    gcstopem: u8,
-    gcstp: u8,
-    gcemergency: u8,
-    allgc: *mut GCObject,
-    sweepgc: *mut *mut GCObject,
-    finobj: *mut GCObject,
-    gray: *mut GCObject,
-    grayagain: *mut GCObject,
-    weak: *mut GCObject,
-    ephemeron: *mut GCObject,
-    allweak: *mut GCObject,
-    tobefnz: *mut GCObject,
-    fixedgc: *mut GCObject,
-    survival: *mut GCObject,
-    old1: *mut GCObject,
-    reallyold: *mut GCObject,
-    firstold1: *mut GCObject,
-    finobjsur: *mut GCObject,
-    finobjold1: *mut GCObject,
-    finobjrold: *mut GCObject,
-    twups: *mut lua_State,
-    panic: LuaCFunction,
-    memerrmsg: *mut TString,
-    tmname: [*mut TString; TM_N],
-    mt: [*mut Table; LUA_NUMTYPES],
-    strcache: [[*mut TString; STRCACHE_M]; STRCACHE_N],
-    warnf: LuaWarnFunction,
-    ud_warn: *mut c_void,
-    mainth: LX,
-}
-
-unsafe extern "C-unwind" {
-    fn luaC_freeallobjects(state: *mut lua_State);
-    fn luaC_newobjdt(state: *mut lua_State, tt: u8, sz: usize, offset: usize) -> *mut GCObject;
-    fn luaC_step(state: *mut lua_State);
-    fn luaD_closeprotected(state: *mut lua_State, level: isize, status: TStatus) -> TStatus;
-    fn luaD_errerr(state: *mut lua_State) -> !;
-    fn luaD_rawrunprotected(state: *mut lua_State, f: Pfunc, ud: *mut c_void) -> TStatus;
-    fn luaD_reallocstack(state: *mut lua_State, newsize: c_int, raiseerror: c_int) -> c_int;
-    fn luaD_seterrorobj(state: *mut lua_State, errcode: TStatus, oldtop: StkId);
-    fn luaD_throwbaselevel(state: *mut lua_State, errcode: TStatus) -> !;
-    fn luaF_closeupval(state: *mut lua_State, level: StkId);
-    fn luaG_runerror(state: *mut lua_State, fmt: *const c_char, ...) -> !;
-    fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize);
-    fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void;
-}
-
+/// Local alias for `G()` from runtime.rs (lowercase for consistency with original code).
 #[inline]
-unsafe fn g(state: *mut lua_State) -> *mut global_State {
-    unsafe { (*state).l_g }
-}
-
-#[inline]
-unsafe fn mainthread(g: *mut global_State) -> *mut lua_State {
-    unsafe { ptr::addr_of_mut!((*g).mainth.l) }
-}
-
-#[inline]
-unsafe fn s2v(stack: StkId) -> *mut TValue {
-    unsafe { ptr::addr_of_mut!((*stack).val) }
-}
-
-#[inline]
-unsafe fn settt(obj: *mut TValue, tt: u8) {
-    unsafe { (*obj).tt_ = tt };
-}
-
-#[inline]
-unsafe fn setnilvalue(obj: *mut TValue) {
-    unsafe { settt(obj, LUA_VNIL) };
-}
-
-#[inline]
-unsafe fn setivalue(obj: *mut TValue, value: lua_Integer) {
-    unsafe {
-        (*obj).value_.i = value;
-        settt(obj, 3);
-    }
-}
-
-#[inline]
-unsafe fn setbfvalue(obj: *mut TValue) {
-    unsafe { settt(obj, LUA_VFALSE) };
-}
-
-#[inline]
-unsafe fn sethvalue(obj: *mut TValue, table: *mut Table) {
-    unsafe {
-        (*obj).value_.gc = table.cast();
-        settt(obj, (*table).tt | BIT_ISCOLLECTABLE);
-    }
-}
-
-#[inline]
-unsafe fn setthvalue(obj: *mut TValue, thread: *mut lua_State) {
-    unsafe {
-        (*obj).value_.gc = thread.cast();
-        settt(obj, (*thread).tt | BIT_ISCOLLECTABLE);
-    }
+unsafe fn g(state: *mut lua_State) -> *mut GlobalState {
+    unsafe { G(state) }
 }
 
 #[inline]
 unsafe fn setthvalue2s(state: *mut lua_State, stack: StkId, thread: *mut lua_State) {
     let _ = state;
-    unsafe { setthvalue(s2v(stack), thread) };
-}
-
-#[inline]
-unsafe fn ttisnil(value: *const TValue) -> bool {
-    unsafe { ((*value).tt_ & 0x0f) == LUA_VNIL }
-}
-
-#[inline]
-unsafe fn gettotalbytes(g: *mut global_State) -> LMem {
-    unsafe { (*g).GCtotalbytes - (*g).GCdebt }
+    unsafe { setthvalue(state, s2v(stack), thread) };
 }
 
 #[inline]
@@ -379,12 +48,12 @@ unsafe fn resethookcount(state: *mut lua_State) {
 }
 
 #[inline]
-unsafe fn lua_c_white(g: *mut global_State) -> u8 {
+unsafe fn lua_c_white(g: *mut GlobalState) -> u8 {
     unsafe { (*g).currentwhite & WHITEBITS }
 }
 
 #[inline]
-unsafe fn completestate(g: *mut global_State) -> bool {
+unsafe fn completestate(g: *mut GlobalState) -> bool {
     unsafe { ttisnil(ptr::addr_of!((*g).nilvalue)) }
 }
 
@@ -423,7 +92,7 @@ unsafe fn free_tstring_hash(state: *mut lua_State, hash: *mut *mut TString, coun
     unsafe { luaM_free_(state, hash.cast(), size_of::<*mut TString>() * count) };
 }
 
-unsafe extern "C-unwind" fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
+unsafe  fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
     let _ = ud;
     let g = unsafe { g(state) };
     unsafe { stack_init(state, state) };
@@ -497,7 +166,7 @@ unsafe fn freestack(state: *mut lua_State) {
     };
 }
 
-unsafe fn init_registry(state: *mut lua_State, g: *mut global_State) {
+unsafe fn init_registry(state: *mut lua_State, g: *mut GlobalState) {
     let mut aux = TValue {
         value_: Value { ub: 0 },
         tt_: LUA_VNIL,
@@ -514,7 +183,7 @@ unsafe fn init_registry(state: *mut lua_State, g: *mut global_State) {
             ptr::addr_of_mut!(aux).cast(),
         )
     };
-    unsafe { setthvalue(ptr::addr_of_mut!(aux), state) };
+    unsafe { setthvalue(state, ptr::addr_of_mut!(aux), state) };
     unsafe {
         raw_luaH_setint(
             state.cast(),
@@ -539,9 +208,9 @@ unsafe fn init_registry(state: *mut lua_State, g: *mut global_State) {
     };
 }
 
-unsafe fn preinit_thread(state: *mut lua_State, g: *mut global_State) {
+unsafe fn preinit_thread(state: *mut lua_State, g: *mut GlobalState) {
     unsafe {
-        (*state).l_g = g;
+        (*state).l_G = g;
         (*state).stack.p = ptr::null_mut();
         (*state).ci = ptr::null_mut();
         (*state).nci = 0;
@@ -577,24 +246,24 @@ unsafe fn close_state(state: *mut lua_State) {
     unsafe { free_tstring_hash(state, (*g).strt.hash, (*g).strt.size.max(0) as usize) };
     unsafe { freestack(state) };
     if let Some(frealloc) = unsafe { (*g).frealloc } {
-        unsafe { frealloc((*g).ud, g.cast(), size_of::<global_State>(), 0) };
+        unsafe { frealloc((*g).ud, g.cast(), size_of::<GlobalState>(), 0) };
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_setdebt(g: *mut global_State, mut debt: LMem) {
+pub unsafe  fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
     let tb = unsafe { gettotalbytes(g) };
     if debt > MAX_LMEM - tb {
         debt = MAX_LMEM - tb;
     }
     unsafe {
-        (*g).GCtotalbytes = tb + debt;
-        (*g).GCdebt = debt;
+        (*g).gctotalbytes = tb + debt;
+        (*g).gcdebt = debt;
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
+pub unsafe  fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
     let ci = unsafe { new_callinfo(state) };
     unsafe {
         (*(*state).ci).next = ci;
@@ -607,7 +276,7 @@ pub unsafe extern "C-unwind" fn luaE_extendCI(state: *mut lua_State) -> *mut Cal
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_shrinkCI(state: *mut lua_State) {
+pub unsafe  fn luaE_shrinkCI(state: *mut lua_State) {
     let mut ci = unsafe { (*(*state).ci).next };
     if ci.is_null() {
         return;
@@ -634,7 +303,7 @@ pub unsafe extern "C-unwind" fn luaE_shrinkCI(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_checkcstack(state: *mut lua_State) {
+pub unsafe  fn luaE_checkcstack(state: *mut lua_State) {
     let calls = unsafe { get_ccalls(state) };
     if calls == LUAI_MAXCCALLS {
         unsafe { luaG_runerror(state, c"C stack overflow".as_ptr()) };
@@ -644,7 +313,7 @@ pub unsafe extern "C-unwind" fn luaE_checkcstack(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_incCstack(state: *mut lua_State) {
+pub unsafe  fn luaE_incCstack(state: *mut lua_State) {
     unsafe { (*state).nCcalls += 1 };
     if unsafe { get_ccalls(state) } >= LUAI_MAXCCALLS {
         unsafe { luaE_checkcstack(state) };
@@ -652,7 +321,7 @@ pub unsafe extern "C-unwind" fn luaE_incCstack(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_threadsize(state: *mut lua_State) -> LuMem {
+pub unsafe  fn luaE_threadsize(state: *mut lua_State) -> usize {
     let mut sz =
         size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
     if unsafe { !(*state).stack.p.is_null() } {
@@ -661,10 +330,9 @@ pub unsafe extern "C-unwind" fn luaE_threadsize(state: *mut lua_State) -> LuMem 
     sz
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
+pub unsafe fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
     let g = unsafe { g(state) };
-    if unsafe { (*g).GCdebt <= 0 } {
+    if unsafe { (*g).gcdebt <= 0 } {
         unsafe { luaC_step(state) };
     }
     let o = unsafe { luaC_newobjdt(state, LUA_TTHREAD, size_of::<LX>(), offset_of!(LX, l)) };
@@ -690,7 +358,7 @@ pub unsafe extern "C-unwind" fn lua_newthread(state: *mut lua_State) -> *mut lua
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
+pub unsafe  fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
     let l = unsafe { thread.cast::<u8>().sub(offset_of!(LX, l)).cast::<LX>() };
     unsafe { luaF_closeupval(thread, (*thread).stack.p) };
     unsafe { freestack(thread) };
@@ -698,7 +366,10 @@ pub unsafe extern "C-unwind" fn luaE_freethread(state: *mut lua_State, thread: *
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_resetthread(state: *mut lua_State, mut status: TStatus) -> TStatus {
+pub unsafe  fn luaE_resetthread(
+    state: *mut lua_State,
+    mut status: TStatus,
+) -> TStatus {
     unsafe { reset_ci(state) };
     if status == LUA_YIELD {
         status = LUA_OK;
@@ -719,8 +390,10 @@ pub unsafe extern "C-unwind" fn luaE_resetthread(state: *mut lua_State, mut stat
     status
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn lua_closethread(state: *mut lua_State, from: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn lua_closethread(
+    state: *mut lua_State,
+    from: *mut lua_State,
+) -> c_int {
     unsafe {
         (*state).nCcalls = if from.is_null() { 0 } else { get_ccalls(from) };
     }
@@ -732,7 +405,11 @@ pub unsafe extern "C-unwind" fn lua_closethread(state: *mut lua_State, from: *mu
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
+pub unsafe  fn lua_newstate(
+    f: lua_Alloc,
+    ud: *mut c_void,
+    seed: u32,
+) -> *mut lua_State {
     let Some(frealloc) = f else {
         return ptr::null_mut();
     };
@@ -741,10 +418,10 @@ pub unsafe extern "C-unwind" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed:
             ud,
             ptr::null_mut(),
             LUA_TTHREAD as usize,
-            size_of::<global_State>(),
+            size_of::<GlobalState>(),
         )
     }
-    .cast::<global_State>();
+    .cast::<GlobalState>();
     if g.is_null() {
         return ptr::null_mut();
     }
@@ -789,9 +466,9 @@ pub unsafe extern "C-unwind" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed:
         (*g).ephemeron = ptr::null_mut();
         (*g).allweak = ptr::null_mut();
         (*g).twups = ptr::null_mut();
-        (*g).GCtotalbytes = size_of::<global_State>() as LMem;
-        (*g).GCmarked = 0;
-        (*g).GCdebt = 0;
+        (*g).gctotalbytes = size_of::<GlobalState>() as l_mem;
+        (*g).gcmarked = 0;
+        (*g).gcdebt = 0;
         setivalue(ptr::addr_of_mut!((*g).nilvalue), 0);
         (*g).gcparams[LUA_GCPPAUSE] = luaO_codeparam(LUAI_GCPAUSE as u32);
         (*g).gcparams[LUA_GCPSTEPMUL] = luaO_codeparam(LUAI_GCMUL as u32);
@@ -820,7 +497,7 @@ pub unsafe extern "C-unwind" fn lua_newstate(f: LuaAlloc, ud: *mut c_void, seed:
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn lua_close(state: *mut lua_State) {
+pub unsafe  fn lua_close(state: *mut lua_State) {
     let main = unsafe { mainthread(g(state)) };
     unsafe { close_state(main) };
 }
@@ -833,10 +510,10 @@ pub(crate) unsafe fn luaE_warning(state: *mut lua_State, msg: *const c_char, toc
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
+pub unsafe  fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
     let errobj = unsafe { s2v((*state).top.p.sub(1)) };
     let msg = if unsafe { ((*errobj).tt_ & 0x0f) == 4 } {
-        unsafe { crate::luaffi::lua_tolstring(state.cast(), -1, ptr::null_mut()) }
+        unsafe { lua_tolstring(state.cast(), -1, ptr::null_mut()) }
     } else {
         c"error object is not a string".as_ptr()
     };
@@ -850,10 +527,9 @@ pub unsafe extern "C-unwind" fn luaE_warnerror(state: *mut lua_State, where_: *c
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aux_rs::{luaL_checkversion_, luaL_newstate};
-    use crate::luaffi::{LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close};
+    use crate::{aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::*};
 
-    unsafe extern "C-unwind" fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
+    unsafe fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
 
     #[test]
     fn newthread_copies_hook_state_and_closes() {

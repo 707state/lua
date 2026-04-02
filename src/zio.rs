@@ -1,37 +1,10 @@
-use crate::lua_module::lua_State;
+use crate::{mem::luaM_saferealloc_, runtime::*};
 use core::ffi::{c_char, c_int, c_void};
 use core::{ptr, slice};
 
 pub const EOZ: c_int = -1;
 
-pub type LuaReader =
-    Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
-
-#[repr(C)]
-pub struct ZIO {
-    pub n: usize,
-    pub p: *const c_char,
-    pub reader: LuaReader,
-    pub data: *mut c_void,
-    pub l: *mut lua_State,
-}
-
-#[repr(C)]
-pub struct Mbuffer {
-    pub buffer: *mut c_char,
-    pub n: usize,
-    pub buffsize: usize,
-}
-
-unsafe extern "C-unwind" {
-    fn luaM_saferealloc_(
-        state: *mut lua_State,
-        block: *mut c_void,
-        oldsize: usize,
-        size: usize,
-    ) -> *mut c_void;
-}
-
+pub type LuaReader = Option<unsafe fn(*mut lua_State, *mut c_void, *mut usize) -> *const c_char>;
 impl ZIO {
     fn as_mut(z: *mut ZIO) -> &'static mut ZIO {
         unsafe { z.as_mut().expect("ZIO pointer must not be null") }
@@ -65,14 +38,14 @@ fn checkbuffer(z: &mut ZIO) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaZ_fill(z: *mut ZIO) -> c_int {
+pub unsafe fn luaZ_fill(z: *mut ZIO) -> c_int {
     let z = ZIO::as_mut(z);
     let Some(reader) = z.reader else {
         return EOZ;
     };
 
     let mut size = 0usize;
-    let buffer = unsafe { reader(z.l, z.data, &mut size) };
+    let buffer = unsafe { reader(z.L, z.data, &mut size) };
     if buffer.is_null() || size == 0 {
         return EOZ;
     }
@@ -89,7 +62,7 @@ pub(crate) unsafe fn luaZ_init(
     data: *mut c_void,
 ) {
     let z = ZIO::as_mut(z);
-    z.l = state;
+    z.L = state;
     z.reader = reader;
     z.data = data;
     z.n = 0;
@@ -97,18 +70,14 @@ pub(crate) unsafe fn luaZ_init(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaZ_initbuffer(_state: *mut lua_State, buffer: *mut Mbuffer) {
+pub unsafe fn luaZ_initbuffer(_state: *mut lua_State, buffer: *mut Mbuffer) {
     let buffer = Mbuffer::as_mut(buffer);
     buffer.buffer = ptr::null_mut();
     buffer.n = 0;
     buffer.buffsize = 0;
 }
 
-pub(crate) unsafe fn luaZ_resizebuffer(
-    state: *mut lua_State,
-    buffer: *mut Mbuffer,
-    size: usize,
-) {
+pub(crate) unsafe fn luaZ_resizebuffer(state: *mut lua_State, buffer: *mut Mbuffer, size: usize) {
     let buffer = Mbuffer::as_mut(buffer);
     buffer.buffer =
         unsafe { luaM_saferealloc_(state, buffer.buffer.cast(), buffer.buffsize, size).cast() };
@@ -119,7 +88,7 @@ pub(crate) unsafe fn luaZ_resizebuffer(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaZ_freebuffer(state: *mut lua_State, buffer: *mut Mbuffer) {
+pub unsafe fn luaZ_freebuffer(state: *mut lua_State, buffer: *mut Mbuffer) {
     unsafe { luaZ_resizebuffer(state, buffer, 0) };
 }
 
@@ -162,8 +131,8 @@ mod tests {
         luaZ_resizebuffer,
     };
     use crate::aux_rs::luaL_newstate;
-    use crate::lua_module::lua_State;
-    use crate::luaffi::lua_close;
+    use crate::runtime::lua_State;
+    use crate::state::lua_close;
     use core::ffi::{c_char, c_void};
     use core::{ptr, slice};
 
@@ -172,11 +141,7 @@ mod tests {
         index: usize,
     }
 
-    unsafe extern "C-unwind" fn reader(
-        _state: *mut lua_State,
-        data: *mut c_void,
-        size: *mut usize,
-    ) -> *const c_char {
+    unsafe fn reader(_state: *mut lua_State, data: *mut c_void, size: *mut usize) -> *const c_char {
         let data = unsafe { &mut *data.cast::<ReaderData>() };
         if let Some(chunk) = data.chunks.get(data.index) {
             data.index += 1;
@@ -199,7 +164,7 @@ mod tests {
             p: ptr::null(),
             reader: None,
             data: ptr::null_mut(),
-            l: ptr::null_mut(),
+            L: ptr::null_mut(),
         };
 
         unsafe {
@@ -232,7 +197,7 @@ mod tests {
             p: ptr::null(),
             reader: None,
             data: ptr::null_mut(),
-            l: ptr::null_mut(),
+            L: ptr::null_mut(),
         };
 
         unsafe {

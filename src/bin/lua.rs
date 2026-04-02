@@ -5,6 +5,14 @@ use lua_rs::aux_rs::{
 use lua_rs::init::luaL_openselectedlibs;
 use lua_rs::luaffi::*;
 use lua_rs::{link_anchor, lua_module::lua_State};
+
+// Shadow the u8 constants with i32 versions for comparison with c_int return values
+const LUA_OK: i32 = 0;
+const LUA_ERRSYNTAX: i32 = 3;
+const LUA_TNIL: i32 = 0;
+const LUA_TSTRING: i32 = 4;
+const LUA_TTABLE: i32 = 5;
+const LUA_MINSTACK: i32 = 20;
 use std::env;
 use std::ffi::{CStr, CString};
 use std::io::{self, IsTerminal, Write};
@@ -555,7 +563,7 @@ impl LuaRuntime {
     }
 }
 
-unsafe extern "C-unwind" fn msghandler(state: *mut lua_State) -> i32 {
+unsafe  fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");

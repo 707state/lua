@@ -1,21 +1,12 @@
 #![allow(non_snake_case, dead_code)]
 
-use crate::lua_module::{lua_Integer, lua_Number, lua_State};
+use crate::runtime::*;
 use crate::string::{raw_luaS_new, raw_luaS_newlstr};
 use crate::table::{raw_luaH_getstr, raw_luaH_set};
-use crate::zio::{EOZ, Mbuffer, ZIO, luaZ_fill, luaZ_resizebuffer};
+use crate::zio::{EOZ, luaZ_fill, luaZ_resizebuffer};
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
-
-const LUA_ERRSYNTAX: u8 = 3;
-const LUA_VNIL: u8 = 0;
-const LUA_VNUMINT: u8 = 3;
-const LUA_VNUMFLT: u8 = 19;
-const LUA_VSHRSTR: u8 = 4;
-const BIT_ISCOLLECTABLE: u8 = 1 << 6;
 const LUA_MINBUFFER: usize = 32;
-const MAX_SIZE: usize = lua_Integer::MAX as usize;
-const UTF8BUFFSZ: usize = 8;
 const FIRST_RESERVED: c_int = u8::MAX as c_int + 1;
 const TK_AND: c_int = FIRST_RESERVED;
 const TK_BREAK: c_int = TK_AND + 1;
@@ -111,228 +102,15 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
     b"<string>\0",
 ];
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut GCObject,
-    p: *mut c_void,
-    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
-    i: lua_Integer,
-    n: lua_Number,
-    ub: u8,
-}
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-union SemInfo {
-    r: lua_Number,
-    i: lua_Integer,
-    ts: *mut TString,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StackValue {
-    val: TValue,
-    _tbclist: StackValueTbc,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct StackValueTbc {
-    value_: Value,
-    tt_: u8,
-    delta: u16,
-}
-
-type StkId = *mut StackValue;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StkIdRel {
-    p: StkId,
-    offset: isize,
-}
-
-#[repr(C)]
-struct GCObject {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-#[repr(C)]
-union TStringUnion {
-    lnglen: usize,
-    hnext: *mut TString,
-}
-
-#[repr(C)]
-struct TString {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    extra: u8,
-    shrlen: i8,
-    hash: u32,
-    u: TStringUnion,
-    contents: *mut c_char,
-    falloc: Option<unsafe extern "C-unwind" fn(*mut c_void, *mut c_void, usize, usize) -> *mut c_void>,
-    ud: *mut c_void,
-}
-
-#[repr(C)]
-struct Table {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct FuncState {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct Dyndata {
-    _private: [u8; 0],
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct Token {
-    token: c_int,
-    seminfo: SemInfo,
-}
-
-#[repr(C)]
-pub struct LexState {
-    current: c_int,
-    linenumber: c_int,
-    lastline: c_int,
-    t: Token,
-    lookahead: Token,
-    fs: *mut FuncState,
-    L: *mut lua_State,
-    z: *mut ZIO,
-    buff: *mut Mbuffer,
-    h: *mut Table,
-    dyd: *mut Dyndata,
-    source: *mut TString,
-    envn: *mut TString,
-    brkn: *mut TString,
-    glbn: *mut TString,
-}
-
-#[repr(C)]
-struct GlobalState {
-    frealloc: *mut c_void,
-    ud: *mut c_void,
-    GCtotalbytes: isize,
-    GCdebt: isize,
-}
-
-#[repr(C)]
-struct LuaStatePrefix {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    allowhook: u8,
-    status: u8,
-    top: StkIdRel,
-    l_g: *mut GlobalState,
-}
-
-unsafe extern "C-unwind" {
-    fn luaC_fix(state: *mut lua_State, object: *mut GCObject);
-    fn luaC_step(state: *mut lua_State);
-    fn luaD_throw(state: *mut lua_State, errcode: u8) -> !;
-    fn luaG_addinfo(
-        state: *mut lua_State,
-        msg: *const c_char,
-        src: *mut TString,
-        line: c_int,
-    ) -> *const c_char;
-    fn luaO_hexavalue(c: c_int) -> u8;
-    fn luaO_pushfstring(state: *mut lua_State, fmt: *const c_char, ...) -> *const c_char;
-    fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize;
-    fn luaO_utf8esc(buff: *mut c_char, x: u32) -> c_int;
-}
-
-#[inline]
-unsafe fn lstate(state: *mut lua_State) -> *mut LuaStatePrefix {
-    state.cast()
-}
-
-#[inline]
-unsafe fn s2v(stack: StkId) -> *mut TValue {
-    unsafe { ptr::addr_of_mut!((*stack).val) }
-}
-
-#[inline]
-unsafe fn settt(obj: *mut TValue, tt: u8) {
-    unsafe { (*obj).tt_ = tt };
-}
-
-#[inline]
-unsafe fn setsvalue(obj: *mut TValue, string: *mut TString) {
-    unsafe {
-        (*obj).value_.gc = string.cast();
-        settt(obj, (*string).tt | BIT_ISCOLLECTABLE);
-    }
-}
-
-#[inline]
-unsafe fn rawtt(obj: *const TValue) -> u8 {
-    unsafe { (*obj).tt_ }
-}
-
-#[inline]
-unsafe fn ttisinteger(obj: *const TValue) -> bool {
-    unsafe { rawtt(obj) == LUA_VNUMINT }
-}
-
-#[inline]
-unsafe fn ttisfloat(obj: *const TValue) -> bool {
-    unsafe { rawtt(obj) == LUA_VNUMFLT }
-}
-
-#[inline]
-unsafe fn ivalue(obj: *const TValue) -> lua_Integer {
-    unsafe { (*obj).value_.i }
-}
-
-#[inline]
-unsafe fn fltvalue(obj: *const TValue) -> lua_Number {
-    unsafe { (*obj).value_.n }
-}
-
-#[inline]
-unsafe fn gcvalue(obj: *const TValue) -> *mut GCObject {
-    unsafe { (*obj).value_.gc }
-}
-
-#[inline]
-unsafe fn tsvalue(obj: *const TValue) -> *mut TString {
-    unsafe { gcvalue(obj).cast() }
-}
-
-#[inline]
-fn tagisempty(tag: u8) -> bool {
-    (tag & 0x0f) == LUA_VNIL
-}
-
-#[inline]
-unsafe fn luaC_checkGC(state: *mut lua_State) {
-    if unsafe { (*(*lstate(state)).l_g).GCdebt <= 0 } {
-        unsafe { luaC_step(state) };
-    }
-}
+#[inline] unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) { unsafe { crate::gc::luaC_fix(s, o) } }
+#[inline] unsafe fn luaC_step(s: *mut lua_State) { unsafe { crate::gc::luaC_step(s) } }
+#[inline] unsafe fn luaD_throw(s: *mut lua_State, e: u8) -> ! { unsafe { crate::do_rs::luaD_throw(s, e) } }
+#[inline] unsafe fn luaG_addinfo(s: *mut lua_State, m: *const c_char, src: *mut TString, l: c_int) -> *const c_char { unsafe { crate::debug::luaG_addinfo(s, m, src, l) } }
+#[inline] unsafe fn luaO_hexavalue(c: c_int) -> u8 { crate::object::luaO_hexavalue(c) }
+// luaO_pushfstring 直接使用 crate::object::luaO_pushfstring，不封装（变参函数无法在非 extern 函数中转发）
+#[inline] unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize { unsafe { crate::object::luaO_str2num(s, o) } }
+#[inline] unsafe fn luaO_utf8esc(b: *mut c_char, x: u32) -> c_int { unsafe { crate::object::luaO_utf8esc(b, x) } }
 
 #[inline]
 fn lisprint(c: c_int) -> bool {
@@ -421,7 +199,7 @@ unsafe fn lexerror(ls: *mut LexState, msg: *const c_char, token: c_int) -> ! {
     let msg = unsafe { luaG_addinfo((*ls).L, msg, (*ls).source, (*ls).linenumber) };
     if token != 0 {
         let near = unsafe { txtToken(ls, token) };
-        unsafe { luaO_pushfstring((*ls).L, NEAR_FMT.as_ptr().cast(), msg, near) };
+        unsafe { crate::object::luaO_pushfstring((*ls).L, NEAR_FMT.as_ptr().cast(), msg, near) };
     }
     unsafe { luaD_throw((*ls).L, LUA_ERRSYNTAX) }
 }
@@ -467,18 +245,18 @@ pub(crate) unsafe fn luaX_init(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_token2str(ls: *mut LexState, token: c_int) -> *const c_char {
+pub unsafe  fn luaX_token2str(ls: *mut LexState, token: c_int) -> *const c_char {
     if token < FIRST_RESERVED {
         if lisprint(token) {
-            unsafe { luaO_pushfstring((*ls).L, CHAR_FMT.as_ptr().cast(), token) }
+            unsafe { crate::object::luaO_pushfstring((*ls).L, CHAR_FMT.as_ptr().cast(), token) }
         } else {
-            unsafe { luaO_pushfstring((*ls).L, CONTROL_FMT.as_ptr().cast(), token) }
+            unsafe { crate::object::luaO_pushfstring((*ls).L, CONTROL_FMT.as_ptr().cast(), token) }
         }
     } else {
         let s = LUA_X_TOKENS[(token - FIRST_RESERVED) as usize];
         if token < TK_EOS {
             unsafe {
-                luaO_pushfstring((*ls).L, EQ_FMT.as_ptr().cast(), s.as_ptr().cast::<c_char>())
+                crate::object::luaO_pushfstring((*ls).L, EQ_FMT.as_ptr().cast(), s.as_ptr().cast::<c_char>())
             }
         } else {
             s.as_ptr().cast()
@@ -490,14 +268,14 @@ unsafe fn txtToken(ls: *mut LexState, token: c_int) -> *const c_char {
     match token {
         TK_NAME | TK_STRING | TK_FLT | TK_INT => {
             unsafe { save(ls, 0) };
-            unsafe { luaO_pushfstring((*ls).L, EQ_FMT.as_ptr().cast(), buffer_ptr((*ls).buff)) }
+            unsafe { crate::object::luaO_pushfstring((*ls).L, EQ_FMT.as_ptr().cast(), buffer_ptr((*ls).buff)) }
         }
         _ => unsafe { luaX_token2str(ls, token) },
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
+pub unsafe  fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
     unsafe { lexerror(ls, msg, (*ls).t.token) }
 }
 
@@ -513,21 +291,21 @@ unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString {
     if !tagisempty(tag) {
         unsafe { tsvalue(ptr::addr_of!(oldts)) }
     } else {
-        let top = unsafe { (*lstate((*ls).L)).top.p };
+        let top = unsafe { (*(*ls).L).top.p };
         let stv = unsafe { s2v(top) };
         unsafe {
-            (*lstate((*ls).L)).top.p = top.add(1);
+            (*(*ls).L).top.p = top.add(1);
             setsvalue(stv, ts);
             raw_luaH_set((*ls).L.cast(), (*ls).h.cast(), stv.cast(), stv.cast());
             luaC_checkGC((*ls).L);
-            (*lstate((*ls).L)).top.p = top;
+            (*(*ls).L).top.p = top;
         }
         ts
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_newstring(
+pub unsafe  fn luaX_newstring(
     ls: *mut LexState,
     str_: *const c_char,
     len: usize,
@@ -552,7 +330,7 @@ unsafe fn inclinenumber(ls: *mut LexState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_setinput(
+pub unsafe  fn luaX_setinput(
     state: *mut lua_State,
     ls: *mut LexState,
     z: *mut ZIO,
@@ -672,7 +450,7 @@ unsafe fn read_long_string(ls: *mut LexState, seminfo: *mut SemInfo, sep: usize)
                     c"string".as_ptr()
                 };
                 let msg = unsafe {
-                    luaO_pushfstring((*ls).L, UNFINISHED_LONG_FMT.as_ptr().cast(), what, line)
+                    crate::object::luaO_pushfstring((*ls).L, UNFINISHED_LONG_FMT.as_ptr().cast(), what, line)
                 };
                 unsafe { lexerror(ls, msg, TK_EOS) };
             }
@@ -682,7 +460,7 @@ unsafe fn read_long_string(ls: *mut LexState, seminfo: *mut SemInfo, sep: usize)
                     break;
                 }
             }
-            x if x == '\n' as c_int || x == '\r' as c_int => unsafe {
+            x if x == '\n' as c_int || x == '\r' as c_int => unsafe  {
                 save(ls, '\n' as c_int);
                 inclinenumber(ls);
                 if seminfo.is_null() {
@@ -797,7 +575,7 @@ unsafe fn read_string(ls: *mut LexState, del: c_int, seminfo: *mut SemInfo) {
     while unsafe { (*ls).current } != del {
         match unsafe { (*ls).current } {
             EOZ => unsafe { lexerror(ls, c"unfinished string".as_ptr(), TK_EOS) },
-            x if x == '\n' as c_int || x == '\r' as c_int => unsafe {
+            x if x == '\n' as c_int || x == '\r' as c_int => unsafe  {
                 lexerror(ls, c"unfinished string".as_ptr(), TK_STRING)
             },
             x if x == '\\' as c_int => {
@@ -1010,7 +788,7 @@ unsafe fn llex(ls: *mut LexState, seminfo: *mut SemInfo) -> c_int {
                             break;
                         }
                     }
-                    let ts = unsafe {
+                    let ts = unsafe  {
                         raw_luaS_newlstr(
                             (*ls).L.cast(),
                             buffer_ptr((*ls).buff),
@@ -1034,7 +812,7 @@ unsafe fn llex(ls: *mut LexState, seminfo: *mut SemInfo) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_next(ls: *mut LexState) {
+pub unsafe  fn luaX_next(ls: *mut LexState) {
     unsafe {
         (*ls).lastline = (*ls).linenumber;
         if (*ls).lookahead.token != TK_EOS {
@@ -1047,7 +825,7 @@ pub unsafe extern "C-unwind" fn luaX_next(ls: *mut LexState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaX_lookahead(ls: *mut LexState) -> c_int {
+pub unsafe  fn luaX_lookahead(ls: *mut LexState) -> c_int {
     debug_assert_eq!(unsafe { (*ls).lookahead.token }, TK_EOS);
     unsafe {
         (*ls).lookahead.token = llex(ls, ptr::addr_of_mut!((*ls).lookahead.seminfo));
@@ -1061,9 +839,12 @@ pub(crate) unsafe fn raw_luaX_init(state: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
+    use crate::api::lua_tolstring;
     use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
     use crate::init::luaL_openselectedlibs;
-    use crate::luaffi::{LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_close, lua_tolstring};
+    use crate::luaffi::{LUAL_NUMSIZES};
+    use crate::runtime::{LUA_OK, LUA_VERSION_NUM};
+    use crate::state::lua_close;
     use crate::test_support::run_lua_test;
     use std::ptr;
 
@@ -1071,7 +852,7 @@ mod tests {
         let state = unsafe { luaL_newstate() };
         assert!(!state.is_null());
 
-        let result = (|| unsafe {
+        let result = (|| unsafe  {
             luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
             luaL_openselectedlibs(state, !0, 0);
             let name = c"@lex_error.lua";
@@ -1082,7 +863,7 @@ mod tests {
                 name.as_ptr(),
                 ptr::null(),
             );
-            assert_ne!(status, LUA_OK, "chunk should fail to load");
+            assert_ne!(status, LUA_OK.into(), "chunk should fail to load");
             let mut len = 0usize;
             let err = lua_tolstring(state, -1, &mut len);
             String::from_utf8_lossy(core::slice::from_raw_parts(err.cast::<u8>(), len)).into_owned()

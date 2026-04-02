@@ -1,9 +1,7 @@
+use crate::api::*;
 use crate::aux_rs::{luaL_checkinteger, luaL_checklstring, luaL_checkstack, luaL_optinteger};
-use crate::lua_module::{
-    argcheck, create_library_with_nrec, lua_Integer, lua_State, lua_Unsigned, lua_gettop,
-    lua_pushcclosure, lua_pushinteger, lua_pushlstring, lua_pushvalue, lua_setfield, luaL_Reg,
-    push_fail, raise_error,
-};
+use crate::lua_module::*;
+use crate::runtime::*;
 use core::ffi::c_int;
 use core::ptr;
 const MAXUNICODE: u32 = 0x10FFFF;
@@ -51,10 +49,6 @@ static UTF8LIB_REGS: [luaL_Reg; 6] = [
     },
 ];
 
-unsafe extern "C-unwind" {
-    fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
-}
 
 #[inline]
 fn iscont(byte: u8) -> bool {
@@ -136,7 +130,7 @@ fn encode_utf8(mut code: u32, out: &mut [u8; 6]) -> usize {
     len
 }
 
-unsafe extern "C-unwind" fn utflen(state: *mut lua_State) -> c_int {
+unsafe  fn utflen(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let mut posi = u_posrelat(unsafe { luaL_optinteger(state, 2, 1) }, len);
@@ -179,7 +173,7 @@ unsafe extern "C-unwind" fn utflen(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C-unwind" fn codepoint(state: *mut lua_State) -> c_int {
+unsafe  fn codepoint(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let posi = u_posrelat(unsafe { luaL_optinteger(state, 2, 1) }, len);
@@ -237,7 +231,7 @@ unsafe fn pushutfchar(state: *mut lua_State, arg: c_int, out: &mut Vec<u8>) {
     out.extend_from_slice(&buf[..len]);
 }
 
-unsafe extern "C-unwind" fn utfchar(state: *mut lua_State) -> c_int {
+unsafe  fn utfchar(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     if n == 1 {
         let mut bytes = Vec::with_capacity(6);
@@ -254,7 +248,7 @@ unsafe extern "C-unwind" fn utfchar(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe extern "C-unwind" fn byteoffset(state: *mut lua_State) -> c_int {
+unsafe  fn byteoffset(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let mut n = unsafe { luaL_checkinteger(state, 2) };
@@ -346,21 +340,21 @@ unsafe fn iter_aux(state: *mut lua_State, strict: bool) -> c_int {
     2
 }
 
-unsafe extern "C-unwind" fn iter_auxstrict(state: *mut lua_State) -> c_int {
+unsafe  fn iter_auxstrict(state: *mut lua_State) -> c_int {
     unsafe { iter_aux(state, true) }
 }
 
-unsafe extern "C-unwind" fn iter_auxlax(state: *mut lua_State) -> c_int {
+unsafe  fn iter_auxlax(state: *mut lua_State) -> c_int {
     unsafe { iter_aux(state, false) }
 }
 
-unsafe extern "C-unwind" fn iter_codes(state: *mut lua_State) -> c_int {
+unsafe  fn iter_codes(state: *mut lua_State) -> c_int {
     let lax = unsafe { lua_toboolean(state, 2) } != 0;
     let mut len = 0_usize;
     let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     unsafe { argcheck(state, len == 0 || !iscontp(s), 1, MSG_INVALID) };
     unsafe {
-        lua_pushcclosure(
+        crate::api::lua_pushcclosure(
             state,
             if lax {
                 Some(iter_auxlax)
@@ -375,7 +369,7 @@ unsafe extern "C-unwind" fn iter_codes(state: *mut lua_State) -> c_int {
     3
 }
 
-pub(crate) unsafe extern "C-unwind" fn luaopen_utf8(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn luaopen_utf8(state: *mut lua_State) -> c_int {
     unsafe { create_library_with_nrec(state, &UTF8LIB_REGS, 6) };
     unsafe { lua_pushlstring(state, UTF8PATT.as_ptr().cast(), UTF8PATT.len()) };
     unsafe { lua_setfield(state, -2, FIELD_CHARPATTERN.as_ptr().cast()) };

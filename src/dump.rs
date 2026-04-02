@@ -1,4 +1,5 @@
-use crate::lua_module::{lua_Integer, lua_Number, lua_State, lua_Unsigned};
+use crate::do_rs::luaD_inctop;
+use crate::runtime::*;
 use crate::table::{raw_luaH_getstr, raw_luaH_new, raw_luaH_set};
 use core::ffi::{c_char, c_int, c_void};
 use core::mem::size_of;
@@ -12,171 +13,15 @@ const LUAC_INT: c_int = -0x5678;
 const LUAC_INST: Instruction = 0x1234_5678;
 const LUAC_NUM: lua_Number = -370.5;
 
-const BIT_ISCOLLECTABLE: u8 = 1 << 6;
-const LUA_VNIL: u8 = 0;
-const LUA_VFALSE: u8 = 1;
-const LUA_VTRUE: u8 = 17;
-const LUA_VNUMINT: u8 = 3;
-const LUA_VNUMFLT: u8 = 19;
-const LUA_VSHRSTR: u8 = 4;
-const LUA_VLNGSTR: u8 = 20;
-const LUA_VTABLE: u8 = 5;
-
-type Instruction = u32;
-type LuaWriter =
-    Option<unsafe extern "C-unwind" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union Value {
-    gc: *mut GCObject,
-    p: *mut c_void,
-    f: Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>,
-    i: lua_Integer,
-    n: lua_Number,
-    ub: u8,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct TValue {
-    value_: Value,
-    tt_: u8,
-}
-
-#[repr(C)]
-struct GCObject {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-}
-
-#[repr(C)]
-union TStringUnion {
-    lnglen: usize,
-    hnext: *mut TString,
-}
-
-#[repr(C)]
-struct TString {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    extra: u8,
-    shrlen: i8,
-    hash: u32,
-    u: TStringUnion,
-    contents: *mut c_char,
-    falloc: *mut c_void,
-    ud: *mut c_void,
-}
-
-#[repr(C)]
-struct Upvaldesc {
-    name: *mut TString,
-    instack: u8,
-    idx: u8,
-    kind: u8,
-}
-
-#[repr(C)]
-struct LocVar {
-    varname: *mut TString,
-    startpc: c_int,
-    endpc: c_int,
-}
-
 #[repr(C)]
 struct AbsLineInfo {
     pc: c_int,
     line: c_int,
 }
 
-#[allow(non_camel_case_types)]
-type ls_byte = i8;
-
-#[repr(C)]
-pub struct Proto {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    numparams: u8,
-    flag: u8,
-    maxstacksize: u8,
-    sizeupvalues: c_int,
-    sizek: c_int,
-    sizecode: c_int,
-    sizelineinfo: c_int,
-    sizep: c_int,
-    sizelocvars: c_int,
-    sizeabslineinfo: c_int,
-    linedefined: c_int,
-    lastlinedefined: c_int,
-    k: *const TValue,
-    code: *const Instruction,
-    p: *const *const Proto,
-    upvalues: *const Upvaldesc,
-    lineinfo: *const ls_byte,
-    abslineinfo: *const AbsLineInfo,
-    locvars: *const LocVar,
-    source: *mut TString,
-    gclist: *mut GCObject,
-}
-
-#[repr(C)]
-struct Node {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct Table {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    flags: u8,
-    lsizenode: u8,
-    asize: u32,
-    array: *mut Value,
-    node: *mut Node,
-    metatable: *mut Table,
-    gclist: *mut GCObject,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StkIdRel {
-    p: *mut StackValue,
-    offset: isize,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-union StackValue {
-    val: TValue,
-    _tbclist: StackValueTbc,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct StackValueTbc {
-    value_: Value,
-    tt_: u8,
-    delta: u16,
-}
-
-#[repr(C)]
-struct LuaStatePrefix {
-    next: *mut GCObject,
-    tt: u8,
-    marked: u8,
-    allowhook: u8,
-    status: u8,
-    top: StkIdRel,
-}
-
 struct DumpState {
     l: *mut lua_State,
-    writer: LuaWriter,
+    writer: lua_Writer,
     data: *mut c_void,
     offset: usize,
     strip: bool,
@@ -185,9 +30,6 @@ struct DumpState {
     nstr: lua_Unsigned,
 }
 
-unsafe extern "C-unwind" {
-    fn luaD_inctop(state: *mut lua_State);
-}
 
 #[inline]
 fn ctb(tag: u8) -> u8 {
@@ -195,62 +37,8 @@ fn ctb(tag: u8) -> u8 {
 }
 
 #[inline]
-fn tagisempty(tag: u8) -> bool {
-    (tag & 0x0f) == 0
-}
-
-#[inline]
-unsafe fn ivalue(value: *const TValue) -> lua_Integer {
-    unsafe { (*value).value_.i }
-}
-
-#[inline]
-unsafe fn fltvalue(value: *const TValue) -> lua_Number {
-    unsafe { (*value).value_.n }
-}
-
-#[inline]
-unsafe fn tsvalue(value: *const TValue) -> *mut TString {
-    unsafe { (*value).value_.gc.cast() }
-}
-
-#[inline]
-unsafe fn settt(value: *mut TValue, tag: u8) {
-    unsafe { (*value).tt_ = tag };
-}
-
-#[inline]
-unsafe fn setivalue(value: *mut TValue, integer: lua_Integer) {
-    unsafe { (*value).value_.i = integer };
-    unsafe { settt(value, LUA_VNUMINT) };
-}
-
-#[inline]
-unsafe fn setsvalue(state: *mut lua_State, value: *mut TValue, string: *mut TString) {
-    let _ = state;
-    unsafe { (*value).value_.gc = string.cast() };
-    unsafe { settt(value, ctb((*string).tt)) };
-}
-
-#[inline]
-unsafe fn sethvalue(value: *mut TValue, table: *mut Table) {
-    unsafe { (*value).value_.gc = table.cast() };
-    unsafe { settt(value, ctb(LUA_VTABLE)) };
-}
-
-#[inline]
-unsafe fn state_prefix(state: *mut lua_State) -> *mut LuaStatePrefix {
-    state.cast()
-}
-
-#[inline]
-unsafe fn stack_top_value(state: *mut lua_State) -> *mut TValue {
-    unsafe { (*state_prefix(state)).top.p.cast::<TValue>() }
-}
-
-#[inline]
 unsafe fn push_table(state: *mut lua_State, table: *mut Table) {
-    let slot = unsafe { stack_top_value(state) };
+    let slot = unsafe { s2v((*state).top.p) };
     unsafe { sethvalue(slot, table) };
     unsafe { luaD_inctop(state) };
 }
@@ -376,7 +164,7 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
         tt_: 0,
     };
     unsafe {
-        setsvalue(state.l, &mut key, string);
+        setsvalue(&mut key, string);
         setivalue(&mut value, state.nstr as lua_Integer);
         raw_luaH_set(
             state.l.cast(),
@@ -535,7 +323,7 @@ fn dump_header(state: &mut DumpState) {
 pub(crate) unsafe fn luaU_dump(
     state: *mut lua_State,
     proto: *const Proto,
-    writer: LuaWriter,
+    writer: lua_Writer,
     data: *mut c_void,
     strip: c_int,
 ) -> c_int {

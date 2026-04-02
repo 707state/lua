@@ -9,3 +9,4 @@
 !/subprojects/libffi.wrap
 **/target
 **/Cargo.lock
+/.catpaw

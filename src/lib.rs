@@ -3,10 +3,10 @@
 pub mod api;
 pub mod aux_rs;
 pub mod base_rs;
-pub mod coro_rs;
-pub mod ctype;
 #[path = "code.rs"]
 pub mod code_rs;
+pub mod coro_rs;
+pub mod ctype;
 pub mod db_rs;
 pub mod debug;
 #[path = "do.rs"]
@@ -44,6 +44,7 @@ pub mod zio;
 pub(crate) mod test_support;
 
 pub use lua_module::link_anchor;
+pub use runtime::CallInfo;
 
 #[cfg(test)]
 mod tests {

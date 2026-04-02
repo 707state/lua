@@ -1,158 +1,18 @@
+use crate::api::*;
 use crate::aux_rs::{
     luaL_checkinteger, luaL_checklstring, luaL_checknumber, luaL_checkstack, luaL_getmetafield,
     luaL_optinteger, luaL_optlstring, luaL_tolstring, luaL_typeerror,
 };
 use crate::lua_module::{
-    argcheck, create_library, lua_Integer, lua_Number, lua_State, lua_Unsigned, lua_createtable,
-    lua_error, lua_gettop, lua_pop, lua_pushcclosure, lua_pushinteger, lua_pushlstring,
-    lua_pushnumber, lua_pushstring, lua_pushvalue, lua_setfield, lua_settop, lua_upvalueindex,
-    luaL_Reg, luaL_setfuncs, push_fail,
+    argcheck, create_library, lua_Integer, lua_Number, lua_Unsigned, lua_createtable, lua_error, lua_gettop, lua_pop, lua_pushcclosure, lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_pushstring, lua_pushvalue, lua_setfield, lua_settop, lua_upvalueindex, luaL_Reg, luaL_error, luaL_error_str, luaL_setfuncs, push_fail
 };
-use crate::luaffi::{lua_call, lua_dump, lua_insert};
+use crate::luaffi::*;
+use crate::runtime::*;
 use core::ffi::c_void;
 use core::ffi::{c_char, c_int, c_uchar};
 use core::ptr::{self, null};
 
-const ERR_RESULTING_STRING_TOO_LARGE: &[u8] = b"resulting string too large\0";
-const ERR_STRING_SLICE_TOO_LONG: &[u8] = b"string slice too long\0";
-const ERR_VALUE_OUT_OF_RANGE: &[u8] = b"value out of range\0";
-const ERR_LUA_FUNCTION_EXPECTED: &[u8] = b"Lua function expected\0";
-const ERR_INVALID_CAPTURE_INDEX_FMT: &[u8] = b"invalid capture index %%%d\0";
-const ERR_INVALID_PATTERN_CAPTURE: &[u8] = b"invalid pattern capture\0";
-const ERR_MALFORMED_PATTERN_ENDS_WITH_ESCAPE: &[u8] = b"malformed pattern (ends with '%%')\0";
-const ERR_MALFORMED_PATTERN_MISSING_BRACKET: &[u8] = b"malformed pattern (missing ']')\0";
-const ERR_MALFORMED_PATTERN_MISSING_BALANCE_ARGS: &[u8] =
-    b"malformed pattern (missing arguments to '%%b')\0";
-const ERR_PATTERN_TOO_COMPLEX: &[u8] = b"pattern too complex\0";
-const ERR_MISSING_FRONTIER_SET: &[u8] = b"missing '[' after '%%f' in pattern\0";
-const ERR_TOO_MANY_CAPTURES: &[u8] = b"too many captures\0";
-const ERR_TOO_MANY_CAPTURES_RESULTS: &[u8] = b"too many captures\0";
-const ERR_UNFINISHED_CAPTURE: &[u8] = b"unfinished capture\0";
-const ERR_INVALID_REPLACEMENT_USE_FMT: &[u8] = b"invalid use of '%c' in replacement string\0";
-const ERR_INVALID_REPLACEMENT_VALUE_FMT: &[u8] = b"invalid replacement value (a %s)\0";
-const ERR_EXPECTED_REPLACEMENT: &[u8] = b"string/function/table\0";
-const ERR_INVALID_CONVERSION_SPEC_FMT: &[u8] = b"invalid conversion specification: '%s'\0";
-const ERR_INVALID_FORMAT_TOO_LONG: &[u8] = b"invalid format (too long)\0";
-const ERR_NO_VALUE: &[u8] = b"no value\0";
-const ERR_INVALID_CONVERSION_FMT: &[u8] = b"invalid conversion '%s' to 'format'\0";
-const ERR_VALUE_HAS_NO_LITERAL_FORM: &[u8] = b"value has no literal form\0";
-const ERR_SPECIFIER_Q_MODIFIERS: &[u8] = b"specifier '%%q' cannot have modifiers\0";
-const ERR_STRING_CONTAINS_ZEROS: &[u8] = b"string contains zeros\0";
-const ERR_RESULT_TOO_LONG: &[u8] = b"result too long\0";
-const ERR_INTEGER_OVERFLOW: &[u8] = b"integer overflow\0";
-const ERR_UNSIGNED_OVERFLOW: &[u8] = b"unsigned overflow\0";
-const ERR_STRING_LONGER_THAN_GIVEN_SIZE: &[u8] = b"string longer than given size\0";
-const ERR_STRING_LENGTH_DOES_NOT_FIT: &[u8] = b"string length does not fit in given size\0";
-const ERR_VARIABLE_LENGTH_FORMAT: &[u8] = b"variable-length format\0";
-const ERR_FORMAT_RESULT_TOO_LARGE: &[u8] = b"format result too large\0";
-const ERR_INITIAL_POSITION_OUT_OF_STRING: &[u8] = b"initial position out of string\0";
-const ERR_DATA_STRING_TOO_SHORT: &[u8] = b"data string too short\0";
-const ERR_TOO_MANY_RESULTS: &[u8] = b"too many results\0";
-const ERR_UNFINISHED_ZSTRING: &[u8] = b"unfinished string for format 'z'\0";
-const ERR_INVALID_FORMAT_OPTION_FMT: &[u8] = b"invalid format option '%c'\0";
-const ERR_INTEGRAL_SIZE_OUT_OF_LIMITS_FMT: &[u8] = b"integral size (%d) out of limits [1,%d]\0";
-const ERR_MISSING_SIZE_FOR_C: &[u8] = b"missing size for format option 'c'\0";
-const ERR_INVALID_NEXT_OPTION_FOR_X: &[u8] = b"invalid next option for option 'X'\0";
-const ERR_ALIGNMENT_NOT_POWER_OF_2: &[u8] = b"format asks for alignment not power of 2\0";
-const ERR_INT_DOES_NOT_FIT_FMT: &[u8] = b"%d-byte integer does not fit into Lua Integer\0";
-const FIELD_INDEX: &[u8] = b"__index\0";
-const NAME_BYTE: &[u8] = b"byte\0";
-const NAME_CHAR: &[u8] = b"char\0";
-const NAME_DUMP: &[u8] = b"dump\0";
-const NAME_FIND: &[u8] = b"find\0";
-const NAME_FORMAT: &[u8] = b"format\0";
-const NAME_GMATCH: &[u8] = b"gmatch\0";
-const NAME_GSUB: &[u8] = b"gsub\0";
-const NAME_LEN: &[u8] = b"len\0";
-const NAME_LOWER: &[u8] = b"lower\0";
-const NAME_MATCH: &[u8] = b"match\0";
-const NAME_REP: &[u8] = b"rep\0";
-const NAME_REVERSE: &[u8] = b"reverse\0";
-const NAME_SUB: &[u8] = b"sub\0";
-const NAME_UPPER: &[u8] = b"upper\0";
-const NAME_PACK: &[u8] = b"pack\0";
-const NAME_PACKSIZE: &[u8] = b"packsize\0";
-const NAME_UNPACK: &[u8] = b"unpack\0";
-const MT_ADD: &[u8] = b"__add\0";
-const MT_SUB: &[u8] = b"__sub\0";
-const MT_MUL: &[u8] = b"__mul\0";
-const MT_MOD: &[u8] = b"__mod\0";
-const MT_POW: &[u8] = b"__pow\0";
-const MT_DIV: &[u8] = b"__div\0";
-const MT_IDIV: &[u8] = b"__idiv\0";
-const MT_UNM: &[u8] = b"__unm\0";
 
-const MAX_SIZE: usize = lua_Integer::MAX as usize;
-const LUA_TNUMBER: c_int = 3;
-const LUA_TSTRING: c_int = 4;
-const LUA_TTABLE: c_int = 5;
-const LUA_TFUNCTION: c_int = 6;
-const LUA_TBOOLEAN: c_int = 1;
-const LUA_TNIL: c_int = 0;
-const LUA_OPADD: c_int = 0;
-const LUA_OPSUB: c_int = 1;
-const LUA_OPMUL: c_int = 2;
-const LUA_OPMOD: c_int = 3;
-const LUA_OPPOW: c_int = 4;
-const LUA_OPDIV: c_int = 5;
-const LUA_OPIDIV: c_int = 6;
-const LUA_OPUNM: c_int = 12;
-const LUA_MAXCAPTURES: usize = 32;
-const CAP_UNFINISHED: isize = -1;
-const CAP_POSITION: isize = -2;
-const MAXCCALLS: c_int = 200;
-const L_ESC: u8 = b'%';
-const SPECIALS: &[u8] = b"^$*+?.([%-";
-const MAX_FORMAT: usize = 32;
-const MAX_ITEM: usize = 120;
-const MAX_ITEMF: usize = 110 + 308;
-const MAXINTSIZE: usize = 16;
-const LUAL_PACKPADBYTE: u8 = 0x00;
-const NB: usize = 8;
-const MC: u8 = 0xFF;
-const SZINT: usize = core::mem::size_of::<lua_Integer>();
-
-const L_FMTFLAGSF: &[u8] = b"-+#0 ";
-const L_FMTFLAGSX: &[u8] = b"-#0";
-const L_FMTFLAGSI: &[u8] = b"-+0 ";
-const L_FMTFLAGSU: &[u8] = b"-0";
-const L_FMTFLAGSC: &[u8] = b"-";
-
-const LUA_INTEGER_FRMLEN: &[u8] = b"ll";
-const LUA_NUMBER_FRMLEN: &[u8] = b"";
-
-unsafe extern "C-unwind" {
-    fn luaL_error(state: *mut lua_State, fmt: *const c_char, ...) -> c_int;
-    fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char;
-    fn lua_tolstring(state: *mut lua_State, index: c_int, len: *mut usize) -> *const c_char;
-    fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut c_void;
-    fn lua_topointer(state: *mut lua_State, index: c_int) -> *const c_void;
-    fn lua_iscfunction(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_isinteger(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_isstring(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Integer;
-    fn lua_tonumberx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> lua_Number;
-    fn lua_stringtonumber(state: *mut lua_State, s: *const c_char) -> usize;
-    fn lua_arith(state: *mut lua_State, op: c_int);
-    fn lua_gettable(state: *mut lua_State, index: c_int) -> c_int;
-    fn lua_setmetatable(state: *mut lua_State, objindex: c_int) -> c_int;
-    fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void;
-    fn isalpha(c: c_int) -> c_int;
-    fn iscntrl(c: c_int) -> c_int;
-    fn isdigit(c: c_int) -> c_int;
-    fn isgraph(c: c_int) -> c_int;
-    fn islower(c: c_int) -> c_int;
-    fn ispunct(c: c_int) -> c_int;
-    fn isspace(c: c_int) -> c_int;
-    fn isupper(c: c_int) -> c_int;
-    fn isalnum(c: c_int) -> c_int;
-    fn isxdigit(c: c_int) -> c_int;
-    fn snprintf(s: *mut c_char, n: usize, format: *const c_char, ...) -> c_int;
-    fn tolower(c: c_int) -> c_int;
-    fn toupper(c: c_int) -> c_int;
-}
 
 #[derive(Default)]
 struct DumpWriterState {
@@ -362,7 +222,7 @@ unsafe fn runtime_error(state: *mut lua_State, message: &'static [u8]) -> c_int 
     unsafe { lua_error(state) }
 }
 
-unsafe extern "C-unwind" fn dump_writer(
+unsafe  fn dump_writer(
     _state: *mut lua_State,
     block: *const c_void,
     size: usize,
@@ -378,7 +238,7 @@ unsafe extern "C-unwind" fn dump_writer(
 
 #[inline]
 unsafe fn tonum(state: *mut lua_State, arg: c_int) -> bool {
-    if unsafe { lua_type(state, arg) } == LUA_TNUMBER {
+    if unsafe { lua_type(state, arg) } == LUA_TNUMBER.into() {
         unsafe { lua_pushvalue(state, arg) };
         true
     } else {
@@ -390,14 +250,14 @@ unsafe fn tonum(state: *mut lua_State, arg: c_int) -> bool {
 
 unsafe fn trymt(state: *mut lua_State, mtkey: &'static [u8]) {
     unsafe { lua_settop(state, 2) };
-    if unsafe { lua_type(state, 2) } == LUA_TSTRING || {
+    if unsafe { lua_type(state, 2) } == LUA_TSTRING.into() || {
         luaL_getmetafield(state, 2, mtkey.as_ptr().cast())
     } == 0
     {
         let opname = unsafe { mtkey.as_ptr().add(2).cast::<c_char>() };
         let left = unsafe { lua_typename(state, lua_type(state, -2)) };
         let right = unsafe { lua_typename(state, lua_type(state, -1)) };
-        let _ = unsafe {
+        let _ = unsafe  {
             luaL_error(
                 state,
                 c"attempt to %s a '%s' with a '%s'".as_ptr(),
@@ -422,13 +282,13 @@ unsafe fn arith(state: *mut lua_State, op: c_int, mtname: &'static [u8]) -> c_in
 
 #[inline]
 unsafe fn error_str(state: *mut lua_State, msg: &'static [u8]) {
-    let _ = unsafe { luaL_error(state, c"%s".as_ptr(), msg.as_ptr().cast::<c_char>()) };
+    let _ = unsafe { luaL_error_str(state, msg.as_ptr().cast::<c_char>()) };
 }
 
 unsafe fn check_capture(ms: &mut MatchState, l: c_int) -> c_int {
     let l = l - c_int::from(b'1');
     if l < 0 || l >= ms.level || ms.capture[l as usize].len == CAP_UNFINISHED {
-        let _ = unsafe {
+        let _ = unsafe  {
             luaL_error(
                 ms.state,
                 ERR_INVALID_CAPTURE_INDEX_FMT.as_ptr().cast(),
@@ -767,7 +627,7 @@ unsafe fn get_onecapture(
 ) -> isize {
     if i >= ms.level {
         if i != 0 {
-            let _ = unsafe {
+            let _ = unsafe{
                 luaL_error(
                     ms.state,
                     ERR_INVALID_CAPTURE_INDEX_FMT.as_ptr().cast(),
@@ -944,7 +804,7 @@ unsafe fn add_s(ms: &mut MatchState, out: &mut Vec<u8>, s: *const u8, e: *const 
         }
         i += 1;
         if i >= news_slice.len() {
-            let _ = unsafe {
+            let _ = unsafe  {
                 luaL_error(
                     ms.state,
                     ERR_INVALID_REPLACEMENT_USE_FMT.as_ptr().cast(),
@@ -974,7 +834,7 @@ unsafe fn add_s(ms: &mut MatchState, out: &mut Vec<u8>, s: *const u8, e: *const 
                 }
             }
             _ => {
-                let _ = unsafe {
+                let _ = unsafe  {
                     luaL_error(
                         ms.state,
                         ERR_INVALID_REPLACEMENT_USE_FMT.as_ptr().cast(),
@@ -994,7 +854,7 @@ unsafe fn add_value(
     e: *const u8,
     tr: c_int,
 ) -> bool {
-    match tr {
+    match tr as u8 {
         LUA_TFUNCTION => {
             unsafe { lua_pushvalue(ms.state, 3) };
             let n = unsafe { push_captures(ms, s, e) };
@@ -1056,7 +916,7 @@ fn getnum(fmt: &mut *const u8, default: usize) -> usize {
 unsafe fn getnumlimit(h: &Header, fmt: &mut *const u8, default: usize) -> usize {
     let sz = getnum(fmt, default);
     if sz == 0 || sz > MAXINTSIZE {
-        let _ = unsafe {
+        let _ = unsafe  {
             luaL_error(
                 h.state,
                 ERR_INTEGRAL_SIZE_OUT_OF_LIMITS_FMT.as_ptr().cast(),
@@ -1267,7 +1127,7 @@ fn addquoted(out: &mut Vec<u8>, s: &[u8]) {
 }
 
 unsafe fn addliteral(state: *mut lua_State, out: &mut Vec<u8>, arg: c_int) {
-    match unsafe { lua_type(state, arg) } {
+    match unsafe { lua_type(state, arg) as u8 } {
         LUA_TSTRING => {
             let mut len = 0;
             let s = unsafe { lua_tolstring(state, arg, &mut len) }.cast::<u8>();
@@ -1287,7 +1147,7 @@ unsafe fn addliteral(state: *mut lua_State, out: &mut Vec<u8>, arg: c_int) {
                     out.extend_from_slice(b"(0/0)");
                 } else {
                     let mut buf = vec![0u8; MAX_ITEM];
-                    let nb = unsafe {
+                    let nb = unsafe  {
                         snprintf(buf.as_mut_ptr().cast(), buf.len(), c"%a".as_ptr(), n) as usize
                     };
                     out.extend_from_slice(&buf[..nb]);
@@ -1372,14 +1232,14 @@ fn addlenmod(form: &mut Vec<u8>, lenmod: &[u8]) {
     form.push(0);
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_len(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_len(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let _ = { luaL_checklstring(state, 1, &mut len) };
     unsafe { lua_pushinteger(state, len as lua_Integer) };
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_sub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_sub(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let start = posrelat_i(unsafe { luaL_checkinteger(state, 2) }, len);
@@ -1398,7 +1258,7 @@ pub(crate) unsafe extern "C-unwind" fn str_sub(state: *mut lua_State) -> c_int {
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_reverse(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_reverse(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1408,7 +1268,7 @@ pub(crate) unsafe extern "C-unwind" fn str_reverse(state: *mut lua_State) -> c_i
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_lower(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_lower(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1420,7 +1280,7 @@ pub(crate) unsafe extern "C-unwind" fn str_lower(state: *mut lua_State) -> c_int
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_upper(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_upper(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
@@ -1432,7 +1292,7 @@ pub(crate) unsafe extern "C-unwind" fn str_upper(state: *mut lua_State) -> c_int
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_rep(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_rep(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let n = { luaL_checkinteger(state, 2) };
@@ -1476,7 +1336,7 @@ pub(crate) unsafe extern "C-unwind" fn str_rep(state: *mut lua_State) -> c_int {
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_byte(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_byte(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
     let pi = { luaL_optinteger(state, 2, 1) };
@@ -1498,7 +1358,7 @@ pub(crate) unsafe extern "C-unwind" fn str_byte(state: *mut lua_State) -> c_int 
     n
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_char(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_char(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     let mut out = Vec::with_capacity(n.max(0) as usize);
     for i in 1..=n {
@@ -1522,12 +1382,12 @@ pub(crate) unsafe extern "C-unwind" fn str_char(state: *mut lua_State) -> c_int 
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_dump(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_dump(state: *mut lua_State) -> c_int {
     let strip = unsafe { lua_toboolean(state, 2) };
     unsafe {
         argcheck(
             state,
-            lua_type(state, 1) == LUA_TFUNCTION && lua_iscfunction(state, 1) == 0,
+            lua_type(state, 1) == LUA_TFUNCTION.into() && lua_iscfunction(state, 1) == 0,
             1,
             ERR_LUA_FUNCTION_EXPECTED,
         )
@@ -1552,39 +1412,39 @@ pub(crate) unsafe extern "C-unwind" fn str_dump(state: *mut lua_State) -> c_int 
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_add(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_add(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPADD, MT_ADD) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_sub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_sub(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPSUB, MT_SUB) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_mul(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_mul(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPMUL, MT_MUL) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_mod(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_mod(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPMOD, MT_MOD) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_pow(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_pow(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPPOW, MT_POW) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_div(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_div(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPDIV, MT_DIV) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_idiv(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_idiv(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPIDIV, MT_IDIV) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn arith_unm(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn arith_unm(state: *mut lua_State) -> c_int {
     unsafe { arith(state, LUA_OPUNM, MT_UNM) }
 }
 
-unsafe extern "C-unwind" fn gmatch_aux(state: *mut lua_State) -> c_int {
+unsafe  fn gmatch_aux(state: *mut lua_State) -> c_int {
     let gm = unsafe { &mut *(lua_touserdata(state, lua_upvalueindex(3)) as *mut GMatchState) };
     gm.ms.state = state;
     let mut src = gm.src;
@@ -1601,15 +1461,15 @@ unsafe extern "C-unwind" fn gmatch_aux(state: *mut lua_State) -> c_int {
     0
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_find(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_find(state: *mut lua_State) -> c_int {
     unsafe { str_find_aux(state, true) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_match(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_match(state: *mut lua_State) -> c_int {
     unsafe { str_find_aux(state, false) }
 }
 
-pub(crate) unsafe extern "C-unwind" fn gmatch(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn gmatch(state: *mut lua_State) -> c_int {
     let mut ls = 0;
     let mut lp = 0;
     let s = { luaL_checklstring(state, 1, &mut ls) }.cast::<u8>();
@@ -1646,7 +1506,7 @@ pub(crate) unsafe extern "C-unwind" fn gmatch(state: *mut lua_State) -> c_int {
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_gsub(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_gsub(state: *mut lua_State) -> c_int {
     let mut srcl = 0;
     let mut lp = 0;
     let mut src = { luaL_checklstring(state, 1, &mut srcl) }.cast::<u8>();
@@ -1657,7 +1517,7 @@ pub(crate) unsafe extern "C-unwind" fn str_gsub(state: *mut lua_State) -> c_int 
     let anchor = lp > 0 && unsafe { *p } == b'^';
     let mut n = 0;
     let mut changed = false;
-    if tr != LUA_TNUMBER && tr != LUA_TSTRING && tr != LUA_TFUNCTION && tr != LUA_TTABLE {
+    if tr != LUA_TNUMBER.into() && tr != LUA_TSTRING.into() && tr != LUA_TFUNCTION.into() && tr != LUA_TTABLE.into() {
         let _ = { luaL_typeerror(state, 3, ERR_EXPECTED_REPLACEMENT.as_ptr().cast()) };
     }
     let (pstart, lpstart) = if anchor {
@@ -1711,7 +1571,7 @@ pub(crate) unsafe extern "C-unwind" fn str_gsub(state: *mut lua_State) -> c_int 
     2
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_format(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_format(state: *mut lua_State) -> c_int {
     let top = unsafe { lua_gettop(state) };
     let mut arg = 1;
     let mut sfl = 0usize;
@@ -1763,7 +1623,7 @@ pub(crate) unsafe extern "C-unwind" fn str_format(state: *mut lua_State) -> c_in
                 addlenmod(&mut form, LUA_INTEGER_FRMLEN);
                 let n = { luaL_checkinteger(state, arg) };
                 nb = match spec {
-                    b'd' | b'i' => unsafe {
+                    b'd' | b'i' => unsafe  {
                         snprintf(buf.as_mut_ptr().cast(), buf.len(), form.as_ptr().cast(), n)
                             as usize
                     },
@@ -1781,7 +1641,7 @@ pub(crate) unsafe extern "C-unwind" fn str_format(state: *mut lua_State) -> c_in
                 unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSF, true) };
                 addlenmod(&mut form, LUA_NUMBER_FRMLEN);
                 let n = { luaL_checknumber(state, arg) };
-                nb = unsafe {
+                nb = unsafe  {
                     snprintf(buf.as_mut_ptr().cast(), buf.len(), form.as_ptr().cast(), n) as usize
                 };
             }
@@ -1902,7 +1762,7 @@ fn unpackint(
     res as lua_Integer
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_pack(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_pack(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut fmtp = fmt;
@@ -2011,7 +1871,7 @@ pub(crate) unsafe extern "C-unwind" fn str_pack(state: *mut lua_State) -> c_int 
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_packsize(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_packsize(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut fmtp = fmt;
@@ -2044,7 +1904,7 @@ pub(crate) unsafe extern "C-unwind" fn str_packsize(state: *mut lua_State) -> c_
     1
 }
 
-pub(crate) unsafe extern "C-unwind" fn str_unpack(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn str_unpack(state: *mut lua_State) -> c_int {
     let mut fmt_len = 0usize;
     let fmt = { luaL_checklstring(state, 1, &mut fmt_len) }.cast::<u8>();
     let mut data_len = 0usize;
@@ -2105,7 +1965,7 @@ pub(crate) unsafe extern "C-unwind" fn str_unpack(state: *mut lua_State) -> c_in
                 copywithendian(&mut bytes, &data_slice[pos..pos + size], h.islittle);
                 unsafe { lua_pushnumber(state, f64::from_ne_bytes(bytes) as lua_Number) };
             }
-            KOption::Kchar => unsafe {
+            KOption::Kchar => unsafe{
                 lua_pushlstring(state, data.add(pos).cast(), size);
             },
             KOption::Kstring => {
@@ -2151,7 +2011,7 @@ unsafe fn createmetatable(state: *mut lua_State) {
     unsafe { lua_pop(state, 1) };
 }
 
-pub(crate) unsafe extern "C-unwind" fn luaopen_string(state: *mut lua_State) -> c_int {
+pub(crate) unsafe  fn luaopen_string(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &STRLIB) };
     unsafe { createmetatable(state) };
     1

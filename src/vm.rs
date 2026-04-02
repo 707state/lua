@@ -6,8 +6,19 @@
     clashing_extern_declarations
 )]
 
+use crate::debug::*;
+use crate::do_rs::*;
+use crate::func::luaF_closeupval;
+use crate::func::luaF_findupval;
+use crate::func::luaF_newLclosure;
 use crate::opcodes::luaP_isIT;
 use crate::runtime::*;
+use crate::string::luaS_createlngstrobj;
+use crate::string::luaS_eqstr;
+use crate::table::luaH_getshortstr;
+use crate::table::luaH_psetshortstr;
+use crate::table::luaH_resizearray;
+use crate::tm::*;
 use core::mem::size_of;
 
 const MAXTAGLOOP: c_int = 2000;
@@ -15,10 +26,7 @@ const MAXTAGLOOP: c_int = 2000;
 const F2Ieq: c_int = 0;
 const F2Ifloor: c_int = 1;
 const F2Iceil: c_int = 2;
-const LUA_FLOORN2I: c_int = F2Ieq;
 
-const LUA_VEMPTY: u8 = LUA_TNIL | (1 << 4);
-const LUA_VABSTKEY: u8 = LUA_TNIL | (2 << 4);
 const LUA_VNOTABLE: u8 = LUA_TNIL | (3 << 4);
 
 const TM_INDEX: c_int = 0;
@@ -41,16 +49,6 @@ const TM_UNM: c_int = 18;
 const TM_BNOT: c_int = 19;
 const TM_LT: c_int = 20;
 const TM_LE: c_int = 21;
-
-const PF_VATAB: u8 = 2;
-
-const CIST_NRESULTS: u32 = 0xff;
-const CIST_FRESH: u32 = CIST_C << 1;
-const CIST_HOOKED: u32 = CIST_OAH << 1;
-const CIST_TAIL: u32 = CIST_YPCALL << 1;
-const CIST_HOOKYIELD: u32 = CIST_TAIL << 1;
-const CIST_FIN: u32 = CIST_HOOKYIELD << 1;
-const CLOSEKTOP: TStatus = LUA_ERRERR + 1;
 
 const OP_MOVE: c_int = 0;
 const OP_LOADI: c_int = 1;
@@ -169,59 +167,25 @@ const OFFSET_SC: c_int = MAXARG_C >> 1;
 
 const LUAI_MAXSHORTLEN: usize = 40;
 
-unsafe extern "C-unwind" {
-    fn strlen(s: *const c_char) -> usize;
-    fn strcoll(s1: *const c_char, s2: *const c_char) -> c_int;
-    fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
+/// C strcoll 的 Rust 等价实现：按字节顺序比较（locale 无关）
+#[inline]
+unsafe fn strcoll(s1: *const c_char, s2: *const c_char) -> c_int {
+    // Lua 字符串比较走此路径，safe 地使用 CStr
+    let b1 = unsafe { core::ffi::CStr::from_ptr(s1) }.to_bytes();
+    let b2 = unsafe { core::ffi::CStr::from_ptr(s2) }.to_bytes();
+    b1.cmp(b2) as c_int
+}
 
-    fn luaD_hookcall(L: *mut lua_State, ci: *mut CallInfo);
-    fn luaD_pretailcall(
-        L: *mut lua_State,
-        ci: *mut CallInfo,
-        func: StkId,
-        narg1: c_int,
-        delta: c_int,
-    ) -> c_int;
-    fn luaD_precall(L: *mut lua_State, func: StkId, nresults: c_int) -> *mut CallInfo;
-    fn luaD_poscall(L: *mut lua_State, ci: *mut CallInfo, nres: c_int);
+/// C strlen 的 Rust 等价实现
+#[inline]
+unsafe fn strlen(s: *const c_char) -> usize {
+    unsafe { core::ffi::CStr::from_ptr(s) }.to_bytes().len()
+}
 
-    fn luaG_typeerror(L: *mut lua_State, o: *const TValue, op: *const c_char) -> !;
-    fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_char) -> !;
-    fn luaG_runerror(L: *mut lua_State, fmt: *const c_char, ...) -> !;
-    fn luaG_tracecall(L: *mut lua_State) -> c_int;
-    fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int;
-    fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> !;
-
-    fn luaT_gettm(events: *mut Table, event: c_int, ename: *mut TString) -> *const TValue;
-    fn luaT_gettmbyobj(L: *mut lua_State, o: *const TValue, event: c_int) -> *const TValue;
-    fn luaT_callTM(L: *mut lua_State, f: *const TValue, p1: *const TValue, p2: *const TValue, p3: *const TValue);
-    fn luaT_callTMres(
-        L: *mut lua_State,
-        f: *const TValue,
-        p1: *const TValue,
-        p2: *const TValue,
-        p3: StkId,
-    ) -> lu_byte;
-    fn luaT_trybinTM(L: *mut lua_State, p1: *const TValue, p2: *const TValue, res: StkId, event: c_int);
-    fn luaT_trybiniTM(L: *mut lua_State, p1: *const TValue, i2: lua_Integer, inv: c_int, res: StkId, event: c_int);
-    fn luaT_trybinassocTM(L: *mut lua_State, p1: *const TValue, p2: *const TValue, inv: c_int, res: StkId, event: c_int);
-    fn luaT_tryconcatTM(L: *mut lua_State);
-    fn luaT_callorderTM(L: *mut lua_State, p1: *const TValue, p2: *const TValue, event: c_int) -> c_int;
-    fn luaT_callorderiTM(L: *mut lua_State, p1: *const TValue, v2: c_int, inv: c_int, isfloat: c_int, event: c_int) -> c_int;
-    fn luaT_adjustvarargs(L: *mut lua_State, ci: *mut CallInfo, p: *const Proto);
-    fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue);
-    fn luaT_getvarargs(L: *mut lua_State, ci: *mut CallInfo, where_: StkId, wanted: c_int, vatab: c_int);
-
-    fn luaF_newLclosure(L: *mut lua_State, nupvals: c_int) -> *mut LClosure;
-    fn luaF_findupval(L: *mut lua_State, level: StkId) -> *mut UpVal;
-    fn luaF_closeupval(L: *mut lua_State, level: StkId);
-
-    fn luaS_eqstr(a: *mut TString, b: *mut TString) -> c_int;
-    fn luaS_createlngstrobj(L: *mut lua_State, len: usize) -> *mut TString;
-
-    fn luaH_resizearray(L: *mut lua_State, t: *mut Table, nasize: u32);
-    fn luaH_getshortstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> lu_byte;
-    fn luaH_psetshortstr(t: *mut Table, key: *mut TString, val: *mut TValue) -> c_int;
+/// C memcpy 的 Rust 等价实现
+#[inline]
+unsafe fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) {
+    unsafe { core::ptr::copy_nonoverlapping(src.cast::<u8>(), dst.cast::<u8>(), n) };
 }
 
 #[inline]
@@ -238,12 +202,6 @@ unsafe fn get_nresults(cs: u32) -> c_int {
 unsafe fn setclLvalue2s(_L: *mut lua_State, o: StkId, cl: *mut LClosure) {
     (*s2v(o)).value_.gc = cl.cast();
     settt_(s2v(o), LUA_VLCL | BIT_ISCOLLECTABLE);
-}
-
-#[inline]
-unsafe fn setsvalue(o: *mut TValue, s: *mut TString) {
-    (*o).value_.gc = s.cast();
-    settt_(o, (*s).tt | BIT_ISCOLLECTABLE);
 }
 
 #[inline]
@@ -287,11 +245,6 @@ unsafe fn tointegerns(o: *const TValue, i: *mut lua_Integer) -> c_int {
     } else {
         luaV_tointegerns(o, i, LUA_FLOORN2I)
     }
-}
-
-#[inline]
-unsafe fn strisshr(s: *mut TString) -> bool {
-    (*s).shrlen >= 0
 }
 
 #[inline]
@@ -429,31 +382,57 @@ unsafe fn GET_OPCODE(i: Instruction) -> c_int {
 }
 
 #[inline]
-unsafe fn GETARG_A(i: Instruction) -> c_int { getarg(i, POS_A, SIZE_A) }
+unsafe fn GETARG_A(i: Instruction) -> c_int {
+    getarg(i, POS_A, SIZE_A)
+}
 #[inline]
-unsafe fn GETARG_B(i: Instruction) -> c_int { getarg(i, POS_B, SIZE_B) }
+unsafe fn GETARG_B(i: Instruction) -> c_int {
+    getarg(i, POS_B, SIZE_B)
+}
 #[inline]
-unsafe fn GETARG_VB(i: Instruction) -> c_int { getarg(i, POS_VB, SIZE_VB) }
+unsafe fn GETARG_VB(i: Instruction) -> c_int {
+    getarg(i, POS_VB, SIZE_VB)
+}
 #[inline]
-unsafe fn GETARG_SB(i: Instruction) -> c_int { GETARG_B(i) - OFFSET_SC }
+unsafe fn GETARG_SB(i: Instruction) -> c_int {
+    GETARG_B(i) - OFFSET_SC
+}
 #[inline]
-unsafe fn GETARG_C(i: Instruction) -> c_int { getarg(i, POS_C, SIZE_C) }
+unsafe fn GETARG_C(i: Instruction) -> c_int {
+    getarg(i, POS_C, SIZE_C)
+}
 #[inline]
-unsafe fn GETARG_VC(i: Instruction) -> c_int { getarg(i, POS_VC, SIZE_VC) }
+unsafe fn GETARG_VC(i: Instruction) -> c_int {
+    getarg(i, POS_VC, SIZE_VC)
+}
 #[inline]
-unsafe fn GETARG_SC(i: Instruction) -> c_int { GETARG_C(i) - OFFSET_SC }
+unsafe fn GETARG_SC(i: Instruction) -> c_int {
+    GETARG_C(i) - OFFSET_SC
+}
 #[inline]
-unsafe fn TESTARG_K(i: Instruction) -> bool { (i & (1u32 << POS_K)) != 0 }
+unsafe fn TESTARG_K(i: Instruction) -> bool {
+    (i & (1u32 << POS_K)) != 0
+}
 #[inline]
-unsafe fn GETARG_K(i: Instruction) -> c_int { getarg(i, POS_K, 1) }
+unsafe fn GETARG_K(i: Instruction) -> c_int {
+    getarg(i, POS_K, 1)
+}
 #[inline]
-unsafe fn GETARG_BX(i: Instruction) -> c_int { getarg(i, POS_BX, SIZE_BX) }
+unsafe fn GETARG_BX(i: Instruction) -> c_int {
+    getarg(i, POS_BX, SIZE_BX)
+}
 #[inline]
-unsafe fn GETARG_AX(i: Instruction) -> c_int { getarg(i, POS_AX, SIZE_AX) }
+unsafe fn GETARG_AX(i: Instruction) -> c_int {
+    getarg(i, POS_AX, SIZE_AX)
+}
 #[inline]
-unsafe fn GETARG_SBX(i: Instruction) -> c_int { getarg(i, POS_BX, SIZE_BX) - OFFSET_SBX }
+unsafe fn GETARG_SBX(i: Instruction) -> c_int {
+    getarg(i, POS_BX, SIZE_BX) - OFFSET_SBX
+}
 #[inline]
-unsafe fn GETARG_SJ(i: Instruction) -> c_int { getarg(i, POS_SJ, SIZE_SJ) - OFFSET_SJ }
+unsafe fn GETARG_SJ(i: Instruction) -> c_int {
+    getarg(i, POS_SJ, SIZE_SJ) - OFFSET_SJ
+}
 
 #[inline]
 unsafe fn savepc(ci: *mut CallInfo, pc: *const Instruction) {
@@ -511,7 +490,13 @@ unsafe fn RKC(base: StkId, k: *mut TValue, i: Instruction) -> *mut TValue {
 }
 
 #[inline]
-unsafe fn dojump(ci: *mut CallInfo, i: Instruction, e: c_int, pc: &mut *const Instruction, trap: &mut c_int) {
+unsafe fn dojump(
+    ci: *mut CallInfo,
+    i: Instruction,
+    e: c_int,
+    pc: &mut *const Instruction,
+    trap: &mut c_int,
+) {
     *pc = (*pc).offset((GETARG_SJ(i) + e) as isize);
     updatetrap(ci, trap);
 }
@@ -523,7 +508,13 @@ unsafe fn donextjump(ci: *mut CallInfo, pc: &mut *const Instruction, trap: &mut 
 }
 
 #[inline]
-unsafe fn docondjump(cond: c_int, ci: *mut CallInfo, i: Instruction, pc: &mut *const Instruction, trap: &mut c_int) {
+unsafe fn docondjump(
+    cond: c_int,
+    ci: *mut CallInfo,
+    i: Instruction,
+    pc: &mut *const Instruction,
+    trap: &mut c_int,
+) {
     if cond != GETARG_K(i) {
         *pc = (*pc).add(1);
     } else {
@@ -532,8 +523,14 @@ unsafe fn docondjump(cond: c_int, ci: *mut CallInfo, i: Instruction, pc: &mut *c
 }
 
 #[inline]
-unsafe fn checkGC(L: *mut lua_State, ci: *mut CallInfo, pc: *const Instruction, trap: &mut c_int, c: StkId) {
-    if (*G(L)).GCdebt <= 0 {
+unsafe fn checkGC(
+    L: *mut lua_State,
+    ci: *mut CallInfo,
+    pc: *const Instruction,
+    trap: &mut c_int,
+    c: StkId,
+) {
+    if (*G(L)).gcdebt <= 0 {
         savepc(ci, pc);
         (*L).top.p = c;
         luaC_step(L);
@@ -568,12 +565,19 @@ unsafe fn l_strcmp(ts1: *mut TString, ts2: *mut TString) -> c_int {
 }
 
 pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int {
-    let mut v = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
+    let mut v = TValue {
+        value_: Value { i: 0 },
+        tt_: LUA_VNIL,
+    };
     if ttisinteger(obj) {
         *n = ivalue(obj) as lua_Number;
         1
     } else if l_strton(obj, &mut v) != 0 {
-        *n = if ttisfloat(&v) { fltvalue(&v) } else { ivalue(&v) as lua_Number };
+        *n = if ttisfloat(&v) {
+            fltvalue(&v)
+        } else {
+            ivalue(&v) as lua_Number
+        };
         1
     } else {
         0
@@ -581,7 +585,7 @@ pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
     let mut f = n.floor();
     if n != f {
         if mode == F2Ieq {
@@ -594,7 +598,7 @@ pub unsafe extern "C-unwind" fn luaV_flttointeger(n: lua_Number, p: *mut lua_Int
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
     if ttisfloat(obj) {
         luaV_flttointeger(fltvalue(obj), p, mode)
     } else if ttisinteger(obj) {
@@ -606,7 +610,10 @@ pub unsafe extern "C-unwind" fn luaV_tointegerns(obj: *const TValue, p: *mut lua
 }
 
 pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
-    let mut v = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
+    let mut v = TValue {
+        value_: Value { i: 0 },
+        tt_: LUA_VNIL,
+    };
     let mut o = obj;
     if l_strton(obj, &mut v) != 0 {
         o = &v;
@@ -614,7 +621,13 @@ pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mod
     luaV_tointegerns(o, p, mode)
 }
 
-unsafe fn forlimit(L: *mut lua_State, init: lua_Integer, lim: *const TValue, p: *mut lua_Integer, step: lua_Integer) -> c_int {
+unsafe fn forlimit(
+    L: *mut lua_State,
+    init: lua_Integer,
+    lim: *const TValue,
+    p: *mut lua_Integer,
+    step: lua_Integer,
+) -> c_int {
     if luaV_tointeger(lim, p, if step < 0 { F2Iceil } else { F2Ifloor }) == 0 {
         let mut flim = 0.0;
         if tonumber(lim, &mut flim) == 0 {
@@ -677,7 +690,11 @@ unsafe fn forprep(L: *mut lua_State, ra: StkId) -> c_int {
         if step == 0.0 {
             luaG_runerror(L, c"'for' step is zero".as_ptr());
         }
-        if if 0.0 < step { limit < init } else { init < limit } {
+        if if 0.0 < step {
+            limit < init
+        } else {
+            init < limit
+        } {
             return 1;
         }
         setfltvalue(s2v(ra), limit);
@@ -692,7 +709,11 @@ unsafe fn floatforloop(ra: StkId) -> c_int {
     let limit = fltvalue(s2v(ra));
     let mut idx = fltvalue(s2v(ra.add(2)));
     idx += step;
-    if if 0.0 < step { idx <= limit } else { limit <= idx } {
+    if if 0.0 < step {
+        idx <= limit
+    } else {
+        limit <= idx
+    } {
         chgfltvalue(s2v(ra.add(2)), idx);
         1
     } else {
@@ -771,7 +792,11 @@ pub(crate) unsafe fn luaV_finishset(
             return;
         }
         t = tm;
-        hres = if !ttistable(t) { HNOTATABLE } else { luaH_pset(hvalue(t), key, val) };
+        hres = if !ttistable(t) {
+            HNOTATABLE
+        } else {
+            luaH_pset(hvalue(t), key, val)
+        };
         if hres == HOK {
             luaV_finishfastset(L, t, val);
             return;
@@ -892,7 +917,11 @@ pub(crate) unsafe fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *cons
     }
 }
 
-pub(crate) unsafe fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+pub(crate) unsafe fn luaV_lessequal(
+    L: *mut lua_State,
+    l: *const TValue,
+    r: *const TValue,
+) -> c_int {
     if ttisnumber(l) && ttisnumber(r) {
         LEnum(l, r)
     } else {
@@ -901,7 +930,7 @@ pub(crate) unsafe fn luaV_lessequal(L: *mut lua_State, l: *const TValue, r: *con
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
+pub unsafe fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
     let tm;
     if ttype(t1) != ttype(t2) {
         return 0;
@@ -909,11 +938,15 @@ pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TVal
         match ttypetag(t1) {
             LUA_VNUMINT => {
                 let mut i2 = 0;
-                return c_int::from(luaV_flttointeger(fltvalue(t2), &mut i2, F2Ieq) != 0 && ivalue(t1) == i2);
+                return c_int::from(
+                    luaV_flttointeger(fltvalue(t2), &mut i2, F2Ieq) != 0 && ivalue(t1) == i2,
+                );
             }
             LUA_VNUMFLT => {
                 let mut i1 = 0;
-                return c_int::from(luaV_flttointeger(fltvalue(t1), &mut i1, F2Ieq) != 0 && i1 == ivalue(t2));
+                return c_int::from(
+                    luaV_flttointeger(fltvalue(t1), &mut i1, F2Ieq) != 0 && i1 == ivalue(t2),
+                );
             }
             LUA_VSHRSTR | LUA_VLNGSTR => return luaS_eqstr(tsvalue(t1), tsvalue(t2)),
             _ => return 0,
@@ -933,12 +966,19 @@ pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TVal
                     return 0;
                 }
                 tm = fasttm(L, (*uvalue(t1)).metatable, TM_EQ);
-                let tm = if tm.is_null() { fasttm(L, (*uvalue(t2)).metatable, TM_EQ) } else { tm };
+                let tm = if tm.is_null() {
+                    fasttm(L, (*uvalue(t2)).metatable, TM_EQ)
+                } else {
+                    tm
+                };
                 if tm.is_null() {
                     return 0;
                 }
                 let tag = luaT_callTMres(L, tm, t1, t2, (*L).top.p);
-                return c_int::from(!l_isfalse(&TValue { value_: Value { ub: tag }, tt_: tag }));
+                return c_int::from(!l_isfalse(&TValue {
+                    value_: Value { ub: tag },
+                    tt_: tag,
+                }));
             }
             LUA_VTABLE => {
                 if hvalue(t1) == hvalue(t2) {
@@ -947,7 +987,11 @@ pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TVal
                     return 0;
                 }
                 tm = fasttm(L, (*hvalue(t1)).metatable, TM_EQ);
-                let tm = if tm.is_null() { fasttm(L, (*hvalue(t2)).metatable, TM_EQ) } else { tm };
+                let tm = if tm.is_null() {
+                    fasttm(L, (*hvalue(t2)).metatable, TM_EQ)
+                } else {
+                    tm
+                };
                 if tm.is_null() {
                     return 0;
                 }
@@ -961,7 +1005,11 @@ pub unsafe extern "C-unwind" fn luaV_equalobj(L: *mut lua_State, t1: *const TVal
 }
 
 unsafe fn tostring(L: *mut lua_State, o: *mut TValue) -> bool {
-    ttisstring(o) || (cvt2str(o) && { luaO_tostring(L, o); true })
+    ttisstring(o)
+        || (cvt2str(o) && {
+            luaO_tostring(L, o);
+            true
+        })
 }
 
 #[inline]
@@ -991,7 +1039,9 @@ pub(crate) unsafe fn luaV_concat(L: *mut lua_State, mut total: c_int) {
     loop {
         let top = (*L).top.p;
         let mut n = 2;
-        if !(ttisstring(s2v(top.sub(2))) || cvt2str(s2v(top.sub(2)))) || !tostring(L, s2v(top.sub(1))) {
+        if !(ttisstring(s2v(top.sub(2))) || cvt2str(s2v(top.sub(2))))
+            || !tostring(L, s2v(top.sub(1)))
+        {
             luaT_tryconcatTM(L);
         } else if isemptystr(s2v(top.sub(1))) {
             let _ = tostring(L, s2v(top.sub(2)));
@@ -1057,8 +1107,7 @@ pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue
     let _ = luaT_callTMres(L, tm, rb, rb, ra);
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+pub unsafe fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to divide by zero".as_ptr());
@@ -1072,9 +1121,7 @@ pub unsafe extern "C-unwind" fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: 
         q
     }
 }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+pub unsafe fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to perform 'n%%0'".as_ptr());
@@ -1089,8 +1136,7 @@ pub unsafe extern "C-unwind" fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: l
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Number) -> lua_Number {
+pub unsafe fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Number) -> lua_Number {
     let mut r = m % n;
     if if r > 0.0 { n < 0.0 } else { r < 0.0 && n > 0.0 } {
         r += n;
@@ -1098,8 +1144,7 @@ pub unsafe extern "C-unwind" fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: 
     r
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_shiftl(x: lua_Integer, y: lua_Integer) -> lua_Integer {
+pub unsafe fn luaV_shiftl(x: lua_Integer, y: lua_Integer) -> lua_Integer {
     let nbits = lua_Integer::BITS as lua_Integer;
     if y < 0 {
         if y <= -nbits {
@@ -1114,7 +1159,13 @@ pub unsafe extern "C-unwind" fn luaV_shiftl(x: lua_Integer, y: lua_Integer) -> l
     }
 }
 
-unsafe fn pushclosure(L: *mut lua_State, p: *mut Proto, encup: *mut *mut UpVal, base: StkId, ra: StkId) {
+unsafe fn pushclosure(
+    L: *mut lua_State,
+    p: *mut Proto,
+    encup: *mut *mut UpVal,
+    base: StkId,
+    ra: StkId,
+) {
     let nup = (*p).sizeupvalues;
     let uv = (*p).upvalues;
     let ncl = luaF_newLclosure(L, nup);
@@ -1131,18 +1182,23 @@ unsafe fn pushclosure(L: *mut lua_State, p: *mut Proto, encup: *mut *mut UpVal, 
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_finishOp(L: *mut lua_State) {
+pub unsafe fn luaV_finishOp(L: *mut lua_State) {
     let ci = (*L).ci;
     let base = (*ci).func.p.add(1);
     let inst = *(*ci).u.l.savedpc.sub(1);
     let op = GET_OPCODE(inst);
     match op {
         OP_MMBIN | OP_MMBINI | OP_MMBINK => {
-            setobjs2s(L, base.add(GETARG_A(*(*ci).u.l.savedpc.sub(2)) as usize), { (*L).top.p = (*L).top.p.sub(1); (*L).top.p });
+            setobjs2s(L, base.add(GETARG_A(*(*ci).u.l.savedpc.sub(2)) as usize), {
+                (*L).top.p = (*L).top.p.sub(1);
+                (*L).top.p
+            });
         }
         OP_UNM | OP_BNOT | OP_LEN | OP_GETTABUP | OP_GETTABLE | OP_GETI | OP_GETFIELD | OP_SELF => {
-            setobjs2s(L, base.add(GETARG_A(inst) as usize), { (*L).top.p = (*L).top.p.sub(1); (*L).top.p });
+            setobjs2s(L, base.add(GETARG_A(inst) as usize), {
+                (*L).top.p = (*L).top.p.sub(1);
+                (*L).top.p
+            });
         }
         OP_LT | OP_LE | OP_LTI | OP_LEI | OP_GTI | OP_GEI | OP_EQ => {
             let res = c_int::from(!l_isfalse(s2v((*L).top.p.sub(1))));
@@ -1171,8 +1227,7 @@ pub unsafe extern "C-unwind" fn luaV_finishOp(L: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
+pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
     let mut trap = 0;
     let mut keep_trap = false;
     'newframe: loop {
@@ -1196,7 +1251,12 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
             pc = pc.add(1);
             debug_assert!(base == (*ci).func.p.add(1));
             debug_assert!(base <= (*L).top.p && (*L).top.p <= (*L).stack_last.p);
-            debug_assert!(luaP_isIT(i) != 0 || { (*L).top.p = base; true });
+            debug_assert!(
+                luaP_isIT(i) != 0 || {
+                    (*L).top.p = base;
+                    true
+                }
+            );
             match GET_OPCODE(i) {
                 OP_MOVE => {
                     let ra = RA(base, i);
@@ -1226,7 +1286,9 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let mut b = GETARG_B(i);
                     loop {
                         setnilvalue(s2v(ra));
-                        if b == 0 { break; }
+                        if b == 0 {
+                            break;
+                        }
                         b -= 1;
                         ra = ra.add(1);
                     }
@@ -1243,9 +1305,15 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                 }
                 OP_GETTABUP => {
                     let ra = RA(base, i);
-                    let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_B(i) as usize))).v.p;
+                    let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_B(i) as usize)))
+                        .v
+                        .p;
                     let rc = KC(k, i);
-                    let mut tag = if !ttistable(upval) { LUA_VNOTABLE } else { luaH_getshortstr(hvalue(upval), tsvalue(rc), s2v(ra)) };
+                    let mut tag = if !ttistable(upval) {
+                        LUA_VNOTABLE
+                    } else {
+                        luaH_getshortstr(hvalue(upval), tsvalue(rc), s2v(ra))
+                    };
                     if tagisempty(tag) {
                         savestate(L, ci, pc);
                         tag = luaV_finishget(L, upval, rc, ra, tag);
@@ -1258,7 +1326,11 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let rb = s2v(RB(base, i));
                     let rc = s2v(RC(base, i));
                     let mut tag = if ttisinteger(rc) {
-                        if !ttistable(rb) { LUA_VNOTABLE } else { luaH_getint(hvalue(rb), ivalue(rc), s2v(ra)) }
+                        if !ttistable(rb) {
+                            LUA_VNOTABLE
+                        } else {
+                            luaH_getint(hvalue(rb), ivalue(rc), s2v(ra))
+                        }
                     } else if !ttistable(rb) {
                         LUA_VNOTABLE
                     } else {
@@ -1275,9 +1347,16 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let ra = RA(base, i);
                     let rb = s2v(RB(base, i));
                     let c = GETARG_C(i) as lua_Integer;
-                    let mut tag = if !ttistable(rb) { LUA_VNOTABLE } else { luaH_getint(hvalue(rb), c, s2v(ra)) };
+                    let mut tag = if !ttistable(rb) {
+                        LUA_VNOTABLE
+                    } else {
+                        luaH_getint(hvalue(rb), c, s2v(ra))
+                    };
                     if tagisempty(tag) {
-                        let mut key = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
+                        let mut key = TValue {
+                            value_: Value { i: 0 },
+                            tt_: LUA_VNIL,
+                        };
                         setivalue(&mut key, c);
                         savestate(L, ci, pc);
                         tag = luaV_finishget(L, rb, &mut key, ra, tag);
@@ -1289,7 +1368,11 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let ra = RA(base, i);
                     let rb = s2v(RB(base, i));
                     let rc = KC(k, i);
-                    let mut tag = if !ttistable(rb) { LUA_VNOTABLE } else { luaH_getshortstr(hvalue(rb), tsvalue(rc), s2v(ra)) };
+                    let mut tag = if !ttistable(rb) {
+                        LUA_VNOTABLE
+                    } else {
+                        luaH_getshortstr(hvalue(rb), tsvalue(rc), s2v(ra))
+                    };
                     if tagisempty(tag) {
                         savestate(L, ci, pc);
                         tag = luaV_finishget(L, rb, rc, ra, tag);
@@ -1298,10 +1381,16 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     }
                 }
                 OP_SETTABUP => {
-                    let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_A(i) as usize))).v.p;
+                    let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_A(i) as usize)))
+                        .v
+                        .p;
                     let rb = KB(k, i);
                     let rc = RKC(base, k, i);
-                    let hres = if !ttistable(upval) { HNOTATABLE } else { luaH_psetshortstr(hvalue(upval), tsvalue(rb), rc) };
+                    let hres = if !ttistable(upval) {
+                        HNOTATABLE
+                    } else {
+                        luaH_psetshortstr(hvalue(upval), tsvalue(rb), rc)
+                    };
                     if hres == HOK {
                         luaV_finishfastset(L, upval, rc);
                     } else {
@@ -1337,7 +1426,10 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     if hres == HOK {
                         luaV_finishfastset(L, s2v(ra), rc);
                     } else {
-                        let mut key = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
+                        let mut key = TValue {
+                            value_: Value { i: 0 },
+                            tt_: LUA_VNIL,
+                        };
                         setivalue(&mut key, b);
                         savestate(L, ci, pc);
                         luaV_finishset(L, s2v(ra), &mut key, rc, hres);
@@ -1348,7 +1440,11 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let ra = RA(base, i);
                     let rb = KB(k, i);
                     let rc = RKC(base, k, i);
-                    let hres = if !ttistable(s2v(ra)) { HNOTATABLE } else { luaH_psetshortstr(hvalue(s2v(ra)), tsvalue(rb), rc) };
+                    let hres = if !ttistable(s2v(ra)) {
+                        HNOTATABLE
+                    } else {
+                        luaH_psetshortstr(hvalue(s2v(ra)), tsvalue(rb), rc)
+                    };
                     if hres == HOK {
                         luaV_finishfastset(L, s2v(ra), rc);
                     } else {
@@ -1381,7 +1477,11 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let rb = s2v(RB(base, i));
                     let rc = KC(k, i);
                     setobj2s(L, ra.add(1), rb);
-                    let mut tag = if !ttistable(rb) { LUA_VNOTABLE } else { luaH_getshortstr(hvalue(rb), tsvalue(rc), s2v(ra)) };
+                    let mut tag = if !ttistable(rb) {
+                        LUA_VNOTABLE
+                    } else {
+                        luaH_getshortstr(hvalue(rb), tsvalue(rc), s2v(ra))
+                    };
                     if tagisempty(tag) {
                         savestate(L, ci, pc);
                         tag = luaV_finishget(L, rb, rc, ra, tag);
@@ -1391,10 +1491,23 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                 }
                 OP_ADDI | OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_POWK | OP_DIVK | OP_IDIVK
                 | OP_BANDK | OP_BORK | OP_BXORK | OP_SHLI | OP_SHRI | OP_ADD | OP_SUB | OP_MUL
-                | OP_MOD | OP_POW | OP_DIV | OP_IDIV | OP_BAND | OP_BOR | OP_BXOR | OP_SHL | OP_SHR => {
+                | OP_MOD | OP_POW | OP_DIV | OP_IDIV | OP_BAND | OP_BOR | OP_BXOR | OP_SHL
+                | OP_SHR => {
                     let ra = RA(base, i);
                     let rb = s2v(RB(base, i));
-                    let rc = if matches!(GET_OPCODE(i), OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_POWK | OP_DIVK | OP_IDIVK | OP_BANDK | OP_BORK | OP_BXORK) {
+                    let rc = if matches!(
+                        GET_OPCODE(i),
+                        OP_ADDK
+                            | OP_SUBK
+                            | OP_MULK
+                            | OP_MODK
+                            | OP_POWK
+                            | OP_DIVK
+                            | OP_IDIVK
+                            | OP_BANDK
+                            | OP_BORK
+                            | OP_BXORK
+                    ) {
                         KC(k, i)
                     } else if matches!(GET_OPCODE(i), OP_ADDI | OP_SHLI | OP_SHRI) {
                         core::ptr::null_mut()
@@ -1434,7 +1547,8 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                                 pc = pc.add(1);
                             }
                         }
-                        OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_IDIVK | OP_ADD | OP_SUB | OP_MUL | OP_MOD | OP_IDIV => {
+                        OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_IDIVK | OP_ADD | OP_SUB
+                        | OP_MUL | OP_MOD | OP_IDIV => {
                             if ttisinteger(rb) && ttisinteger(rc) {
                                 i1 = ivalue(rb);
                                 i2 = ivalue(rc);
@@ -1461,16 +1575,30 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                         }
                         OP_POWK | OP_DIVK | OP_POW | OP_DIV => {
                             if tonumberns(rb, &mut n1) != 0 && tonumberns(rc, &mut n2) != 0 {
-                                setfltvalue(s2v(ra), if matches!(opcode, OP_POWK | OP_POW) { if n2 == 2.0 { n1 * n1 } else { n1.powf(n2) } } else { n1 / n2 });
+                                setfltvalue(
+                                    s2v(ra),
+                                    if matches!(opcode, OP_POWK | OP_POW) {
+                                        if n2 == 2.0 { n1 * n1 } else { n1.powf(n2) }
+                                    } else {
+                                        n1 / n2
+                                    },
+                                );
                                 pc = pc.add(1);
                             }
                         }
-                        OP_BANDK | OP_BORK | OP_BXORK | OP_BAND | OP_BOR | OP_BXOR | OP_SHL | OP_SHR => {
+                        OP_BANDK | OP_BORK | OP_BXORK | OP_BAND | OP_BOR | OP_BXOR | OP_SHL
+                        | OP_SHR => {
                             if tointegerns(rb, &mut i1) != 0 && tointegerns(rc, &mut i2) != 0 {
                                 let res = match opcode {
-                                    OP_BANDK | OP_BAND => ((i1 as lua_Unsigned) & (i2 as lua_Unsigned)) as lua_Integer,
-                                    OP_BORK | OP_BOR => ((i1 as lua_Unsigned) | (i2 as lua_Unsigned)) as lua_Integer,
-                                    OP_BXORK | OP_BXOR => ((i1 as lua_Unsigned) ^ (i2 as lua_Unsigned)) as lua_Integer,
+                                    OP_BANDK | OP_BAND => {
+                                        ((i1 as lua_Unsigned) & (i2 as lua_Unsigned)) as lua_Integer
+                                    }
+                                    OP_BORK | OP_BOR => {
+                                        ((i1 as lua_Unsigned) | (i2 as lua_Unsigned)) as lua_Integer
+                                    }
+                                    OP_BXORK | OP_BXOR => {
+                                        ((i1 as lua_Unsigned) ^ (i2 as lua_Unsigned)) as lua_Integer
+                                    }
                                     OP_SHL => luaV_shiftl(i1, i2),
                                     _ => luaV_shiftl(i1, -i2),
                                 };
@@ -1493,14 +1621,28 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let ra = RA(base, i);
                     let pi = *pc.sub(2);
                     savestate(L, ci, pc);
-                    luaT_trybiniTM(L, s2v(ra), GETARG_SB(i) as lua_Integer, GETARG_K(i), RA(base, pi), GETARG_C(i));
+                    luaT_trybiniTM(
+                        L,
+                        s2v(ra),
+                        GETARG_SB(i) as lua_Integer,
+                        GETARG_K(i),
+                        RA(base, pi),
+                        GETARG_C(i),
+                    );
                     updatetrap(ci, &mut trap);
                 }
                 OP_MMBINK => {
                     let ra = RA(base, i);
                     let pi = *pc.sub(2);
                     savestate(L, ci, pc);
-                    luaT_trybinassocTM(L, s2v(ra), KB(k, i), GETARG_K(i), RA(base, pi), GETARG_C(i));
+                    luaT_trybinassocTM(
+                        L,
+                        s2v(ra),
+                        KB(k, i),
+                        GETARG_K(i),
+                        RA(base, pi),
+                        GETARG_C(i),
+                    );
                     updatetrap(ci, &mut trap);
                 }
                 OP_UNM => {
@@ -1522,7 +1664,10 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let rb = s2v(RB(base, i));
                     let mut ib = 0;
                     if tointegerns(rb, &mut ib) != 0 {
-                        setivalue(s2v(ra), (!(0 as lua_Unsigned) ^ ib as lua_Unsigned) as lua_Integer);
+                        setivalue(
+                            s2v(ra),
+                            (!(0 as lua_Unsigned) ^ ib as lua_Unsigned) as lua_Integer,
+                        );
                     } else {
                         savestate(L, ci, pc);
                         luaT_trybinTM(L, rb, rb, ra, TM_BNOT);
@@ -1629,7 +1774,22 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                         0
                     } else {
                         savestate(L, ci, pc);
-                        let cond = luaT_callorderiTM(L, ra, im, if matches!(GET_OPCODE(i), OP_GTI | OP_GEI) { 1 } else { 0 }, GETARG_C(i), if matches!(GET_OPCODE(i), OP_LTI | OP_GTI) { TM_LT } else { TM_LE });
+                        let cond = luaT_callorderiTM(
+                            L,
+                            ra,
+                            im,
+                            if matches!(GET_OPCODE(i), OP_GTI | OP_GEI) {
+                                1
+                            } else {
+                                0
+                            },
+                            GETARG_C(i),
+                            if matches!(GET_OPCODE(i), OP_LTI | OP_GTI) {
+                                TM_LT
+                            } else {
+                                TM_LE
+                            },
+                        );
                         updatetrap(ci, &mut trap);
                         cond
                     };
@@ -1669,7 +1829,11 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                     let ra = RA(base, i);
                     let mut b = GETARG_B(i);
                     let nparams1 = GETARG_C(i);
-                    let delta = if nparams1 != 0 { (*ci).u.l.nextraargs + nparams1 } else { 0 };
+                    let delta = if nparams1 != 0 {
+                        (*ci).u.l.nextraargs + nparams1
+                    } else {
+                        0
+                    };
                     if b != 0 {
                         (*L).top.p = ra.add(b as usize);
                     } else {
@@ -1803,7 +1967,10 @@ pub unsafe extern "C-unwind" fn luaV_execute(L: *mut lua_State, mut ci: *mut Cal
                 }
                 OP_TFORPREP => {
                     let ra = RA(base, i);
-                    let mut temp = TValue { value_: Value { i: 0 }, tt_: LUA_VNIL };
+                    let mut temp = TValue {
+                        value_: Value { i: 0 },
+                        tt_: LUA_VNIL,
+                    };
                     setobj(&mut temp, s2v(ra.add(3)));
                     setobjs2s(L, ra.add(3), ra.add(2));
                     setobj2s(L, ra.add(2), &temp);

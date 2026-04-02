@@ -2,7 +2,6 @@
 name = "lua"
 version = "5.5.0"
 edition = "2024"
-build = "build.rs"
 
 [lib]
 name = "lua_rs"

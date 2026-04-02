@@ -1,148 +1,167 @@
 #![allow(non_snake_case)]
 
-use crate::lua_module::lua_State;
+use crate::api::*;
+use crate::debug::*;
+use crate::runtime::*;
 use std::ffi::{CStr, c_char, c_int, c_uchar, c_void};
 use std::mem::MaybeUninit;
 
+// Re-export public API items needed by binaries
+pub use crate::runtime::{
+    lua_State,
+    LUA_VERSION_NUM, LUA_REGISTRYINDEX,
+    LUA_MULTRET,
+    LUA_GCSTOP, LUA_GCRESTART, LUA_GCGEN,
+};
+pub use crate::api::{
+    lua_gettop, lua_settop, lua_type,
+    lua_pushnil, lua_pushboolean, lua_pushinteger, lua_pushnumber,
+    lua_pushstring, lua_pushlstring, lua_pushcclosure,
+    lua_getglobal, lua_setglobal,
+    lua_getfield, lua_setfield,
+    lua_rawgeti, lua_rawseti,
+    lua_createtable, lua_concat,
+    lua_tolstring, lua_toboolean, lua_tointegerx, lua_tonumberx,
+    lua_gc, lua_dump, lua_warning,
+};
+pub use crate::state::lua_close;
+pub use crate::lua_module::lua_pop;
+
 pub type LuaInteger = i64;
 pub type LuaNumber = f64;
-pub type LuaCFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State) -> c_int>;
+pub type LuaCFunction = Option<unsafe fn(*mut lua_State) -> c_int>;
 pub type LuaKContext = isize;
-pub type LuaKFunction = Option<unsafe extern "C-unwind" fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
-pub type LuaHook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut LuaDebug)>;
+pub type LuaKFunction =
+    Option<unsafe  fn(*mut lua_State, c_int, LuaKContext) -> c_int>;
+pub type LuaHook = Option<unsafe  fn(*mut lua_State, *mut lua_Debug)>;
 pub type LuaWriter =
-    Option<unsafe extern "C-unwind" fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
+    Option<unsafe  fn(*mut lua_State, *const c_void, usize, *mut c_void) -> c_int>;
 
-const LUA_IDSIZE: usize = 60;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct LuaDebug {
-    pub event: c_int,
-    pub name: *const c_char,
-    pub namewhat: *const c_char,
-    pub what: *const c_char,
-    pub source: *const c_char,
-    pub srclen: usize,
-    pub currentline: c_int,
-    pub linedefined: c_int,
-    pub lastlinedefined: c_int,
-    pub nups: c_uchar,
-    pub nparams: c_uchar,
-    pub isvararg: c_char,
-    pub extraargs: c_uchar,
-    pub istailcall: c_char,
-    pub ftransfer: c_int,
-    pub ntransfer: c_int,
-    pub short_src: [c_char; LUA_IDSIZE],
-    pub i_ci: *mut c_void,
+// ── C 字符分类函数的纯 Rust 替代 ────────────────────────────────────────────
+// 注意：Lua 使用 unsigned char 索引，因此先转 u8 再判断，与 C locale 无关版本一致
+#[inline] pub(crate) fn isalpha(c: c_int) -> c_int { (c as u8).is_ascii_alphabetic() as c_int }
+#[inline] pub(crate) fn iscntrl(c: c_int) -> c_int { (c as u8).is_ascii_control() as c_int }
+#[inline] pub(crate) fn isdigit(c: c_int) -> c_int { (c as u8).is_ascii_digit() as c_int }
+#[inline] pub(crate) fn isgraph(c: c_int) -> c_int { (c as u8).is_ascii_graphic() as c_int }
+#[inline] pub(crate) fn islower(c: c_int) -> c_int { (c as u8).is_ascii_lowercase() as c_int }
+#[inline] pub(crate) fn ispunct(c: c_int) -> c_int { (c as u8).is_ascii_punctuation() as c_int }
+#[inline] pub(crate) fn isspace(c: c_int) -> c_int { (c as u8).is_ascii_whitespace() as c_int }
+#[inline] pub(crate) fn isupper(c: c_int) -> c_int { (c as u8).is_ascii_uppercase() as c_int }
+#[inline] pub(crate) fn isalnum(c: c_int) -> c_int { (c as u8).is_ascii_alphanumeric() as c_int }
+#[inline] pub(crate) fn isxdigit(c: c_int) -> c_int { (c as u8).is_ascii_hexdigit() as c_int }
+#[inline] pub(crate) fn tolower(c: c_int) -> c_int { (c as u8).to_ascii_lowercase() as c_int }
+#[inline] pub(crate) fn toupper(c: c_int) -> c_int { (c as u8).to_ascii_uppercase() as c_int }
+
+// ── strtod：解析 C 字符串为 f64 ─────────────────────────────────────────────
+/// 解析 C 字符串为 f64，模拟 C strtod 行为（更新 endp 到停止位置）
+pub(crate) unsafe fn strtod(s: *const c_char, endp: *mut *mut c_char) -> lua_Number {
+    let bytes = unsafe { core::ffi::CStr::from_ptr(s) }.to_bytes();
+    // 跳过前导空白
+    let trimmed = bytes.iter().position(|&b| !b.is_ascii_whitespace()).unwrap_or(bytes.len());
+    let s2 = &bytes[trimmed..];
+    // 尝试解析
+    let s2_str = core::str::from_utf8(s2).unwrap_or("");
+    let (val, consumed) = if s2_str.starts_with("0x") || s2_str.starts_with("0X") {
+        // 16 进制浮点（Lua 5.5 支持）：使用标准库解析不支持，退回为 0
+        // 对 Lua 字节码常量影响有限，暂时回退到系统 strtod 语义的近似处理
+        parse_hex_float(s2_str)
+    } else {
+        match s2_str.parse::<f64>() {
+            Ok(v) => {
+                // 估算 consumed 字节数
+                let end = find_float_end(s2);
+                (v, end)
+            }
+            Err(_) => (0.0, 0),
+        }
+    };
+    if !endp.is_null() {
+        unsafe { *endp = s.add(trimmed + consumed) as *mut c_char };
+    }
+    val
 }
 
-impl Default for LuaDebug {
-    fn default() -> Self {
-        Self {
-            event: 0,
-            name: std::ptr::null(),
-            namewhat: std::ptr::null(),
-            what: std::ptr::null(),
-            source: std::ptr::null(),
-            srclen: 0,
-            currentline: 0,
-            linedefined: 0,
-            lastlinedefined: 0,
-            nups: 0,
-            nparams: 0,
-            isvararg: 0,
-            extraargs: 0,
-            istailcall: 0,
-            ftransfer: 0,
-            ntransfer: 0,
-            short_src: [0; LUA_IDSIZE],
-            i_ci: std::ptr::null_mut(),
+fn find_float_end(s: &[u8]) -> usize {
+    let mut i = 0;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') { i += 1; }
+    while i < s.len() && s[i].is_ascii_digit() { i += 1; }
+    if i < s.len() && s[i] == b'.' {
+        i += 1;
+        while i < s.len() && s[i].is_ascii_digit() { i += 1; }
+    }
+    if i < s.len() && (s[i] == b'e' || s[i] == b'E') {
+        let j = i + 1;
+        let k = if j < s.len() && (s[j] == b'+' || s[j] == b'-') { j + 1 } else { j };
+        if k < s.len() && s[k].is_ascii_digit() {
+            i = k;
+            while i < s.len() && s[i].is_ascii_digit() { i += 1; }
         }
+    }
+    i
+}
+
+fn parse_hex_float(s: &str) -> (f64, usize) {
+    // 简化：尝试用系统能力解析 hex float，否则用 0
+    // Rust stable 无内置 hex float 解析，但可以手动实现
+    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+    let dot_pos = s.find('.').unwrap_or(s.len());
+    let (int_part, frac_part) = s.split_at(dot_pos);
+    let frac_part = if frac_part.is_empty() { "" } else { &frac_part[1..] };
+    // 找到指数部分
+    let (frac_part, exp_str) = if let Some(p) = frac_part.find(|c: char| c == 'p' || c == 'P') {
+        (&frac_part[..p], &frac_part[p+1..])
+    } else {
+        (frac_part, "")
+    };
+    let (int_part, exp_str) = if exp_str.is_empty() {
+        if let Some(p) = int_part.find(|c: char| c == 'p' || c == 'P') {
+            (&int_part[..p], &int_part[p+1..])
+        } else {
+            (int_part, "")
+        }
+    } else {
+        (int_part, exp_str)
+    };
+    let int_val = u64::from_str_radix(int_part, 16).unwrap_or(0) as f64;
+    let frac_val = frac_part.chars().enumerate().fold(0.0f64, |acc, (i, c)| {
+        acc + c.to_digit(16).unwrap_or(0) as f64 / (16.0f64.powi(i as i32 + 1))
+    });
+    let exp = exp_str.parse::<i32>().unwrap_or(0);
+    let val = (int_val + frac_val) * 2.0f64.powi(exp);
+    // consumed = 2 (0x) + int + dot + frac + pXXX
+    let consumed = 2 + int_part.len() + if !frac_part.is_empty() { 1 + frac_part.len() } else { 0 }
+        + if !exp_str.is_empty() { 1 + exp_str.len() } else { 0 };
+    (val, consumed)
+}
+
+// ── localeconv：返回 locale 的小数点字符 ─────────────────────────────────────
+// Lua 只用 localeconv 获取小数点字符，这里固定返回 '.'（ASCII locale）
+static LOCALE_DECIMAL_POINT: u8 = b'.';
+static mut LCONV_STRUCT: LConv = LConv {
+    decimal_point: core::ptr::null_mut(),
+};
+
+pub(crate) fn localeconv() -> *mut LConv {
+    // Safety: 单线程 Lua，全局初始化一次
+    unsafe {
+        LCONV_STRUCT.decimal_point = &LOCALE_DECIMAL_POINT as *const u8 as *mut c_char;
+        core::ptr::addr_of_mut!(LCONV_STRUCT)
     }
 }
 
-pub const LUA_OK: c_int = 0;
-pub const LUA_ERRSYNTAX: c_int = 3;
-pub const LUA_MULTRET: c_int = -1;
-pub const LUA_TNIL: c_int = 0;
-pub const LUA_TBOOLEAN: c_int = 1;
-pub const LUA_TSTRING: c_int = 4;
-pub const LUA_TTABLE: c_int = 5;
-pub const LUA_REGISTRYINDEX: c_int = -(i32::MAX / 2 + 1000);
-pub const LUA_MINSTACK: c_int = 20;
-pub const LUA_GCSTOP: c_int = 0;
-pub const LUA_GCRESTART: c_int = 1;
-pub const LUA_GCGEN: c_int = 7;
-pub const LUA_MASKCALL: c_int = 1;
-pub const LUA_MASKRET: c_int = 2;
-pub const LUA_MASKLINE: c_int = 4;
-pub const LUA_MASKCOUNT: c_int = 8;
-pub const LUA_VERSION_NUM: LuaNumber = 505.0;
+// ── snprintf：格式化到 C 字符串缓冲区 ──────────────────────────────────────
+// 变参版本必须保留 extern "C" ABI，但我们通过把 snprintf 引入作为真正的 C 函数来避免
+// 直接在 luaffi 里声明，让调用者继续用系统 snprintf
+// （Rust 目前没有 stable 的 snprintf 纯 Rust 等价，保留 extern C 最安全）
+unsafe extern "C" {
+    pub(crate) fn snprintf(dst: *mut c_char, size: usize, fmt: *const c_char, ...) -> c_int;
+}
+
+
 pub const LUAL_NUMSIZES: usize =
     std::mem::size_of::<LuaInteger>() * 16 + std::mem::size_of::<LuaNumber>();
 
-unsafe extern "C-unwind" {
-    pub fn lua_close(state: *mut lua_State);
-    pub fn lua_pcallk(
-        state: *mut lua_State,
-        nargs: c_int,
-        nresults: c_int,
-        errfunc: c_int,
-        context: LuaKContext,
-        continuation: LuaKFunction,
-    ) -> c_int;
-    pub fn lua_callk(
-        state: *mut lua_State,
-        nargs: c_int,
-        nresults: c_int,
-        context: LuaKContext,
-        continuation: LuaKFunction,
-    );
-    pub fn lua_dump(
-        state: *mut lua_State,
-        writer: LuaWriter,
-        data: *mut c_void,
-        strip: c_int,
-    ) -> c_int;
-    pub fn lua_gettop(state: *mut lua_State) -> c_int;
-    pub fn lua_settop(state: *mut lua_State, index: c_int);
-    pub fn lua_pushcclosure(state: *mut lua_State, function: LuaCFunction, n: c_int);
-    pub fn lua_rotate(state: *mut lua_State, index: c_int, n: c_int);
-    pub fn lua_createtable(state: *mut lua_State, narr: c_int, nrec: c_int);
-    pub fn lua_pushstring(state: *mut lua_State, string: *const c_char) -> *const c_char;
-    pub fn lua_pushlstring(
-        state: *mut lua_State,
-        string: *const c_char,
-        len: usize,
-    ) -> *const c_char;
-    pub fn lua_pushboolean(state: *mut lua_State, value: c_int);
-    pub fn lua_pushinteger(state: *mut lua_State, value: LuaInteger);
-    pub fn lua_pushlightuserdata(state: *mut lua_State, pointer: *mut c_void);
-    pub fn lua_pushnil(state: *mut lua_State);
-    pub fn lua_type(state: *mut lua_State, index: c_int) -> c_int;
-    pub fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char;
-    pub fn lua_tolstring(state: *mut lua_State, index: c_int, len: *mut usize) -> *const c_char;
-    pub fn lua_toboolean(state: *mut lua_State, index: c_int) -> c_int;
-    pub fn lua_tointegerx(state: *mut lua_State, index: c_int, isnum: *mut c_int) -> LuaInteger;
-    pub fn lua_touserdata(state: *mut lua_State, index: c_int) -> *mut c_void;
-    pub fn lua_getglobal(state: *mut lua_State, name: *const c_char) -> c_int;
-    pub fn lua_setglobal(state: *mut lua_State, name: *const c_char);
-    pub fn lua_getfield(state: *mut lua_State, index: c_int, key: *const c_char) -> c_int;
-    pub fn lua_setfield(state: *mut lua_State, index: c_int, key: *const c_char);
-    pub fn lua_rawgeti(state: *mut lua_State, index: c_int, n: LuaInteger) -> c_int;
-    pub fn lua_rawseti(state: *mut lua_State, index: c_int, n: LuaInteger);
-    pub fn lua_concat(state: *mut lua_State, n: c_int);
-    pub fn lua_warning(state: *mut lua_State, message: *const c_char, tocont: c_int);
-    pub fn lua_gc(state: *mut lua_State, what: c_int, ...) -> c_int;
-    pub fn lua_getstack(state: *mut lua_State, level: c_int, ar: *mut LuaDebug) -> c_int;
-    pub fn lua_getinfo(state: *mut lua_State, what: *const c_char, ar: *mut LuaDebug) -> c_int;
-    pub fn lua_gethook(state: *mut lua_State) -> LuaHook;
-    pub fn lua_gethookmask(state: *mut lua_State) -> c_int;
-    pub fn lua_gethookcount(state: *mut lua_State) -> c_int;
-    pub fn lua_sethook(state: *mut lua_State, function: LuaHook, mask: c_int, count: c_int);
-}
 
 #[derive(Clone, Copy)]
 pub struct LuaThread(*mut lua_State);
@@ -159,8 +178,8 @@ impl LuaThread {
         self.0
     }
 
-    pub fn get_stack(self, level: c_int) -> Option<LuaDebug> {
-        let mut ar = MaybeUninit::<LuaDebug>::uninit();
+    pub fn get_stack(self, level: c_int) -> Option<lua_Debug> {
+        let mut ar = MaybeUninit::<lua_Debug>::uninit();
         if unsafe { lua_getstack(self.0, level, ar.as_mut_ptr()) } == 0 {
             None
         } else {
@@ -168,7 +187,7 @@ impl LuaThread {
         }
     }
 
-    pub fn get_info(self, what: &CStr, ar: &mut LuaDebug) -> bool {
+    pub fn get_info(self, what: &CStr, ar: &mut lua_Debug) -> bool {
         unsafe { lua_getinfo(self.0, what.as_ptr(), ar) != 0 }
     }
 
@@ -206,17 +225,40 @@ pub unsafe fn lua_call(state: *mut lua_State, nargs: c_int, nresults: c_int) {
     unsafe { lua_callk(state, nargs, nresults, 0, None) };
 }
 
-pub unsafe fn lua_pop(state: *mut lua_State, count: c_int) {
-    unsafe { lua_settop(state, -count - 1) };
-}
 
 pub unsafe fn lua_remove(state: *mut lua_State, index: c_int) {
     unsafe {
         lua_rotate(state, index, -1);
-        lua_pop(state, 1);
+        crate::lua_module::lua_pop(state, 1);
     }
 }
 
 pub unsafe fn lua_insert(state: *mut lua_State, index: c_int) {
     unsafe { lua_rotate(state, index, 1) };
+}
+
+
+/// C strcmp 的 Rust 等价
+#[inline]
+pub(crate) unsafe fn strcmp(lhs: *const c_char, rhs: *const c_char) -> c_int {
+    let l = unsafe { core::ffi::CStr::from_ptr(lhs) }.to_bytes();
+    let r = unsafe { core::ffi::CStr::from_ptr(rhs) }.to_bytes();
+    l.cmp(r) as c_int
+}
+
+/// C strchr 的 Rust 等价：在字符串中查找字符，返回指向该位置的指针
+#[inline]
+pub(crate) unsafe fn strchr(s: *const c_char, c: c_int) -> *mut c_char {
+    let target = c as u8;
+    let mut p = s;
+    loop {
+        let ch = unsafe { *p as u8 };
+        if ch == target {
+            return p as *mut c_char;
+        }
+        if ch == 0 {
+            return core::ptr::null_mut();
+        }
+        p = unsafe { p.add(1) };
+    }
 }
