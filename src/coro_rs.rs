@@ -4,7 +4,6 @@ use crate::do_rs::*;
 use crate::runtime::*;
 use crate::lua_module::*;
 use crate::luaffi::*;
-use crate::state::*;
 use core::ffi::c_int;
 use core::ptr;
 
@@ -53,7 +52,7 @@ static CO_FUNCS: [luaL_Reg; 9] = [
 unsafe fn getco(state: *mut lua_State) -> *mut lua_State {
     let co = unsafe { lua_tothread(state, 1) };
     if co.is_null() {
-        let _ = unsafe { luaL_typeerror(state, 1, STR_THREAD.as_ptr().cast()) };
+        let _ = luaL_typeerror(state, 1, STR_THREAD.as_ptr().cast());
     }
     co
 }
@@ -104,7 +103,7 @@ unsafe  fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
             unsafe { lua_xmove(co, state, 1) };
         }
         if stat != LUA_ERRMEM.into() && unsafe { lua_type(state, -1) } == LUA_TSTRING.into() {
-            unsafe { luaL_where(state, 1) };
+            luaL_where(state, 1);
             unsafe { lua_insert(state, -2) };
             unsafe { lua_concat(state, 2) };
         }
@@ -114,7 +113,7 @@ unsafe  fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
 }
 
 unsafe  fn lua_b_cocreate(state: *mut lua_State) -> c_int {
-    unsafe { luaL_checktype(state, 1, LUA_TFUNCTION.into()) };
+    luaL_checktype(state, 1, LUA_TFUNCTION.into());
     let new_state = unsafe { crate::state::lua_newthread(state) };
     unsafe { lua_pushvalue(state, 1) };
     unsafe { lua_xmove(state, new_state, 1) };

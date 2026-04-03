@@ -13,7 +13,6 @@ use crate::mem::luaM_realloc_;
 use crate::parser_rs::luaY_parser;
 use crate::runtime::*;
 use crate::state::*;
-use crate::tm::*;
 use crate::undump::luaU_undump;
 use crate::vm_rs::*;
 use crate::zio::*;
@@ -66,11 +65,6 @@ unsafe fn incnny(L: *mut lua_State) {
 #[inline]
 unsafe fn decnny(L: *mut lua_State) {
     unsafe { (*L).nCcalls = (*L).nCcalls.wrapping_sub(0x10000) };
-}
-
-#[inline]
-unsafe fn ci_func(ci: *mut CallInfo) -> *mut LClosure {
-    unsafe { clLvalue(s2v((*ci).func.p)) }
 }
 
 #[inline]

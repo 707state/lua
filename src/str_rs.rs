@@ -346,16 +346,16 @@ unsafe fn classend(ms: &mut MatchState, mut p: *const u8) -> *const u8 {
 fn match_class(c: c_int, cl: c_int) -> bool {
     let class = cl as u8;
     let res = match class.to_ascii_lowercase() {
-        b'a' => unsafe { isalpha(c) != 0 },
-        b'c' => unsafe { iscntrl(c) != 0 },
-        b'd' => unsafe { isdigit(c) != 0 },
-        b'g' => unsafe { isgraph(c) != 0 },
-        b'l' => unsafe { islower(c) != 0 },
-        b'p' => unsafe { ispunct(c) != 0 },
-        b's' => unsafe { isspace(c) != 0 },
-        b'u' => unsafe { isupper(c) != 0 },
-        b'w' => unsafe { isalnum(c) != 0 },
-        b'x' => unsafe { isxdigit(c) != 0 },
+        b'a' => isalpha(c) != 0,
+        b'c' => iscntrl(c) != 0,
+        b'd' => isdigit(c) != 0,
+        b'g' => isgraph(c) != 0,
+        b'l' => islower(c) != 0,
+        b'p' => ispunct(c) != 0,
+        b's' => isspace(c) != 0,
+        b'u' => isupper(c) != 0,
+        b'w' => isalnum(c) != 0,
+        b'x' => isxdigit(c) != 0,
         b'z' => c == 0,
         _ => cl == c,
     };
@@ -1146,11 +1146,7 @@ unsafe fn addliteral(state: *mut lua_State, out: &mut Vec<u8>, arg: c_int) {
                 } else if n.is_nan() {
                     out.extend_from_slice(b"(0/0)");
                 } else {
-                    let mut buf = vec![0u8; MAX_ITEM];
-                    let nb = unsafe  {
-                        snprintf(buf.as_mut_ptr().cast(), buf.len(), c"%a".as_ptr(), n) as usize
-                    };
-                    out.extend_from_slice(&buf[..nb]);
+                    format_hex_float(n, None, false, out);
                 }
             } else {
                 let n = unsafe { lua_tointegerx(state, arg, ptr::null_mut()) };
@@ -1159,7 +1155,7 @@ unsafe fn addliteral(state: *mut lua_State, out: &mut Vec<u8>, arg: c_int) {
         }
         LUA_TNIL | LUA_TBOOLEAN => {
             let mut len = 0;
-            let s = unsafe { luaL_tolstring(state, arg, &mut len) }.cast::<u8>();
+            let s = luaL_tolstring(state, arg, &mut len).cast::<u8>();
             out.extend_from_slice(unsafe { core::slice::from_raw_parts(s, len) });
             unsafe { lua_pop(state, 1) };
         }
@@ -1223,15 +1219,6 @@ unsafe fn getformat(state: *mut lua_State, strfrmt: &[u8]) -> (Vec<u8>, usize) {
     (form, len)
 }
 
-fn addlenmod(form: &mut Vec<u8>, lenmod: &[u8]) {
-    let l = form.len() - 1;
-    let spec = form[l - 1];
-    form.truncate(l - 1);
-    form.extend_from_slice(lenmod);
-    form.push(spec);
-    form.push(0);
-}
-
 pub(crate) unsafe  fn str_len(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let _ = { luaL_checklstring(state, 1, &mut len) };
@@ -1242,7 +1229,7 @@ pub(crate) unsafe  fn str_len(state: *mut lua_State) -> c_int {
 pub(crate) unsafe  fn str_sub(state: *mut lua_State) -> c_int {
     let mut len = 0;
     let s = { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
-    let start = posrelat_i(unsafe { luaL_checkinteger(state, 2) }, len);
+    let start = posrelat_i(luaL_checkinteger(state, 2), len);
     let end = unsafe { getendpos(state, 3, -1, len) };
     if start <= end {
         unsafe {
@@ -1274,7 +1261,7 @@ pub(crate) unsafe  fn str_lower(state: *mut lua_State) -> c_int {
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
     let mut out = Vec::with_capacity(len);
     for &byte in slice {
-        out.push(unsafe { tolower(c_int::from(byte)) } as c_uchar);
+        out.push(tolower(c_int::from(byte)) as c_uchar);
     }
     unsafe { lua_pushlstring(state, out.as_ptr().cast(), out.len()) };
     1
@@ -1286,7 +1273,7 @@ pub(crate) unsafe  fn str_upper(state: *mut lua_State) -> c_int {
     let slice = unsafe { core::slice::from_raw_parts(s, len) };
     let mut out = Vec::with_capacity(len);
     for &byte in slice {
-        out.push(unsafe { toupper(c_int::from(byte)) } as c_uchar);
+        out.push(toupper(c_int::from(byte)) as c_uchar);
     }
     unsafe { lua_pushlstring(state, out.as_ptr().cast(), out.len()) };
     1
@@ -1571,6 +1558,412 @@ pub(crate) unsafe  fn str_gsub(state: *mut lua_State) -> c_int {
     2
 }
 
+/// Parsed representation of a C-style format specifier's flags, width, and precision.
+struct FmtSpec {
+    left_align: bool,
+    force_sign: bool,
+    space_sign: bool,
+    alt_form: bool,
+    zero_pad: bool,
+    width: Option<usize>,
+    precision: Option<usize>,
+}
+
+impl FmtSpec {
+    /// Parse flags, width, and precision from the format bytes between '%' and the specifier char.
+    /// `form` is the full form slice including leading '%' and trailing specifier+NUL, e.g. b"%-10.3d\0".
+    fn parse(form: &[u8]) -> Self {
+        let mut spec = FmtSpec {
+            left_align: false,
+            force_sign: false,
+            space_sign: false,
+            alt_form: false,
+            zero_pad: false,
+            width: None,
+            precision: None,
+        };
+        // Skip leading '%'
+        let mut i = 1usize;
+        // The form ends with specifier + NUL, so meaningful content is form[1..form.len()-2]
+        let end = if form.len() >= 2 { form.len() - 2 } else { return spec };
+        // Parse flags
+        while i < end {
+            match form[i] {
+                b'-' => spec.left_align = true,
+                b'+' => spec.force_sign = true,
+                b' ' => spec.space_sign = true,
+                b'#' => spec.alt_form = true,
+                b'0' if spec.width.is_none() => spec.zero_pad = true,
+                _ => break,
+            }
+            i += 1;
+        }
+        // Parse width
+        if i < end && form[i].is_ascii_digit() {
+            let start = i;
+            while i < end && form[i].is_ascii_digit() {
+                i += 1;
+            }
+            spec.width = Some(core::str::from_utf8(&form[start..i]).unwrap().parse().unwrap());
+        }
+        // Parse precision
+        if i < end && form[i] == b'.' {
+            i += 1;
+            let start = i;
+            while i < end && form[i].is_ascii_digit() {
+                i += 1;
+            }
+            if start == i {
+                spec.precision = Some(0);
+            } else {
+                spec.precision = Some(core::str::from_utf8(&form[start..i]).unwrap().parse().unwrap());
+            }
+        }
+        spec
+    }
+
+    /// Apply padding to a formatted string according to width/alignment/zero-pad settings.
+    fn pad(&self, out: &mut Vec<u8>, formatted: &[u8]) {
+        let w = match self.width {
+            Some(w) if w > formatted.len() => w,
+            _ => {
+                out.extend_from_slice(formatted);
+                return;
+            }
+        };
+        let pad_len = w - formatted.len();
+        if self.left_align {
+            out.extend_from_slice(formatted);
+            out.extend(core::iter::repeat_n(b' ', pad_len));
+        } else if self.zero_pad && !formatted.is_empty() {
+            // For zero-padding, keep sign/prefix before zeros
+            let prefix_len = if formatted[0] == b'-' || formatted[0] == b'+' || formatted[0] == b' ' {
+                1
+            } else if formatted.starts_with(b"0x") || formatted.starts_with(b"0X") {
+                2
+            } else {
+                0
+            };
+            out.extend_from_slice(&formatted[..prefix_len]);
+            out.extend(core::iter::repeat_n(b'0', pad_len));
+            out.extend_from_slice(&formatted[prefix_len..]);
+        } else {
+            out.extend(core::iter::repeat_n(b' ', pad_len));
+            out.extend_from_slice(formatted);
+        }
+    }
+}
+
+/// Format a signed integer with Rust formatting.
+fn rust_fmt_int(spec: &FmtSpec, n: lua_Integer, out: &mut Vec<u8>) {
+    use std::fmt::Write;
+    let mut tmp = String::new();
+    // Apply sign
+    if n < 0 {
+        write!(tmp, "{}", n).unwrap();
+    } else if spec.force_sign {
+        write!(tmp, "+{}", n).unwrap();
+    } else if spec.space_sign {
+        write!(tmp, " {}", n).unwrap();
+    } else {
+        write!(tmp, "{}", n).unwrap();
+    }
+    spec.pad(out, tmp.as_bytes());
+}
+
+/// Format an unsigned integer with various bases using Rust formatting.
+fn rust_fmt_uint(spec: &FmtSpec, n: lua_Unsigned, base_spec: u8, out: &mut Vec<u8>) {
+    use std::fmt::Write;
+    let mut tmp = String::new();
+    match base_spec {
+        b'u' => write!(tmp, "{}", n).unwrap(),
+        b'o' => {
+            if spec.alt_form && n != 0 {
+                write!(tmp, "0{:o}", n).unwrap();
+            } else {
+                write!(tmp, "{:o}", n).unwrap();
+            }
+        }
+        b'x' => {
+            if spec.alt_form && n != 0 {
+                write!(tmp, "0x{:x}", n).unwrap();
+            } else {
+                write!(tmp, "{:x}", n).unwrap();
+            }
+        }
+        b'X' => {
+            if spec.alt_form && n != 0 {
+                write!(tmp, "0X{:X}", n).unwrap();
+            } else {
+                write!(tmp, "{:X}", n).unwrap();
+            }
+        }
+        _ => write!(tmp, "{}", n).unwrap(),
+    }
+    spec.pad(out, tmp.as_bytes());
+}
+
+/// Format a floating-point number using Rust formatting.
+/// Handles %e, %E, %f, %g, %G specifiers.
+fn rust_fmt_float(spec: &FmtSpec, n: lua_Number, float_spec: u8, out: &mut Vec<u8>) {
+    use std::fmt::Write;
+    let mut tmp = String::new();
+    let prec = spec.precision.unwrap_or(6);
+
+    // Build sign prefix
+    let sign_prefix = if n.is_sign_negative() && !n.is_nan() {
+        "" // negative sign is included by the formatting
+    } else if spec.force_sign {
+        "+"
+    } else if spec.space_sign {
+        " "
+    } else {
+        ""
+    };
+
+    match float_spec {
+        b'f' => {
+            if !sign_prefix.is_empty() && !n.is_sign_negative() {
+                write!(tmp, "{}{:.prec$}", sign_prefix, n, prec = prec).unwrap();
+            } else {
+                write!(tmp, "{:.prec$}", n, prec = prec).unwrap();
+            }
+        }
+        b'e' => {
+            let formatted = format_scientific(n, prec, false);
+            if !sign_prefix.is_empty() && !n.is_sign_negative() {
+                tmp.push_str(sign_prefix);
+            }
+            tmp.push_str(&formatted);
+        }
+        b'E' => {
+            let formatted = format_scientific(n, prec, true);
+            if !sign_prefix.is_empty() && !n.is_sign_negative() {
+                tmp.push_str(sign_prefix);
+            }
+            tmp.push_str(&formatted);
+        }
+        b'g' | b'G' => {
+            let p = if prec == 0 { 1 } else { prec };
+            let formatted = format_general(n, p, float_spec == b'G', spec.alt_form);
+            if !sign_prefix.is_empty() && !n.is_sign_negative() {
+                tmp.push_str(sign_prefix);
+            }
+            tmp.push_str(&formatted);
+        }
+        _ => {
+            write!(tmp, "{}", n).unwrap();
+        }
+    }
+
+    if spec.alt_form && matches!(float_spec, b'f' | b'e' | b'E') && !tmp.contains('.') {
+        // Ensure decimal point is present for '#' flag
+        tmp.push('.');
+    }
+
+    spec.pad(out, tmp.as_bytes());
+}
+
+/// Format a number in scientific notation (like C's %e/%E).
+/// Uses Rust's `{:.prec$e}` for reliable precision, then reformats the exponent.
+fn format_scientific(n: f64, prec: usize, upper: bool) -> String {
+    if n == 0.0 {
+        let sign = if n.is_sign_negative() { "-" } else { "" };
+        let e_char = if upper { 'E' } else { 'e' };
+        return if prec > 0 {
+            format!("{}0.{}{}+00", sign, "0".repeat(prec), e_char)
+        } else {
+            format!("{}0{}+00", sign, e_char)
+        };
+    }
+    if n.is_infinite() {
+        return if n.is_sign_negative() { "-inf".to_string() } else { "inf".to_string() };
+    }
+    if n.is_nan() {
+        return "nan".to_string();
+    }
+
+    // Use Rust's built-in scientific notation for reliable precision
+    let raw = format!("{:.prec$e}", n, prec = prec);
+    // Rust produces e.g. "3.14e2" or "-1.23e-5"; reformat exponent to C style (e+02, e-05)
+    if let Some(e_pos) = raw.rfind('e') {
+        let mantissa_part = &raw[..e_pos];
+        let exp_val: i32 = raw[e_pos + 1..].parse().unwrap_or(0);
+        let e_char = if upper { 'E' } else { 'e' };
+        let exp_sign = if exp_val >= 0 { '+' } else { '-' };
+        let abs_exp = exp_val.unsigned_abs();
+        format!("{}{}{}{:02}", mantissa_part, e_char, exp_sign, abs_exp)
+    } else {
+        raw
+    }
+}
+
+/// Format a number in general notation (like C's %g/%G).
+/// Uses Rust's built-in formatting for reliable precision.
+fn format_general(n: f64, sig_digits: usize, upper: bool, alt_form: bool) -> String {
+    if n == 0.0 {
+        let sign = if n.is_sign_negative() { "-" } else { "" };
+        if alt_form && sig_digits > 1 {
+            return format!("{}0.{}", sign, "0".repeat(sig_digits - 1));
+        }
+        return format!("{}0", sign);
+    }
+    if n.is_infinite() {
+        return if n.is_sign_negative() { "-inf".to_string() } else { "inf".to_string() };
+    }
+    if n.is_nan() {
+        return if upper { "NAN".to_string() } else { "nan".to_string() };
+    }
+
+    // Use Rust's {:e} to determine the exponent reliably
+    let sci = format!("{:.prec$e}", n, prec = sig_digits.saturating_sub(1));
+    let exp = if let Some(e_pos) = sci.rfind('e') {
+        sci[e_pos + 1..].parse::<i32>().unwrap_or(0)
+    } else {
+        0
+    };
+
+    // %g uses %e if exponent < -4 or >= precision, otherwise %f
+    if exp < -4 || exp >= sig_digits as i32 {
+        let prec = if sig_digits > 1 { sig_digits - 1 } else { 0 };
+        let mut result = format_scientific(n, prec, upper);
+        if !alt_form {
+            // Remove trailing zeros after decimal point in mantissa (before 'e'/'E')
+            let e_marker = if upper { 'E' } else { 'e' };
+            if let Some(e_pos) = result.find(e_marker) {
+                let mantissa_part = &result[..e_pos];
+                let exp_part = &result[e_pos..];
+                if mantissa_part.contains('.') {
+                    let trimmed = mantissa_part.trim_end_matches('0').trim_end_matches('.');
+                    result = format!("{}{}", trimmed, exp_part);
+                }
+            }
+        }
+        result
+    } else {
+        // Use %f style
+        let decimal_places = if sig_digits as i32 > exp + 1 {
+            (sig_digits as i32 - exp - 1) as usize
+        } else {
+            0
+        };
+        let mut result = format!("{:.prec$}", n, prec = decimal_places);
+        if !alt_form && result.contains('.') {
+            // Remove trailing zeros
+            let trimmed = result.trim_end_matches('0').trim_end_matches('.');
+            result = trimmed.to_string();
+        }
+        result
+    }
+}
+
+/// Format a hex float (%a/%A) using pure Rust.
+fn format_hex_float(n: f64, prec: Option<usize>, upper: bool, out: &mut Vec<u8>) {
+    if n.is_nan() {
+        out.extend_from_slice(if upper { b"NAN" } else { b"nan" });
+        return;
+    }
+    if n.is_infinite() {
+        if n.is_sign_negative() {
+            out.push(b'-');
+        }
+        out.extend_from_slice(if upper { b"INF" } else { b"inf" });
+        return;
+    }
+
+    let bits = n.to_bits();
+    let sign = (bits >> 63) != 0;
+    let biased_exp = ((bits >> 52) & 0x7ff) as i64;
+    let mantissa = bits & 0x000f_ffff_ffff_ffff;
+
+    if sign {
+        out.push(b'-');
+    }
+    out.extend_from_slice(if upper { b"0X" } else { b"0x" });
+
+    if biased_exp == 0 && mantissa == 0 {
+        // Zero
+        out.push(b'0');
+        if let Some(p) = prec {
+            if p > 0 {
+                out.push(b'.');
+                out.extend(core::iter::repeat_n(b'0', p));
+            }
+        }
+        out.extend_from_slice(if upper { b"P+0" } else { b"p+0" });
+        return;
+    }
+
+    let (exp, full_mantissa) = if biased_exp == 0 {
+        // Subnormal: exponent is -1022, no implicit leading 1
+        (-1022i64, mantissa)
+    } else {
+        // Normal: exponent is biased_exp - 1023, implicit leading 1
+        (biased_exp - 1023, mantissa | (1u64 << 52))
+    };
+
+    // Format as 1.xxxxx * 2^exp (or 0.xxxxx for subnormals)
+    // The mantissa has 53 bits for normals (1 + 52 fraction bits)
+    // We want to display as X.YYYYp+E where X is the leading hex digit
+    let lead_digit = (full_mantissa >> 52) as u8;
+    let frac_bits = full_mantissa & 0x000f_ffff_ffff_ffff;
+
+    // The fraction part is 52 bits = 13 hex digits
+    let hex_chars: &[u8] = if upper { b"0123456789ABCDEF" } else { b"0123456789abcdef" };
+
+    let mut frac_hex = [0u8; 13];
+    let mut tmp = frac_bits;
+    for digit in frac_hex.iter_mut().rev() {
+        *digit = hex_chars[(tmp & 0xf) as usize];
+        tmp >>= 4;
+    }
+
+    // Determine how many hex digits to show
+    let frac_digits = match prec {
+        Some(p) => p,
+        None => {
+            // Default: show minimum needed (trim trailing zeros)
+            let mut len = 13;
+            while len > 0 && frac_hex[len - 1] == b'0' {
+                len -= 1;
+            }
+            if len == 0 && frac_bits != 0 { 1 } else { len }
+        }
+    };
+
+    // Write leading digit
+    out.push(hex_chars[lead_digit as usize]);
+
+    if frac_digits > 0 {
+        out.push(b'.');
+        let available = frac_hex.len().min(frac_digits);
+        out.extend_from_slice(&frac_hex[..available]);
+        // Pad with zeros if precision exceeds available digits
+        if frac_digits > available {
+            out.extend(core::iter::repeat_n(b'0', frac_digits - available));
+        }
+    }
+
+    // Write exponent
+    out.push(if upper { b'P' } else { b'p' });
+    if exp >= 0 {
+        out.push(b'+');
+        out.extend_from_slice(format!("{}", exp).as_bytes());
+    } else {
+        out.extend_from_slice(format!("{}", exp).as_bytes());
+    }
+}
+
+/// Format a string with width and precision (like C's %s with modifiers).
+fn rust_fmt_str(spec: &FmtSpec, s: &[u8], out: &mut Vec<u8>) {
+    // Precision truncates the string
+    let data = match spec.precision {
+        Some(p) if p < s.len() => &s[..p],
+        _ => s,
+    };
+    spec.pad(out, data);
+}
+
 pub(crate) unsafe  fn str_format(state: *mut lua_State) -> c_int {
     let top = unsafe { lua_gettop(state) };
     let mut arg = 1;
@@ -1595,76 +1988,49 @@ pub(crate) unsafe  fn str_format(state: *mut lua_State) -> c_int {
         if arg > top {
             let _ = { luaL_typeerror(state, arg, ERR_NO_VALUE.as_ptr().cast()) };
         }
-        let (mut form, consumed) = unsafe { getformat(state, &bytes[i..]) };
-        let spec = bytes[i + consumed - 1];
+        let (form, consumed) = unsafe { getformat(state, &bytes[i..]) };
+        let spec_char = bytes[i + consumed - 1];
         i += consumed;
-        let maxitem = if spec == b'f' { MAX_ITEMF } else { MAX_ITEM };
-        let mut buf = vec![0u8; maxitem];
-        let mut nb = 0usize;
-        match spec {
+        let fmt = FmtSpec::parse(&form);
+        match spec_char {
             b'c' => {
                 unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSC, false) };
-                nb = unsafe {
-                    snprintf(
-                        buf.as_mut_ptr().cast(),
-                        buf.len(),
-                        form.as_ptr().cast(),
-                        luaL_checkinteger(state, arg) as c_int,
-                    ) as usize
-                };
+                let n = luaL_checkinteger(state, arg) as u8;
+                let ch = [n];
+                fmt.pad(&mut out, &ch);
             }
-            b'd' | b'i' | b'u' | b'o' | b'x' | b'X' => {
-                let flags = match spec {
-                    b'd' | b'i' => L_FMTFLAGSI,
+            b'd' | b'i' => {
+                unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSI, true) };
+                let n = luaL_checkinteger(state, arg);
+                rust_fmt_int(&fmt, n, &mut out);
+            }
+            b'u' | b'o' | b'x' | b'X' => {
+                let flags = match spec_char {
                     b'u' => L_FMTFLAGSU,
                     _ => L_FMTFLAGSX,
                 };
                 unsafe { checkformat(state, &form[..form.len() - 1], flags, true) };
-                addlenmod(&mut form, LUA_INTEGER_FRMLEN);
-                let n = { luaL_checkinteger(state, arg) };
-                nb = match spec {
-                    b'd' | b'i' => unsafe  {
-                        snprintf(buf.as_mut_ptr().cast(), buf.len(), form.as_ptr().cast(), n)
-                            as usize
-                    },
-                    _ => unsafe {
-                        snprintf(
-                            buf.as_mut_ptr().cast(),
-                            buf.len(),
-                            form.as_ptr().cast(),
-                            n as lua_Unsigned,
-                        ) as usize
-                    },
-                };
+                let n = luaL_checkinteger(state, arg) as lua_Unsigned;
+                rust_fmt_uint(&fmt, n, spec_char, &mut out);
             }
-            b'a' | b'A' | b'e' | b'E' | b'f' | b'g' | b'G' => {
+            b'a' | b'A' => {
                 unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSF, true) };
-                addlenmod(&mut form, LUA_NUMBER_FRMLEN);
-                let n = { luaL_checknumber(state, arg) };
-                nb = unsafe  {
-                    snprintf(buf.as_mut_ptr().cast(), buf.len(), form.as_ptr().cast(), n) as usize
-                };
+                let n = luaL_checknumber(state, arg);
+                format_hex_float(n, fmt.precision, spec_char == b'A', &mut out);
+            }
+            b'e' | b'E' | b'f' | b'g' | b'G' => {
+                unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSF, true) };
+                let n = luaL_checknumber(state, arg);
+                rust_fmt_float(&fmt, n, spec_char, &mut out);
             }
             b'p' => {
                 unsafe { checkformat(state, &form[..form.len() - 1], L_FMTFLAGSC, false) };
                 let p = unsafe { lua_topointer(state, arg) };
                 if p.is_null() {
-                    let mut null_form = form.clone();
-                    let idx = null_form.len() - 2;
-                    null_form[idx] = b's';
-                    nb = unsafe {
-                        snprintf(
-                            buf.as_mut_ptr().cast(),
-                            buf.len(),
-                            null_form.as_ptr().cast(),
-                            c"(null)".as_ptr(),
-                        ) as usize
-                    };
+                    fmt.pad(&mut out, b"(null)");
                 } else {
-                    nb = unsafe {
-                        snprintf(buf.as_mut_ptr().cast(), buf.len(), form.as_ptr().cast(), p)
-                            as usize
-                    };
+                    let formatted = format!("{:p}", p);
+                    fmt.pad(&mut out, formatted.as_bytes());
                 }
             }
             b'q' => {
@@ -1687,14 +2053,7 @@ pub(crate) unsafe  fn str_format(state: *mut lua_State) -> c_int {
                         out.extend_from_slice(slice);
                         unsafe { lua_pop(state, 1) };
                     } else {
-                        nb = unsafe {
-                            snprintf(
-                                buf.as_mut_ptr().cast(),
-                                buf.len(),
-                                form.as_ptr().cast(),
-                                s.cast::<c_char>(),
-                            ) as usize
-                        };
+                        rust_fmt_str(&fmt, slice, &mut out);
                         unsafe { lua_pop(state, 1) };
                     }
                 }
@@ -1709,9 +2068,6 @@ pub(crate) unsafe  fn str_format(state: *mut lua_State) -> c_int {
                     )
                 };
             }
-        }
-        if nb > 0 {
-            out.extend_from_slice(&buf[..nb]);
         }
     }
     let ptr = if out.is_empty() {
@@ -2026,6 +2382,14 @@ mod tests {
         run_lua_test(
             "test/string_builtin.lua",
             include_str!("../test/string_builtin.lua"),
+        );
+    }
+
+    #[test]
+    fn string_format_comprehensive() {
+        run_lua_test(
+            "test/string_format.lua",
+            include_str!("../test/string_format.lua"),
         );
     }
 }

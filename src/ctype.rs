@@ -32,22 +32,22 @@ const fn build_ctype() -> [u8; 258] {
     out
 }
 
-pub(crate) static luai_ctype_: [u8; 258] = build_ctype();
+pub(crate) static LUAI_CTYPE: [u8; 258] = build_ctype();
 
 #[cfg(test)]
 mod tests {
-    use super::luai_ctype_;
+    use super::LUAI_CTYPE;
 
     #[test]
     fn ctype_table_matches_expected_ascii_classes() {
-        assert_eq!(luai_ctype_[0], 0x00);
-        assert_eq!(luai_ctype_[b'0' as usize + 1], 0x16);
-        assert_eq!(luai_ctype_[b'A' as usize + 1], 0x15);
-        assert_eq!(luai_ctype_[b'G' as usize + 1], 0x05);
-        assert_eq!(luai_ctype_[b'a' as usize + 1], 0x15);
-        assert_eq!(luai_ctype_[b'_' as usize + 1], 0x05);
-        assert_eq!(luai_ctype_[b' ' as usize + 1], 0x0c);
-        assert_eq!(luai_ctype_[0x7f + 1], 0x00);
-        assert_eq!(luai_ctype_[255 + 1], 0x00);
+        assert_eq!(LUAI_CTYPE[0], 0x00);
+        assert_eq!(LUAI_CTYPE[b'0' as usize + 1], 0x16);
+        assert_eq!(LUAI_CTYPE[b'A' as usize + 1], 0x15);
+        assert_eq!(LUAI_CTYPE[b'G' as usize + 1], 0x05);
+        assert_eq!(LUAI_CTYPE[b'a' as usize + 1], 0x15);
+        assert_eq!(LUAI_CTYPE[b'_' as usize + 1], 0x05);
+        assert_eq!(LUAI_CTYPE[b' ' as usize + 1], 0x0c);
+        assert_eq!(LUAI_CTYPE[0x7f + 1], 0x00);
+        assert_eq!(LUAI_CTYPE[255 + 1], 0x00);
     }
 }

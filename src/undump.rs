@@ -187,7 +187,7 @@ fn load_integer(state: &mut LoadState) -> lua_Integer {
     }
 }
 
-unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut TString) {
+unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut TString) { unsafe {
     let size = load_size(state);
     if size == 0 {
         let index = load_varint(state, lua_Unsigned::MAX);
@@ -196,19 +196,19 @@ unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut 
         }
 
         let mut saved = MaybeUninit::<TValue>::uninit();
-        if novariant(unsafe {
+        if novariant(
             raw_luaH_getint(
                 state.h.cast(),
                 index as lua_Integer,
                 saved.as_mut_ptr().cast(),
             )
-        }) != LUA_TSTRING
+        ) != LUA_TSTRING
         {
             error(state, c"invalid string index".as_ptr());
         }
-        let string = unsafe { tsvalue(saved.as_ptr()) };
-        unsafe { *slot = string };
-        unsafe { objbarrier(state.l, proto, string) };
+        let string = tsvalue(saved.as_ptr());
+        *slot = string;
+        objbarrier(state.l, proto, string);
         return;
     }
 
@@ -216,36 +216,35 @@ unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut 
     if size <= LUAI_MAXSHORTLEN {
         let mut buffer = [0u8; LUAI_MAXSHORTLEN + 1];
         load_block(state, buffer.as_mut_ptr().cast(), size + 1);
-        let string = unsafe {
+        let string =
             raw_luaS_newlstr(state.l.cast(), buffer.as_ptr().cast(), size).cast::<TString>()
-        };
-        unsafe { *slot = string };
-        unsafe { objbarrier(state.l, proto, string) };
+        ;
+        *slot = string;
+        objbarrier(state.l, proto, string);
     } else if state.fixed {
         let contents = getaddr_(state, size + 1).cast::<c_char>();
-        let string = unsafe { luaS_newextlstr(state.l, contents, size, None, ptr::null_mut()) };
-        unsafe { *slot = string };
-        unsafe { objbarrier(state.l, proto, string) };
+        let string = luaS_newextlstr(state.l, contents, size, None, ptr::null_mut());
+        *slot = string;
+        objbarrier(state.l, proto, string);
     } else {
-        let string = unsafe { luaS_createlngstrobj(state.l, size) };
-        unsafe { *slot = string };
-        unsafe { objbarrier(state.l, proto, string) };
-        load_block(state, unsafe { (*string).contents.cast() }, size + 1);
+        let string = luaS_createlngstrobj(state.l, size);
+        *slot = string;
+        objbarrier(state.l, proto, string);
+        load_block(state, (*string).contents.cast(), size + 1);
     }
 
     state.nstr += 1;
     let mut saved = MaybeUninit::<TValue>::uninit();
-    unsafe { setsvalue(saved.as_mut_ptr(), *slot) };
-    unsafe {
+    setsvalue(saved.as_mut_ptr(), *slot);
         raw_luaH_setint(
             state.l.cast(),
             state.h.cast(),
             state.nstr as lua_Integer,
             saved.as_mut_ptr().cast(),
         )
-    };
-    unsafe { objbarrierback(state.l, state.h, *slot) };
-}
+    ;
+    objbarrierback(state.l, state.h, *slot);
+}}
 
 unsafe fn load_code(state: &mut LoadState, proto: *mut Proto) {
     let count = load_int(state) as usize;

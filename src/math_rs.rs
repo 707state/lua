@@ -1,9 +1,7 @@
 use crate::aux_rs::*;
 use crate::lua_module::*;
 use crate::lua_module::luaL_Reg;
-use crate::luaffi::*;
 use crate::runtime::*;
-use crate::api::*;
 use core::ffi::c_int;
 use core::mem::size_of;
 use core::ptr;
@@ -1104,13 +1102,13 @@ unsafe  fn math_random(state: *mut lua_State) -> c_int {
         }
         1 => {
             let low = 1_i64;
-            let up = unsafe { luaL_checkinteger(state, 1) };
+            let up = luaL_checkinteger(state, 1);
             if up == 0 {
                 unsafe { lua_pushinteger(state, random as lua_Integer) };
                 return 1;
             }
             if low > up {
-                return unsafe { luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast()) };
+                return luaL_argerror(state, 1, ERR_INTERVAL_EMPTY.as_ptr().cast());
             }
             let projected = project(
                 random,

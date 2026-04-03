@@ -34,12 +34,6 @@ unsafe fn memcmp(lhs: *const c_void, rhs: *const c_void, n: usize) -> c_int {
     l.cmp(r) as c_int
 }
 
-/// C memcpy 的 Rust 等价
-#[inline]
-unsafe fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) {
-    unsafe { core::ptr::copy_nonoverlapping(src.cast::<u8>(), dst.cast::<u8>(), n) };
-}
-
 /// C strcmp 的 Rust 等价
 #[inline]
 unsafe fn strcmp(lhs: *const c_char, rhs: *const c_char) -> c_int {
@@ -100,12 +94,6 @@ pub(crate) unsafe fn raw_luaS_newlstr(
     len: usize,
 ) -> *mut c_void {
     unsafe { luaS_newlstr(state.cast(), s, len).cast() }
-}
-
-/// Local alias for `G()` from runtime.rs.
-#[inline]
-unsafe fn g(state: *mut lua_State) -> *mut GlobalState {
-    unsafe { G(state) }
 }
 
 #[inline]
@@ -281,7 +269,7 @@ unsafe fn tablerehash(vect: *mut *mut TString, osize: c_int, nsize: c_int) {
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaS_resize(state: *mut lua_State, nsize: c_int) {
-    let tb = unsafe { ptr::addr_of_mut!((*g(state)).strt) };
+    let tb = unsafe { ptr::addr_of_mut!((*G(state)).strt) };
     let osize = unsafe { (*tb).size };
     if nsize < osize {
         unsafe { tablerehash((*tb).hash, osize, nsize) };
@@ -315,7 +303,7 @@ pub unsafe  fn luaS_clearcache(g: *mut GlobalState) {
 }
 
 pub(crate) unsafe fn luaS_init(state: *mut lua_State) {
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     let tb = unsafe { ptr::addr_of_mut!((*g).strt) };
     unsafe {
         (*tb).hash = luaM_newvector_tstring(state, MINSTRTABSIZE);
@@ -359,7 +347,7 @@ pub unsafe  fn luaS_createlngstrobj(
     l: usize,
 ) -> *mut TString {
     let totalsize = unsafe { luaS_sizelngstr(l, LSTRREG as c_int) };
-    let ts = unsafe { createstrobj(state, totalsize, LUA_VLNGSTR, (*g(state)).seed) };
+    let ts = unsafe { createstrobj(state, totalsize, LUA_VLNGSTR, (*G(state)).seed) };
     unsafe {
         (*ts).u.lnglen = l;
         (*ts).shrlen = LSTRREG;
@@ -371,7 +359,7 @@ pub unsafe  fn luaS_createlngstrobj(
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaS_remove(state: *mut lua_State, ts: *mut TString) {
-    let tb = unsafe { ptr::addr_of_mut!((*g(state)).strt) };
+    let tb = unsafe { ptr::addr_of_mut!((*G(state)).strt) };
     let mut p = unsafe { (*tb).hash.add(lmod((*ts).hash, (*tb).size)) };
     while unsafe { *p } != ts {
         p = unsafe { ptr::addr_of_mut!((**p).u.hnext) };
@@ -395,7 +383,7 @@ unsafe fn growstrtab(state: *mut lua_State, tb: *mut stringtable) {
 }
 
 unsafe fn internshrstr(state: *mut lua_State, str_: *const c_char, l: usize) -> *mut TString {
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     let tb = unsafe { ptr::addr_of_mut!((*g).strt) };
     let h = unsafe { luaS_hash(str_, l, (*g).seed) };
     let mut list = unsafe { (*tb).hash.add(lmod(h, (*tb).size)) };
@@ -447,7 +435,7 @@ pub unsafe  fn luaS_newlstr(
 
 pub(crate) unsafe fn luaS_new(state: *mut lua_State, str_: *const c_char) -> *mut TString {
     let i = unsafe { point2uint(str_) as usize % STRCACHE_N };
-    let p = unsafe { &mut (*g(state)).strcache[i] };
+    let p = unsafe { &mut (*G(state)).strcache[i] };
     for item in p.iter() {
         if unsafe { strcmp(str_, getstr_mut(*item).cast()) == 0 } {
             return *item;
@@ -481,7 +469,7 @@ pub(crate) unsafe fn luaS_newudata(state: *mut lua_State, s: usize, nuvalue: u16
 unsafe  fn f_newext(state: *mut lua_State, ud: *mut c_void) {
     let ne = unsafe { &mut *ud.cast::<NewExt>() };
     let size = unsafe { luaS_sizelngstr(0, ne.kind as c_int) };
-    ne.ts = unsafe { createstrobj(state, size, LUA_VLNGSTR, (*g(state)).seed) };
+    ne.ts = unsafe { createstrobj(state, size, LUA_VLNGSTR, (*G(state)).seed) };
 }
 
 #[unsafe(no_mangle)]

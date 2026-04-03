@@ -1,8 +1,7 @@
 use crate::luaffi::LuaCFunction;
 use crate::runtime::*;
-use std::ffi::{c_char, c_int};
+use std::ffi::c_int;
 use std::fmt::Write as _;
-use std::ptr;
 
 #[repr(C)]
 pub(crate) struct GlobalState {

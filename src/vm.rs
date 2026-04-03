@@ -36,50 +36,39 @@ unsafe fn strlen(s: *const c_char) -> usize {
     unsafe { core::ffi::CStr::from_ptr(s) }.to_bytes().len()
 }
 
-/// C memcpy 的 Rust 等价实现
-#[inline]
-unsafe fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) {
-    unsafe { core::ptr::copy_nonoverlapping(src.cast::<u8>(), dst.cast::<u8>(), n) };
-}
-
-#[inline]
-unsafe fn ci_func(ci: *mut CallInfo) -> *mut LClosure {
-    clLvalue(s2v((*ci).func.p))
-}
-
 #[inline]
 unsafe fn get_nresults(cs: u32) -> c_int {
     (cs & CIST_NRESULTS) as c_int - 1
 }
 
 #[inline]
-unsafe fn setclLvalue2s(_L: *mut lua_State, o: StkId, cl: *mut LClosure) {
+unsafe fn setclLvalue2s(_L: *mut lua_State, o: StkId, cl: *mut LClosure) { unsafe {
     (*s2v(o)).value_.gc = cl.cast();
     settt_(s2v(o), LUA_VLCL | BIT_ISCOLLECTABLE);
-}
+}}
 
 #[inline]
-unsafe fn chgivalue(o: *mut TValue, x: lua_Integer) {
+unsafe fn chgivalue(o: *mut TValue, x: lua_Integer) { unsafe {
     (*o).value_.i = x;
-}
+}}
 
 #[inline]
-unsafe fn chgfltvalue(o: *mut TValue, x: lua_Number) {
+unsafe fn chgfltvalue(o: *mut TValue, x: lua_Number) { unsafe {
     (*o).value_.n = x;
-}
+}}
 
 #[inline]
-unsafe fn ttisfunction(o: *const TValue) -> bool {
+unsafe fn ttisfunction(o: *const TValue) -> bool { unsafe {
     ttype(o) == LUA_TFUNCTION
-}
+}}
 
 #[inline]
-unsafe fn cvt2num(o: *const TValue) -> bool {
+unsafe fn cvt2num(o: *const TValue) -> bool { unsafe {
     ttisstring(o)
-}
+}}
 
 #[inline]
-unsafe fn tonumberns(o: *const TValue, n: *mut lua_Number) -> c_int {
+unsafe fn tonumberns(o: *const TValue, n: *mut lua_Number) -> c_int { unsafe {
     if ttisfloat(o) {
         *n = fltvalue(o);
         1
@@ -89,31 +78,31 @@ unsafe fn tonumberns(o: *const TValue, n: *mut lua_Number) -> c_int {
     } else {
         0
     }
-}
+}}
 
 #[inline]
-unsafe fn tointegerns(o: *const TValue, i: *mut lua_Integer) -> c_int {
+unsafe fn tointegerns(o: *const TValue, i: *mut lua_Integer) -> c_int { unsafe {
     if ttisinteger(o) {
         *i = ivalue(o);
         1
     } else {
         luaV_tointegerns(o, i, LUA_FLOORN2I)
     }
-}
+}}
 
 #[inline]
-unsafe fn tsslen(s: *mut TString) -> usize {
+unsafe fn tsslen(s: *mut TString) -> usize { unsafe {
     if strisshr(s) {
         (*s).shrlen as usize
     } else {
         (*s).u.lnglen
     }
-}
+}}
 
 #[inline]
-unsafe fn getlngstr(s: *mut TString) -> *mut c_char {
+unsafe fn getlngstr(s: *mut TString) -> *mut c_char { unsafe {
     (*s).contents
-}
+}}
 
 #[inline]
 unsafe fn eqshrstr(a: *mut TString, b: *mut TString) -> c_int {
@@ -121,47 +110,42 @@ unsafe fn eqshrstr(a: *mut TString, b: *mut TString) -> c_int {
 }
 
 #[inline]
-unsafe fn checknoTM(mt: *mut Table, e: c_int) -> bool {
+unsafe fn checknoTM(mt: *mut Table, e: c_int) -> bool { unsafe {
     mt.is_null() || ((*mt).flags & (1u8 << e)) != 0
-}
+}}
 
 #[inline]
-unsafe fn notm(tm: *const TValue) -> bool {
+unsafe fn notm(tm: *const TValue) -> bool { unsafe {
     ttisnil(tm)
-}
+}}
 
 #[inline]
-unsafe fn fasttm(L: *mut lua_State, mt: *mut Table, e: c_int) -> *const TValue {
+unsafe fn fasttm(L: *mut lua_State, mt: *mut Table, e: c_int) -> *const TValue { unsafe {
     if checknoTM(mt, e) {
         core::ptr::null()
     } else {
         luaT_gettm(mt, e, (&mut (*G(L)).tmname)[e as usize])
     }
-}
+}}
 
 #[inline]
-unsafe fn invalidateTMcache(t: *mut Table) {
+unsafe fn invalidateTMcache(t: *mut Table) { unsafe {
     (*t).flags &= !MASKFLAGS;
-}
+}}
 
 #[inline]
-unsafe fn getArrTag(t: *mut Table, k: u32) -> *mut u8 {
+unsafe fn getArrTag(t: *mut Table, k: u32) -> *mut u8 { unsafe {
     (*t).array.cast::<u8>().add(size_of::<u32>() + k as usize)
-}
+}}
 
 #[inline]
-unsafe fn getArrVal(t: *mut Table, k: u32) -> *mut Value {
-    (*t).array.sub(1 + k as usize)
-}
-
-#[inline]
-unsafe fn obj2arr(t: *mut Table, k: u32, value: *const TValue) {
+unsafe fn obj2arr(t: *mut Table, k: u32, value: *const TValue) { unsafe {
     *getArrTag(t, k) = (*value).tt_;
     *getArrVal(t, k) = (*value).value_;
-}
+}}
 
 #[inline]
-unsafe fn luaV_fastseti(t: *const TValue, key: lua_Integer, val: *mut TValue) -> c_int {
+unsafe fn luaV_fastseti(t: *const TValue, key: lua_Integer, val: *mut TValue) -> c_int { unsafe {
     if !ttistable(t) {
         HNOTATABLE
     } else {
@@ -180,27 +164,22 @@ unsafe fn luaV_fastseti(t: *const TValue, key: lua_Integer, val: *mut TValue) ->
             luaH_psetint(h, key, val)
         }
     }
-}
+}}
 
 #[inline]
-unsafe fn luaV_finishfastset(L: *mut lua_State, t: *const TValue, v: *const TValue) {
+unsafe fn luaV_finishfastset(L: *mut lua_State, t: *const TValue, v: *const TValue) { unsafe {
     luaC_barrierback(L, gcvalue(t), v);
-}
+}}
 
 #[inline]
-unsafe fn luaV_rawequalobj(t1: *const TValue, t2: *const TValue) -> c_int {
-    luaV_equalobj(core::ptr::null_mut(), t1, t2)
-}
-
-#[inline]
-unsafe fn lua_numbertointeger(n: lua_Number, p: *mut lua_Integer) -> c_int {
+unsafe fn lua_numbertointeger(n: lua_Number, p: *mut lua_Integer) -> c_int { unsafe {
     if n >= lua_Integer::MIN as lua_Number && n < -(lua_Integer::MIN as lua_Number) {
         *p = n as lua_Integer;
         1
     } else {
         0
     }
-}
+}}
 
 #[inline]
 unsafe fn l_intfitsf(i: lua_Integer) -> bool {
@@ -209,7 +188,7 @@ unsafe fn l_intfitsf(i: lua_Integer) -> bool {
 }
 
 #[inline]
-unsafe fn l_strton(obj: *const TValue, result: *mut TValue) -> c_int {
+unsafe fn l_strton(obj: *const TValue, result: *mut TValue) -> c_int { unsafe {
     if !cvt2num(obj) {
         0
     } else {
@@ -218,7 +197,7 @@ unsafe fn l_strton(obj: *const TValue, result: *mut TValue) -> c_int {
         let s = getlstr(st, &mut stlen);
         c_int::from(luaO_str2num(s, result) == stlen + 1)
     }
-}
+}}
 
 #[inline]
 unsafe fn mask1(n: u32, p: u32) -> Instruction {
@@ -226,122 +205,122 @@ unsafe fn mask1(n: u32, p: u32) -> Instruction {
 }
 
 #[inline]
-unsafe fn getarg(i: Instruction, pos: u32, size: u32) -> c_int {
+unsafe fn getarg(i: Instruction, pos: u32, size: u32) -> c_int { unsafe {
     ((i >> pos) & mask1(size, 0)) as c_int
-}
+}}
 
 #[inline]
-unsafe fn GET_OPCODE(i: Instruction) -> c_int {
+unsafe fn GET_OPCODE(i: Instruction) -> c_int { unsafe {
     ((i >> POS_OP) & mask1(SIZE_OP, 0)) as c_int
-}
+}}
 
 #[inline]
-unsafe fn GETARG_A(i: Instruction) -> c_int {
+unsafe fn GETARG_A(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_A, SIZE_A)
-}
+}}
 #[inline]
-unsafe fn GETARG_B(i: Instruction) -> c_int {
+unsafe fn GETARG_B(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_B, SIZE_B)
-}
+}}
 #[inline]
-unsafe fn GETARG_VB(i: Instruction) -> c_int {
+unsafe fn GETARG_VB(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_VB, SIZE_VB)
-}
+}}
 #[inline]
-unsafe fn GETARG_SB(i: Instruction) -> c_int {
+unsafe fn GETARG_SB(i: Instruction) -> c_int { unsafe {
     GETARG_B(i) - OFFSET_SC
-}
+}}
 #[inline]
-unsafe fn GETARG_C(i: Instruction) -> c_int {
+unsafe fn GETARG_C(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_C, SIZE_C)
-}
+}}
 #[inline]
-unsafe fn GETARG_VC(i: Instruction) -> c_int {
+unsafe fn GETARG_VC(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_VC, SIZE_VC)
-}
+}}
 #[inline]
-unsafe fn GETARG_SC(i: Instruction) -> c_int {
+unsafe fn GETARG_SC(i: Instruction) -> c_int { unsafe {
     GETARG_C(i) - OFFSET_SC
-}
+}}
 #[inline]
 unsafe fn TESTARG_K(i: Instruction) -> bool {
     (i & (1u32 << POS_K)) != 0
 }
 #[inline]
-unsafe fn GETARG_K(i: Instruction) -> c_int {
+unsafe fn GETARG_K(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_K, 1)
-}
+}}
 #[inline]
-unsafe fn GETARG_BX(i: Instruction) -> c_int {
+unsafe fn GETARG_BX(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_BX, SIZE_BX)
-}
+}}
 #[inline]
-unsafe fn GETARG_AX(i: Instruction) -> c_int {
+unsafe fn GETARG_AX(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_AX, SIZE_AX)
-}
+}}
 #[inline]
-unsafe fn GETARG_SBX(i: Instruction) -> c_int {
+unsafe fn GETARG_SBX(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_BX, SIZE_BX) - OFFSET_SBX
-}
+}}
 #[inline]
-unsafe fn GETARG_SJ(i: Instruction) -> c_int {
+unsafe fn GETARG_SJ(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_SJ, SIZE_SJ) - OFFSET_SJ
-}
+}}
 
 #[inline]
-unsafe fn savepc(ci: *mut CallInfo, pc: *const Instruction) {
+unsafe fn savepc(ci: *mut CallInfo, pc: *const Instruction) { unsafe {
     (*ci).u.l.savedpc = pc;
-}
+}}
 
 #[inline]
-unsafe fn savestate(L: *mut lua_State, ci: *mut CallInfo, pc: *const Instruction) {
+unsafe fn savestate(L: *mut lua_State, ci: *mut CallInfo, pc: *const Instruction) { unsafe {
     savepc(ci, pc);
     (*L).top.p = (*ci).top.p;
-}
+}}
 
 #[inline]
-unsafe fn updatetrap(ci: *mut CallInfo, trap: &mut c_int) {
+unsafe fn updatetrap(ci: *mut CallInfo, trap: &mut c_int) { unsafe {
     *trap = (*ci).u.l.trap;
-}
+}}
 
 #[inline]
-unsafe fn updatebase(ci: *mut CallInfo, base: &mut StkId) {
+unsafe fn updatebase(ci: *mut CallInfo, base: &mut StkId) { unsafe {
     *base = (*ci).func.p.add(1);
-}
+}}
 
 #[inline]
-unsafe fn RA(base: StkId, i: Instruction) -> StkId {
+unsafe fn RA(base: StkId, i: Instruction) -> StkId { unsafe {
     base.add(GETARG_A(i) as usize)
-}
+}}
 
 #[inline]
-unsafe fn RB(base: StkId, i: Instruction) -> StkId {
+unsafe fn RB(base: StkId, i: Instruction) -> StkId { unsafe {
     base.add(GETARG_B(i) as usize)
-}
+}}
 
 #[inline]
-unsafe fn RC(base: StkId, i: Instruction) -> StkId {
+unsafe fn RC(base: StkId, i: Instruction) -> StkId { unsafe {
     base.add(GETARG_C(i) as usize)
-}
+}}
 
 #[inline]
-unsafe fn KB<'a>(k: *mut TValue, i: Instruction) -> *mut TValue {
+unsafe fn KB<'a>(k: *mut TValue, i: Instruction) -> *mut TValue { unsafe {
     k.add(GETARG_B(i) as usize)
-}
+}}
 
 #[inline]
-unsafe fn KC<'a>(k: *mut TValue, i: Instruction) -> *mut TValue {
+unsafe fn KC<'a>(k: *mut TValue, i: Instruction) -> *mut TValue { unsafe {
     k.add(GETARG_C(i) as usize)
-}
+}}
 
 #[inline]
-unsafe fn RKC(base: StkId, k: *mut TValue, i: Instruction) -> *mut TValue {
+unsafe fn RKC(base: StkId, k: *mut TValue, i: Instruction) -> *mut TValue { unsafe {
     if TESTARG_K(i) {
         k.add(GETARG_C(i) as usize)
     } else {
         s2v(base.add(GETARG_C(i) as usize))
     }
-}
+}}
 
 #[inline]
 unsafe fn dojump(
@@ -350,16 +329,16 @@ unsafe fn dojump(
     e: c_int,
     pc: &mut *const Instruction,
     trap: &mut c_int,
-) {
+) { unsafe {
     *pc = (*pc).offset((GETARG_SJ(i) + e) as isize);
     updatetrap(ci, trap);
-}
+}}
 
 #[inline]
-unsafe fn donextjump(ci: *mut CallInfo, pc: &mut *const Instruction, trap: &mut c_int) {
+unsafe fn donextjump(ci: *mut CallInfo, pc: &mut *const Instruction, trap: &mut c_int) { unsafe {
     let ni = **pc;
     dojump(ci, ni, 1, pc, trap);
-}
+}}
 
 #[inline]
 unsafe fn docondjump(
@@ -368,13 +347,13 @@ unsafe fn docondjump(
     i: Instruction,
     pc: &mut *const Instruction,
     trap: &mut c_int,
-) {
+) { unsafe {
     if cond != GETARG_K(i) {
         *pc = (*pc).add(1);
     } else {
         donextjump(ci, pc, trap);
     }
-}
+}}
 
 #[inline]
 unsafe fn checkGC(
@@ -383,16 +362,16 @@ unsafe fn checkGC(
     pc: *const Instruction,
     trap: &mut c_int,
     c: StkId,
-) {
+) { unsafe {
     if (*G(L)).gcdebt <= 0 {
         savepc(ci, pc);
         (*L).top.p = c;
         luaC_step(L);
         updatetrap(ci, trap);
     }
-}
+}}
 
-unsafe fn l_strcmp(ts1: *mut TString, ts2: *mut TString) -> c_int {
+unsafe fn l_strcmp(ts1: *mut TString, ts2: *mut TString) -> c_int { unsafe {
     let mut rl1 = 0usize;
     let mut s1 = getlstr(ts1, &mut rl1);
     let mut rl2 = 0usize;
@@ -416,9 +395,9 @@ unsafe fn l_strcmp(ts1: *mut TString, ts2: *mut TString) -> c_int {
         rl1 -= step1;
         rl2 -= step2;
     }
-}
+}}
 
-pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int {
+pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c_int { unsafe {
     let mut v = TValue {
         value_: Value { i: 0 },
         tt_: LUA_VNIL,
@@ -436,10 +415,10 @@ pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c
     } else {
         0
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int { unsafe {
     let mut f = n.floor();
     if n != f {
         if mode == F2Ieq {
@@ -449,10 +428,10 @@ pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int)
         }
     }
     lua_numbertointeger(f, p)
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub unsafe fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int { unsafe {
     if ttisfloat(obj) {
         luaV_flttointeger(fltvalue(obj), p, mode)
     } else if ttisinteger(obj) {
@@ -461,9 +440,9 @@ pub unsafe fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_
     } else {
         0
     }
-}
+}}
 
-pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
+pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int { unsafe {
     let mut v = TValue {
         value_: Value { i: 0 },
         tt_: LUA_VNIL,
@@ -473,7 +452,7 @@ pub(crate) unsafe fn luaV_tointeger(obj: *const TValue, p: *mut lua_Integer, mod
         o = &v;
     }
     luaV_tointegerns(o, p, mode)
-}
+}}
 
 unsafe fn forlimit(
     L: *mut lua_State,
@@ -481,7 +460,7 @@ unsafe fn forlimit(
     lim: *const TValue,
     p: *mut lua_Integer,
     step: lua_Integer,
-) -> c_int {
+) -> c_int { unsafe {
     if luaV_tointeger(lim, p, if step < 0 { F2Iceil } else { F2Ifloor }) == 0 {
         let mut flim = 0.0;
         if tonumber(lim, &mut flim) == 0 {
@@ -500,9 +479,9 @@ unsafe fn forlimit(
         }
     }
     c_int::from(if step > 0 { init > *p } else { init < *p })
-}
+}}
 
-unsafe fn forprep(L: *mut lua_State, ra: StkId) -> c_int {
+unsafe fn forprep(L: *mut lua_State, ra: StkId) -> c_int { unsafe {
     let pinit = s2v(ra);
     let plimit = s2v(ra.add(1));
     let pstep = s2v(ra.add(2));
@@ -556,9 +535,9 @@ unsafe fn forprep(L: *mut lua_State, ra: StkId) -> c_int {
         setfltvalue(s2v(ra.add(2)), init);
     }
     0
-}
+}}
 
-unsafe fn floatforloop(ra: StkId) -> c_int {
+unsafe fn floatforloop(ra: StkId) -> c_int { unsafe {
     let step = fltvalue(s2v(ra.add(1)));
     let limit = fltvalue(s2v(ra));
     let mut idx = fltvalue(s2v(ra.add(2)));
@@ -573,7 +552,7 @@ unsafe fn floatforloop(ra: StkId) -> c_int {
     } else {
         0
     }
-}
+}}
 
 pub(crate) unsafe fn luaV_finishget(
     L: *mut lua_State,
@@ -581,7 +560,7 @@ pub(crate) unsafe fn luaV_finishget(
     key: *mut TValue,
     val: StkId,
     mut tag: lu_byte,
-) -> lu_byte {
+) -> lu_byte { unsafe {
     for _ in 0..MAXTAGLOOP {
         let tm = if tag == LUA_VNOTABLE {
             let tm = luaT_gettmbyobj(L, t, TM_INDEX);
@@ -612,7 +591,7 @@ pub(crate) unsafe fn luaV_finishget(
         }
     }
     luaG_runerror(L, c"'__index' chain too long; possible loop".as_ptr())
-}
+}}
 
 pub(crate) unsafe fn luaV_finishset(
     L: *mut lua_State,
@@ -620,7 +599,7 @@ pub(crate) unsafe fn luaV_finishset(
     key: *mut TValue,
     val: *mut TValue,
     mut hres: c_int,
-) {
+) { unsafe {
     for _ in 0..MAXTAGLOOP {
         let tm;
         if hres != HNOTATABLE {
@@ -657,9 +636,9 @@ pub(crate) unsafe fn luaV_finishset(
         }
     }
     luaG_runerror(L, c"'__newindex' chain too long; possible loop".as_ptr())
-}
+}}
 
-unsafe fn LTintfloat(i: lua_Integer, f: lua_Number) -> c_int {
+unsafe fn LTintfloat(i: lua_Integer, f: lua_Number) -> c_int { unsafe {
     if l_intfitsf(i) {
         c_int::from((i as lua_Number) < f)
     } else {
@@ -670,9 +649,9 @@ unsafe fn LTintfloat(i: lua_Integer, f: lua_Number) -> c_int {
             c_int::from(f > 0.0)
         }
     }
-}
+}}
 
-unsafe fn LEintfloat(i: lua_Integer, f: lua_Number) -> c_int {
+unsafe fn LEintfloat(i: lua_Integer, f: lua_Number) -> c_int { unsafe {
     if l_intfitsf(i) {
         c_int::from((i as lua_Number) <= f)
     } else {
@@ -683,9 +662,9 @@ unsafe fn LEintfloat(i: lua_Integer, f: lua_Number) -> c_int {
             c_int::from(f > 0.0)
         }
     }
-}
+}}
 
-unsafe fn LTfloatint(f: lua_Number, i: lua_Integer) -> c_int {
+unsafe fn LTfloatint(f: lua_Number, i: lua_Integer) -> c_int { unsafe {
     if l_intfitsf(i) {
         c_int::from(f < i as lua_Number)
     } else {
@@ -696,9 +675,9 @@ unsafe fn LTfloatint(f: lua_Number, i: lua_Integer) -> c_int {
             c_int::from(f < 0.0)
         }
     }
-}
+}}
 
-unsafe fn LEfloatint(f: lua_Number, i: lua_Integer) -> c_int {
+unsafe fn LEfloatint(f: lua_Number, i: lua_Integer) -> c_int { unsafe {
     if l_intfitsf(i) {
         c_int::from(f <= i as lua_Number)
     } else {
@@ -709,9 +688,9 @@ unsafe fn LEfloatint(f: lua_Number, i: lua_Integer) -> c_int {
             c_int::from(f < 0.0)
         }
     }
-}
+}}
 
-unsafe fn LTnum(l: *const TValue, r: *const TValue) -> c_int {
+unsafe fn LTnum(l: *const TValue, r: *const TValue) -> c_int { unsafe {
     if ttisinteger(l) {
         let li = ivalue(l);
         if ttisinteger(r) {
@@ -727,9 +706,9 @@ unsafe fn LTnum(l: *const TValue, r: *const TValue) -> c_int {
             LTfloatint(lf, ivalue(r))
         }
     }
-}
+}}
 
-unsafe fn LEnum(l: *const TValue, r: *const TValue) -> c_int {
+unsafe fn LEnum(l: *const TValue, r: *const TValue) -> c_int { unsafe {
     if ttisinteger(l) {
         let li = ivalue(l);
         if ttisinteger(r) {
@@ -745,46 +724,46 @@ unsafe fn LEnum(l: *const TValue, r: *const TValue) -> c_int {
             LEfloatint(lf, ivalue(r))
         }
     }
-}
+}}
 
-unsafe fn lessthanothers(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+unsafe fn lessthanothers(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int { unsafe {
     if ttisstring(l) && ttisstring(r) {
         c_int::from(l_strcmp(tsvalue(l), tsvalue(r)) < 0)
     } else {
         luaT_callorderTM(L, l, r, TM_LT)
     }
-}
+}}
 
-unsafe fn lessequalothers(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+unsafe fn lessequalothers(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int { unsafe {
     if ttisstring(l) && ttisstring(r) {
         c_int::from(l_strcmp(tsvalue(l), tsvalue(r)) <= 0)
     } else {
         luaT_callorderTM(L, l, r, TM_LE)
     }
-}
+}}
 
-pub(crate) unsafe fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int {
+pub(crate) unsafe fn luaV_lessthan(L: *mut lua_State, l: *const TValue, r: *const TValue) -> c_int { unsafe {
     if ttisnumber(l) && ttisnumber(r) {
         LTnum(l, r)
     } else {
         lessthanothers(L, l, r)
     }
-}
+}}
 
 pub(crate) unsafe fn luaV_lessequal(
     L: *mut lua_State,
     l: *const TValue,
     r: *const TValue,
-) -> c_int {
+) -> c_int { unsafe {
     if ttisnumber(l) && ttisnumber(r) {
         LEnum(l, r)
     } else {
         lessequalothers(L, l, r)
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
+pub unsafe fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int { unsafe {
     let tm;
     if ttype(t1) != ttype(t2) {
         return 0;
@@ -856,22 +835,22 @@ pub unsafe fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TVa
             _ => return c_int::from(gcvalue(t1) == gcvalue(t2)),
         }
     }
-}
+}}
 
-unsafe fn tostring(L: *mut lua_State, o: *mut TValue) -> bool {
+unsafe fn tostring(L: *mut lua_State, o: *mut TValue) -> bool { unsafe {
     ttisstring(o)
         || (cvt2str(o) && {
             luaO_tostring(L, o);
             true
         })
-}
+}}
 
 #[inline]
-unsafe fn isemptystr(o: *const TValue) -> bool {
+unsafe fn isemptystr(o: *const TValue) -> bool { unsafe {
     ttisshrstring(o) && (*tsvalue(o)).shrlen == 0
-}
+}}
 
-unsafe fn copy2buff(top: StkId, mut n: c_int, buff: *mut c_char) {
+unsafe fn copy2buff(top: StkId, mut n: c_int, buff: *mut c_char) { unsafe {
     let mut tl = 0usize;
     loop {
         let st = tsvalue(s2v(top.sub(n as usize)));
@@ -884,9 +863,9 @@ unsafe fn copy2buff(top: StkId, mut n: c_int, buff: *mut c_char) {
             break;
         }
     }
-}
+}}
 
-pub(crate) unsafe fn luaV_concat(L: *mut lua_State, mut total: c_int) {
+pub(crate) unsafe fn luaV_concat(L: *mut lua_State, mut total: c_int) { unsafe {
     if total == 1 {
         return;
     }
@@ -930,9 +909,9 @@ pub(crate) unsafe fn luaV_concat(L: *mut lua_State, mut total: c_int) {
             return;
         }
     }
-}
+}}
 
-pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue) {
+pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue) { unsafe {
     let tm;
     match ttypetag(rb) {
         LUA_VTABLE => {
@@ -959,9 +938,9 @@ pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue
         }
     }
     let _ = luaT_callTMres(L, tm, rb, rb, ra);
-}
+}}
 
-pub unsafe fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+pub unsafe fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer { unsafe {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to divide by zero".as_ptr());
@@ -974,8 +953,8 @@ pub unsafe fn luaV_idiv(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lu
         }
         q
     }
-}
-pub unsafe fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer {
+}}
+pub unsafe fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua_Integer { unsafe {
     if (n as lua_Unsigned).wrapping_add(1) <= 1 {
         if n == 0 {
             luaG_runerror(L, c"attempt to perform 'n%%0'".as_ptr());
@@ -988,7 +967,7 @@ pub unsafe fn luaV_mod(L: *mut lua_State, m: lua_Integer, n: lua_Integer) -> lua
         }
         r
     }
-}
+}}
 
 pub unsafe fn luaV_modf(_L: *mut lua_State, m: lua_Number, n: lua_Number) -> lua_Number {
     let mut r = m % n;
@@ -1019,7 +998,7 @@ unsafe fn pushclosure(
     encup: *mut *mut UpVal,
     base: StkId,
     ra: StkId,
-) {
+) { unsafe {
     let nup = (*p).sizeupvalues;
     let uv = (*p).upvalues;
     let ncl = luaF_newLclosure(L, nup);
@@ -1034,9 +1013,9 @@ unsafe fn pushclosure(
         };
         luaC_objbarrier(L, obj2gco(ncl), obj2gco(*(*ncl).upvals.as_mut_ptr().add(i)));
     }
-}
+}}
 
-pub unsafe fn luaV_finishOp(L: *mut lua_State) {
+pub unsafe fn luaV_finishOp(L: *mut lua_State) { unsafe {
     let ci = (*L).ci;
     let base = (*ci).func.p.add(1);
     let inst = *(*ci).u.l.savedpc.sub(1);
@@ -1079,9 +1058,9 @@ pub unsafe fn luaV_finishOp(L: *mut lua_State) {
         }
         _ => {}
     }
-}
+}}
 
-pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
+pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) { unsafe {
     let mut trap = 0;
     let mut keep_trap = false;
     'newframe: loop {
@@ -1938,4 +1917,4 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
             }
         }
     }
-}
+}}

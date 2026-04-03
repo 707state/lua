@@ -4,11 +4,10 @@ use crate::api::*;
 use crate::lua_module::*;
 use crate::luaffi::*;
 use crate::runtime::*;
-use core::ffi::{c_char, c_int, c_uchar, c_void};
+use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::ffi::{CStr, CString};
 use std::fs::File;
-use std::i32;
 use std::io::{Read, Write};
 use std::os::raw::c_uint;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -220,21 +219,6 @@ unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> lua_Allo
 }
 
 #[inline]
-unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {
-    unsafe { CStr::from_ptr(ptr) }
-}
-
-#[inline]
-unsafe fn tostring_ptr(state: *mut lua_State, idx: c_int) -> *const c_char {
-    unsafe { lua_tolstring(state, idx, ptr::null_mut()) }
-}
-
-#[inline]
-unsafe fn push_fail(state: *mut lua_State) {
-    unsafe { lua_pushnil(state) };
-}
-
-#[inline]
 unsafe fn push_bytes(state: *mut lua_State, bytes: &[u8]) {
     unsafe { lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len()) };
 }
@@ -242,19 +226,6 @@ unsafe fn push_bytes(state: *mut lua_State, bytes: &[u8]) {
 #[inline]
 unsafe fn push_string(state: *mut lua_State, s: &str) {
     unsafe { lua_pushlstring(state, s.as_ptr().cast(), s.len()) };
-}
-
-#[inline]
-unsafe fn lua_insert_local(state: *mut lua_State, idx: c_int) {
-    unsafe { lua_rotate(state, idx, 1) };
-}
-
-#[inline]
-unsafe fn lua_replace_local(state: *mut lua_State, idx: c_int) {
-    unsafe {
-        lua_copy(state, -1, idx);
-        lua_pop(state, 1);
-    }
 }
 
 fn cstr_lossy(ptr: *const c_char) -> String {

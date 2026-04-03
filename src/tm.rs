@@ -1,6 +1,5 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
-use crate::luavm::GlobalState;
 use crate::runtime::*;
 use crate::string::raw_luaS_new;
 use crate::table::{
@@ -478,54 +477,53 @@ pub unsafe  fn luaT_getvarargs(
     mut where_: StkId,
     mut wanted: c_int,
     vatab: c_int,
-) {
+) { unsafe {
     let h = if vatab < 0 {
         ptr::null_mut()
     } else {
-        unsafe { hvalue(s2v((*ci).func.p.add((vatab + 1) as usize))) }
+        hvalue(s2v((*ci).func.p.add((vatab + 1) as usize)))
     };
-    let nargs = unsafe { getnumargs(state, ci, h) };
+    let nargs = getnumargs(state, ci, h);
     let touse;
     if wanted < 0 {
         touse = nargs;
         wanted = nargs;
-        unsafe { checkstackp(state, nargs, &mut where_) };
-        unsafe { (*state).top.p = where_.add(nargs as usize) };
+        checkstackp(state, nargs, &mut where_);
+        (*state).top.p = where_.add(nargs as usize);
     } else {
         touse = if nargs > wanted { wanted } else { nargs };
     }
     let mut i = 0;
     if h.is_null() {
         while i < touse {
-            unsafe {
                 setobjs2s(
                     state,
                     where_.add(i as usize),
                     (*ci).func.p.sub(nargs as usize).add(i as usize),
                 )
-            };
+            ;
             i += 1;
         }
     } else {
         while i < touse {
-            let tag = unsafe {
+            let tag =
                 raw_luaH_getint(
                     h.cast(),
                     (i + 1) as lua_Integer,
                     s2v(where_.add(i as usize)).cast(),
                 )
-            };
+            ;
             if tagisempty(tag) {
-                unsafe { setnilvalue(s2v(where_.add(i as usize))) };
+                setnilvalue(s2v(where_.add(i as usize)));
             }
             i += 1;
         }
     }
     while i < wanted {
-        unsafe { setnilvalue(s2v(where_.add(i as usize))) };
+        setnilvalue(s2v(where_.add(i as usize)));
         i += 1;
     }
-}
+}}
 
 #[cfg(test)]
 mod tests {

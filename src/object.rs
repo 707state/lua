@@ -1,11 +1,10 @@
 use crate::do_rs::luaD_rawrunprotected;
-use crate::luaffi::{localeconv, snprintf, strtod};
+use crate::luaffi::{localeconv, strtod};
 use crate::mem::*;
 use crate::runtime::*;
 use crate::tm::*;
 use crate::vm_rs::*;
-use core::ffi::{VaList, c_char, c_int, c_ulong, c_void};
-use core::mem::MaybeUninit;
+use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::ffi::{CStr, CString};
 
@@ -262,7 +261,7 @@ fn str2d(s: &CStr, result: &mut lua_Number) -> Option<usize> {
     }
     let mut owned = bytes.to_vec();
     owned.push(0);
-    let locale = unsafe { localeconv() };
+    let locale = localeconv();
     if locale.is_null() || unsafe { (*locale).decimal_point }.is_null() {
         return None;
     }
@@ -356,42 +355,107 @@ pub unsafe  fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
 }
 
 fn tostringbuff_float(n: lua_Number, buff: *mut c_char) -> c_int {
-    let mut len = unsafe { snprintf(buff, LUA_N2SBUFFSZ, LUA_NUMBER_FMT.as_ptr().cast(), n) };
-    let bytes = unsafe { CStr::from_ptr(buff) };
-    let mut endptr = ptr::null_mut();
-    let check = unsafe { strtod(bytes.as_ptr(), &mut endptr) };
-    if check != n {
-        len = unsafe { snprintf(buff, LUA_N2SBUFFSZ, LUA_NUMBER_FMT_N.as_ptr().cast(), n) };
+    // Try with 14 significant digits first (like C's %.14g), check round-trip
+    let mut s = rust_g_format(n, 14);
+    if let Ok(check) = s.parse::<f64>() {
+        if check != n {
+            // Use 17 significant digits for full precision
+            s = rust_g_format(n, 17);
+        }
     }
-    let out = unsafe { CStr::from_ptr(buff) }.to_bytes();
-    if out.iter().all(|&b| matches!(b, b'-' | b'0'..=b'9')) {
-        let locale = unsafe { localeconv() };
+    // If the result looks like a pure integer (only digits and minus), append ".0"
+    let looks_like_int = s.bytes().all(|b| matches!(b, b'-' | b'0'..=b'9'));
+    if looks_like_int {
+        let locale = localeconv();
         let point = if locale.is_null() || unsafe { (*locale).decimal_point }.is_null() {
             b'.'
         } else {
             unsafe { *(*locale).decimal_point.cast::<u8>() }
         };
-        unsafe {
-            *buff.add(len as usize) = point as c_char;
-            *buff.add(len as usize + 1) = b'0' as c_char;
-            *buff.add(len as usize + 2) = 0;
-        }
-        len += 2;
+        s.push(point as char);
+        s.push('0');
     }
-    len
+    let len = s.len().min(LUA_N2SBUFFSZ - 1);
+    unsafe {
+        ptr::copy_nonoverlapping(s.as_ptr().cast::<c_char>(), buff, len);
+        *buff.add(len) = 0;
+    }
+    len as c_int
+}
+
+/// Format a float in %g style using Rust's built-in formatting for precision.
+/// Uses `{:.prec$e}` for scientific notation and `{:.prec$}` for fixed,
+/// then trims trailing zeros like C's %g.
+pub(crate) fn rust_g_format(n: f64, sig_digits: usize) -> String {
+    if n.is_nan() {
+        return "-nan".to_string();
+    }
+    if n.is_infinite() {
+        return if n.is_sign_negative() { "-inf".to_string() } else { "inf".to_string() };
+    }
+    if n == 0.0 {
+        return if n.is_sign_negative() { "-0".to_string() } else { "0".to_string() };
+    }
+
+    // Use Rust's {:e} to get the exponent reliably
+    let sci = format!("{:.prec$e}", n, prec = sig_digits.saturating_sub(1));
+    // Parse the exponent from Rust's scientific notation (e.g. "3.14000e2")
+    let exp = if let Some(e_pos) = sci.rfind('e') {
+        sci[e_pos + 1..].parse::<i32>().unwrap_or(0)
+    } else {
+        0
+    };
+
+    // %g uses %e if exponent < -4 or >= sig_digits, otherwise %f
+    if exp < -4 || exp >= sig_digits as i32 {
+        // Scientific notation: use Rust's {:.prec$e} and reformat exponent
+        let prec = sig_digits.saturating_sub(1);
+        let raw = format!("{:.prec$e}", n, prec = prec);
+        // Rust uses "e" not "e+", and no leading zeros on exponent
+        // We need to reformat to match C: e+XX or e-XX with at least 2 digits
+        if let Some(e_pos) = raw.rfind('e') {
+            let mantissa_part = &raw[..e_pos];
+            let exp_val: i32 = raw[e_pos + 1..].parse().unwrap_or(0);
+            let exp_sign = if exp_val >= 0 { '+' } else { '-' };
+            let abs_exp = exp_val.unsigned_abs();
+            // Trim trailing zeros from mantissa
+            let trimmed = if mantissa_part.contains('.') {
+                mantissa_part.trim_end_matches('0').trim_end_matches('.')
+            } else {
+                mantissa_part
+            };
+            format!("{}e{}{:02}", trimmed, exp_sign, abs_exp)
+        } else {
+            raw
+        }
+    } else {
+        // Fixed notation
+        let decimal_places = if sig_digits as i32 > exp + 1 {
+            (sig_digits as i32 - exp - 1) as usize
+        } else {
+            0
+        };
+        let mut result = format!("{:.prec$}", n, prec = decimal_places);
+        // Trim trailing zeros like %g
+        if result.contains('.') {
+            let trimmed = result.trim_end_matches('0').trim_end_matches('.');
+            result = trimmed.to_string();
+        }
+        result
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     let len = if unsafe { ttisinteger(obj) } {
+        let n = unsafe { ivalue(obj) };
+        let s = format!("{}", n);
+        let len = s.len().min(LUA_N2SBUFFSZ - 1);
         unsafe {
-            snprintf(
-                buff,
-                LUA_N2SBUFFSZ,
-                LUA_INTEGER_FMT.as_ptr().cast(),
-                ivalue(obj),
-            )
+            ptr::copy_nonoverlapping(s.as_ptr().cast::<c_char>(), buff, len);
+            *buff.add(len) = 0;
         }
+        len as c_int
     } else {
         tostringbuff_float(unsafe { fltvalue(obj) }, buff)
     };
@@ -605,6 +669,7 @@ pub unsafe  fn luaO_chunkid(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::mem::MaybeUninit;
     use crate::{api::lua_tolstring, aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::LUAL_NUMSIZES, state::lua_close};
 
     fn get_top_string(state: *mut lua_State) -> String {
@@ -685,5 +750,106 @@ mod tests {
 
         unsafe { lua_close(state) };
         result
+    }
+
+    #[test]
+    fn pushfstring_pointer_format() {
+        let state = { luaL_newstate() };
+        assert!(!state.is_null());
+
+        let result = (|| unsafe {
+            luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
+
+            // Format a non-null pointer — should produce "0x..." hex address
+            let dummy: u64 = 0xDEAD;
+            let ptr = &dummy as *const u64 as *mut core::ffi::c_void;
+            let _ = luaO_pushfstring(state, c"ptr=%p".as_ptr(), ptr);
+            let rendered = get_top_string(state);
+            assert!(rendered.starts_with("ptr=0x"),
+                "expected 'ptr=0x...', got: {rendered}");
+            // The hex address should contain hex digits after "0x"
+            let hex_part = &rendered["ptr=0x".len()..];
+            assert!(!hex_part.is_empty(), "hex address should not be empty");
+            assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+                "expected hex digits, got: {hex_part}");
+
+            // Format a null pointer
+            let null_ptr: *mut core::ffi::c_void = core::ptr::null_mut();
+            let _ = luaO_pushfstring(state, c"null=%p".as_ptr(), null_ptr);
+            let rendered_null = get_top_string(state);
+            assert!(rendered_null.starts_with("null=0x"),
+                "expected 'null=0x...', got: {rendered_null}");
+        })();
+
+        unsafe { lua_close(state) };
+        result
+    }
+
+    #[test]
+    fn tostringbuff_integers() {
+        unsafe {
+            let mut buff = [0 as c_char; LUA_N2SBUFFSZ];
+
+            // Zero
+            let mut val = MaybeUninit::<TValue>::uninit();
+            setivalue(val.as_mut_ptr(), 0);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert_eq!(s, "0");
+
+            // Positive
+            setivalue(val.as_mut_ptr(), 12345);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert_eq!(s, "12345");
+
+            // Negative
+            setivalue(val.as_mut_ptr(), -9876);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert_eq!(s, "-9876");
+
+            // Large
+            setivalue(val.as_mut_ptr(), 9007199254740992);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert_eq!(s, "9007199254740992");
+        }
+    }
+
+    #[test]
+    fn tostringbuff_floats() {
+        unsafe {
+            let mut buff = [0 as c_char; LUA_N2SBUFFSZ];
+
+            // Simple float
+            let mut val = MaybeUninit::<TValue>::uninit();
+            setfltvalue(val.as_mut_ptr(), 3.14);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert_eq!(s, "3.14");
+
+            // Float that looks like integer should have ".0"
+            setfltvalue(val.as_mut_ptr(), 100.0);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert!(s.contains('.'), "100.0 should contain decimal point, got: {s}");
+
+            // Zero float
+            setfltvalue(val.as_mut_ptr(), 0.0);
+            let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            assert!(s.contains('.'), "0.0 should contain decimal point, got: {s}");
+
+            // Round-trip fidelity: the string should parse back to the same value
+            let test_values = [0.1, 0.2, 1.0/3.0, std::f64::consts::PI, 1e-10, 1e10, 1e100];
+            for &n in &test_values {
+                setfltvalue(val.as_mut_ptr(), n);
+                let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
+                let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+                let back: f64 = s.parse().unwrap_or_else(|e| panic!("failed to parse '{s}': {e}"));
+                assert_eq!(back, n, "round-trip failed for {n}: tostring => '{s}', parse => {back}");
+            }
+        }
     }
 }

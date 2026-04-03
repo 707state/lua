@@ -11,7 +11,6 @@ use crate::do_rs::luaD_hookcall;
 use crate::func::*;
 use crate::luaffi::strchr;
 use crate::luaffi::strcmp;
-use crate::object::*;
 use crate::opcodes::*;
 use crate::runtime::*;
 use core::ffi::*;
@@ -44,11 +43,6 @@ unsafe fn pdebug_mut(p: *mut Proto) -> *mut Proto {
 }
 
 #[inline]
-unsafe fn ci_func(ci: *mut CallInfo) -> *mut LClosure {
-    unsafe { clLvalue(s2v((*ci).func.p)) }
-}
-
-#[inline]
 unsafe fn pc_rel(pc: *const Instruction, p: *const Proto) -> c_int {
     unsafe { pc.offset_from((*p).code) as c_int - 1 }
 }
@@ -60,12 +54,12 @@ unsafe fn resethookcount(L: *mut lua_State) {
 
 #[inline]
 unsafe fn test_amode(op: usize) -> bool {
-    unsafe { luaP_opmodes[op] & (1 << 3) != 0 }
+    luaP_opmodes[op] & (1 << 3) != 0
 }
 
 #[inline]
 unsafe fn test_mmmode(op: usize) -> bool {
-    unsafe { luaP_opmodes[op] & (1 << 7) != 0 }
+    luaP_opmodes[op] & (1 << 7) != 0
 }
 
 #[inline]
@@ -195,13 +189,13 @@ pub unsafe  fn lua_getstack(
         if level < 0 {
             return 0;
         }
-        let mut ci = unsafe { (*L).ci };
+        let mut ci = (*L).ci;
         while level > 0 && !ptr::eq(ci, ptr::addr_of_mut!((*L).base_ci)) {
-            ci = unsafe { (*ci).previous };
+            ci = (*ci).previous;
             level -= 1;
         }
         if level == 0 && !ptr::eq(ci, ptr::addr_of_mut!((*L).base_ci)) {
-            unsafe { ar_mut(ar).i_ci = ci };
+            ar_mut(ar).i_ci = ci;
             1
         } else {
             0

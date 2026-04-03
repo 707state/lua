@@ -64,7 +64,7 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
 #[inline] unsafe fn luaC_step(s: *mut lua_State) { unsafe { crate::gc::luaC_step(s) } }
 #[inline] unsafe fn luaD_throw(s: *mut lua_State, e: u8) -> ! { unsafe { crate::do_rs::luaD_throw(s, e) } }
 #[inline] unsafe fn luaG_addinfo(s: *mut lua_State, m: *const c_char, src: *mut TString, l: c_int) -> *const c_char { unsafe { crate::debug::luaG_addinfo(s, m, src, l) } }
-#[inline] unsafe fn luaO_hexavalue(c: c_int) -> u8 { crate::object::luaO_hexavalue(c) }
+#[inline] unsafe fn luaO_hexavalue(c: c_int) -> u8 { unsafe { crate::object::luaO_hexavalue(c) }}
 // luaO_pushfstring 直接使用 crate::object::luaO_pushfstring，不封装（变参函数无法在非 extern 函数中转发）
 #[inline] unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize { unsafe { crate::object::luaO_str2num(s, o) } }
 #[inline] unsafe fn luaO_utf8esc(b: *mut c_char, x: u32) -> c_int { unsafe { crate::object::luaO_utf8esc(b, x) } }
@@ -236,7 +236,7 @@ pub unsafe  fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
     unsafe { lexerror(ls, msg, (*ls).t.token) }
 }
 
-unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString {
+unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString { unsafe {
     let mut oldts = TValue {
         value_: Value {
             gc: ptr::null_mut(),
@@ -244,22 +244,20 @@ unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString {
         tt_: LUA_VNIL,
     };
     let tag =
-        unsafe { raw_luaH_getstr((*ls).h.cast(), ts.cast(), ptr::addr_of_mut!(oldts).cast()) };
+        raw_luaH_getstr((*ls).h.cast(), ts.cast(), ptr::addr_of_mut!(oldts).cast());
     if !tagisempty(tag) {
-        unsafe { tsvalue(ptr::addr_of!(oldts)) }
+        tsvalue(ptr::addr_of!(oldts))
     } else {
-        let top = unsafe { (*(*ls).L).top.p };
-        let stv = unsafe { s2v(top) };
-        unsafe {
+        let top = (*(*ls).L).top.p;
+        let stv = s2v(top);
             (*(*ls).L).top.p = top.add(1);
             setsvalue(stv, ts);
             raw_luaH_set((*ls).L.cast(), (*ls).h.cast(), stv.cast(), stv.cast());
             luaC_checkGC((*ls).L);
             (*(*ls).L).top.p = top;
-        }
         ts
     }
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaX_newstring(

@@ -3,7 +3,7 @@
 use crate::api::*;
 use crate::debug::*;
 use crate::runtime::*;
-use std::ffi::{CStr, c_char, c_int, c_uchar, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::mem::MaybeUninit;
 
 // Re-export public API items needed by binaries
@@ -149,15 +149,6 @@ pub(crate) fn localeconv() -> *mut LConv {
         core::ptr::addr_of_mut!(LCONV_STRUCT)
     }
 }
-
-// ── snprintf：格式化到 C 字符串缓冲区 ──────────────────────────────────────
-// 变参版本必须保留 extern "C" ABI，但我们通过把 snprintf 引入作为真正的 C 函数来避免
-// 直接在 luaffi 里声明，让调用者继续用系统 snprintf
-// （Rust 目前没有 stable 的 snprintf 纯 Rust 等价，保留 extern C 最安全）
-unsafe extern "C" {
-    pub(crate) fn snprintf(dst: *mut c_char, size: usize, fmt: *const c_char, ...) -> c_int;
-}
-
 
 pub const LUAL_NUMSIZES: usize =
     std::mem::size_of::<LuaInteger>() * 16 + std::mem::size_of::<LuaNumber>();

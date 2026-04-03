@@ -4,7 +4,6 @@ use crate::lua_module::*;
 use crate::luaffi::*;
 use crate::runtime::*;
 use crate::api::*;
-use crate::base_rs::*;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::env;
@@ -65,12 +64,6 @@ unsafe extern  "C"  {
     fn dlerror() -> *const c_char;
 }
 
-#[cfg(unix)]
-#[inline]
-unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {
-    unsafe { CStr::from_ptr(ptr) }
-}
-
 #[inline]
 unsafe fn checkstring<'a>(state: *mut lua_State, arg: c_int) -> &'a CStr {
     unsafe { cstr(luaL_checklstring(state, arg, ptr::null_mut())) }
@@ -82,17 +75,12 @@ unsafe fn optstring<'a>(
     arg: c_int,
     default: *const c_char,
 ) -> Option<&'a CStr> {
-    let ptr = unsafe { luaL_optlstring(state, arg, default, ptr::null_mut()) };
+    let ptr = luaL_optlstring(state, arg, default, ptr::null_mut());
     if ptr.is_null() {
         None
     } else {
         Some(unsafe { cstr(ptr) })
     }
-}
-
-#[inline]
-unsafe fn tostring_ptr(state: *mut lua_State, index: c_int) -> *const c_char {
-    unsafe { lua_tolstring(state, index, ptr::null_mut()) }
 }
 
 #[inline]
@@ -106,11 +94,6 @@ unsafe fn push_fail_and_where(state: *mut lua_State, where_: &'static [u8]) -> c
     unsafe { lua_insert_local(state, -2) };
     unsafe { lua_pushstring(state, where_.as_ptr().cast()) };
     3
-}
-
-#[inline]
-unsafe fn lua_insert_local(state: *mut lua_State, index: c_int) {
-    unsafe { lua_rotate(state, index, 1) };
 }
 
 fn setprogdir(_: *mut lua_State) {}
@@ -191,7 +174,7 @@ unsafe fn addtoclib(state: *mut lua_State, path: &CStr, plib: *mut c_void) {
     unsafe { lua_pushlightuserdata(state, plib) };
     unsafe { lua_setfield(state, -2, path.as_ptr()) };
     unsafe { createlibstr(state, plib) };
-    let _ = unsafe { luaL_ref(state, -2) };
+    let _ = luaL_ref(state, -2);
     unsafe { lua_pop(state, 1) };
 }
 
@@ -340,7 +323,7 @@ unsafe  fn ll_searchpath(state: *mut lua_State) -> c_int {
     let dirsep = unsafe { optstring(state, 4, c"/".as_ptr()).unwrap() }
         .to_string_lossy()
         .into_owned();
-    let suffix_ptr = unsafe { luaL_optlstring(state, 5, ptr::null(), ptr::null_mut()) };
+    let suffix_ptr = luaL_optlstring(state, 5, ptr::null(), ptr::null_mut());
     let suffix = if suffix_ptr.is_null() {
         None
     } else {
@@ -588,7 +571,7 @@ unsafe fn createsearcherstable(state: *mut lua_State) {
 }
 
 pub(crate) unsafe  fn luaopen_package(state: *mut lua_State) -> c_int {
-    unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, CLIBS.as_ptr().cast()) };
+    luaL_getsubtable(state, LUA_REGISTRYINDEX, CLIBS.as_ptr().cast());
     unsafe { lua_pop(state, 1) };
     unsafe { create_library_with_nrec(state, &PK_FUNCS, 7) };
     unsafe { createsearcherstable(state) };
@@ -598,13 +581,13 @@ pub(crate) unsafe  fn luaopen_package(state: *mut lua_State) -> c_int {
         format!("{LUA_DIRSEP}\n{LUA_PATH_SEP}\n{LUA_PATH_MARK}\n{LUA_EXEC_DIR}\n{LUA_IGMARK}\n");
     unsafe { lua_pushlstring(state, config.as_ptr().cast(), config.len()) };
     unsafe { lua_setfield(state, -2, FIELD_CONFIG.as_ptr().cast()) };
-    unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
+    luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast());
     unsafe { lua_setfield(state, -2, FIELD_LOADED.as_ptr().cast()) };
-    unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
+    luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast());
     unsafe { lua_setfield(state, -2, FIELD_PRELOAD.as_ptr().cast()) };
     unsafe { pushglobaltable_local(state) };
     unsafe { lua_pushvalue(state, -2) };
-    unsafe { luaL_setfuncs(state, LL_FUNCS.as_ptr(), 1) };
+    luaL_setfuncs(state, LL_FUNCS.as_ptr(), 1);
     unsafe { lua_pop(state, 1) };
     1
 }

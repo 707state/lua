@@ -116,7 +116,7 @@ fn dump_integer(state: &mut DumpState, value: lua_Integer) {
     dump_varint(state, encoded);
 }
 
-unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
+unsafe fn dump_string(state: &mut DumpState, string: *mut TString) { unsafe {
     if string.is_null() {
         dump_varint(state, 0);
         dump_varint(state, 0);
@@ -127,21 +127,21 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
         value_: Value { ub: 0 },
         tt_: 0,
     };
-    let tag = unsafe {
+    let tag =
         raw_luaH_getstr(
             state.h.cast(),
             string.cast(),
             (&mut idx as *mut TValue).cast(),
         )
-    };
+    ;
     if !tagisempty(tag) {
         dump_varint(state, 0);
-        dump_varint(state, unsafe { ivalue(&idx) as lua_Unsigned });
+        dump_varint(state, ivalue(&idx) as lua_Unsigned);
         return;
     }
 
-    let size = unsafe { str_len(string) };
-    let data = unsafe { str_data(string) };
+    let size = str_len(string);
+    let data = str_data(string);
     dump_size(state, size + 1);
     dump_block(state, data.cast(), size + 1);
 
@@ -154,7 +154,6 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
         value_: Value { ub: 0 },
         tt_: 0,
     };
-    unsafe {
         setsvalue(&mut key, string);
         setivalue(&mut value, state.nstr as lua_Integer);
         raw_luaH_set(
@@ -163,8 +162,7 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
             (&mut key as *mut TValue).cast(),
             (&mut value as *mut TValue).cast(),
         );
-    }
-}
+}}
 
 unsafe fn dump_code(state: &mut DumpState, proto: *const Proto) {
     let sizecode = unsafe { (*proto).sizecode };

@@ -7,7 +7,6 @@ use crate::lua_module::{
     lua_pushlstring, lua_pushnil, lua_pushstring, lua_pushvalue, lua_setfield, lua_settop,
     luaL_Reg,
 };
-use crate::luavm::GlobalState;
 use crate::runtime::Value;
 use crate::runtime::*;
 use core::ffi::{c_char, c_int, c_void};
@@ -63,7 +62,7 @@ struct Counters {
 #[inline] unsafe fn luaM_malloc_(s: *mut lua_State, sz: usize, t: c_int) -> *mut c_void { unsafe { crate::mem::luaM_malloc_(s, sz, t) } }
 #[inline] unsafe fn luaM_realloc_(s: *mut lua_State, b: *mut c_void, os: usize, ns: usize) -> *mut c_void { unsafe { crate::mem::luaM_realloc_(s, b, os, ns) } }
 #[inline] unsafe fn luaM_free_(s: *mut lua_State, b: *mut c_void, os: usize) { unsafe { crate::mem::luaM_free_(s, b, os) } }
-#[inline] unsafe fn luaO_ceillog2(x: u32) -> u8 { crate::object::luaO_ceillog2(x) }
+#[inline] unsafe fn luaO_ceillog2(x: u32) -> u8 { unsafe { crate::object::luaO_ceillog2(x) }}
 #[inline] unsafe fn luaS_eqstr(a: *mut TString, b: *mut TString) -> c_int { unsafe { crate::string::luaS_eqstr(a, b) } }
 #[inline] unsafe fn luaS_hashlongstr(ts: *mut TString) -> u32 { unsafe { crate::string::luaS_hashlongstr(ts) } }
 #[inline] unsafe fn luaS_normstr(s: *mut lua_State, ts: *mut TString) -> *mut TString { unsafe { crate::string::luaS_normstr(s, ts) } }
@@ -77,11 +76,6 @@ fn ctb(tag: u8) -> u8 {
 #[inline]
 unsafe fn getArrTag(t: *mut Table, k: u32) -> *mut u8 {
     unsafe { (*t).array.cast::<u8>().add(size_of::<u32>() + k as usize) }
-}
-
-#[inline]
-unsafe fn getArrVal(t: *mut Table, k: u32) -> *mut Value {
-    unsafe { (*t).array.sub(1 + k as usize) }
 }
 
 #[inline]
@@ -488,10 +482,10 @@ unsafe fn countint(key: lua_Integer, ct: &mut Counters) {
     }
 }
 
-unsafe fn arraykeyisempty(t: *mut Table, key: u32) -> bool {
-    let tag = unsafe { *getArrTag(t, key - 1) };
+unsafe fn arraykeyisempty(t: *mut Table, key: u32) -> bool { unsafe {
+    let tag = *getArrTag(t, key - 1);
     tagisempty(tag)
-}
+}}
 
 unsafe fn numusearray(t: *mut Table, ct: &mut Counters) {
     let mut ause = 0u32;
@@ -676,9 +670,9 @@ unsafe fn exchangehashpart(t1: *mut Table, t2: *mut Table) {
     }
 }
 
-unsafe fn reinsertOldSlice(t: *mut Table, oldasize: u32, newasize: u32) {
+unsafe fn reinsertOldSlice(t: *mut Table, oldasize: u32, newasize: u32) { unsafe {
     for i in newasize..oldasize {
-        let tag = unsafe { *getArrTag(t, i) };
+        let tag = *getArrTag(t, i);
         if !tagisempty(tag) {
             let mut key = TValue {
                 value_: Value {
@@ -692,14 +686,12 @@ unsafe fn reinsertOldSlice(t: *mut Table, oldasize: u32, newasize: u32) {
                 },
                 tt_: LUA_VNIL,
             };
-            unsafe {
                 setivalue(&mut key, i as lua_Integer + 1);
                 farr2val(t, i, tag, &mut aux);
                 insertkey(t, &key, &mut aux);
-            }
         }
     }
-}
+}}
 
 unsafe fn clearNewSlice(t: *mut Table, mut oldasize: u32, newasize: u32) {
     while oldasize < newasize {
@@ -937,18 +929,18 @@ pub unsafe  fn luaH_getint(
     t: *mut Table,
     key: lua_Integer,
     res: *mut TValue,
-) -> u8 {
-    let k = unsafe { ikeyinarray(t, key) };
+) -> u8 { unsafe {
+    let k = ikeyinarray(t, key);
     if k > 0 {
-        let tag = unsafe { *getArrTag(t, k - 1) };
+        let tag = *getArrTag(t, k - 1);
         if !tagisempty(tag) {
-            unsafe { farr2val(t, k - 1, tag, res) };
+            farr2val(t, k - 1, tag, res);
         }
         tag
     } else {
-        unsafe { finishnodeget(getintfromhash(t, key), res) }
+        finishnodeget(getintfromhash(t, key), res)
     }
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaH_Hgetshortstr(
@@ -1064,20 +1056,20 @@ pub unsafe  fn luaH_psetint(
     unsafe { finishnodeset(t, getintfromhash(t, key), val) }
 }
 
-unsafe fn psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int {
+unsafe fn psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int { unsafe {
     let u = (key as lua_Unsigned).wrapping_sub(1);
-    if u < unsafe { (*t).asize as lua_Unsigned } {
-        let tag = unsafe { getArrTag(t, u as u32) };
-        if unsafe { checknoTM((*t).metatable, TM_NEWINDEX as usize) } || !tagisempty(unsafe { *tag }) {
-            unsafe { fval2arr(t, u as u32, tag, val) };
+    if u < (*t).asize as lua_Unsigned {
+        let tag = getArrTag(t, u as u32);
+        if checknoTM((*t).metatable, TM_NEWINDEX as usize) || !tagisempty(*tag) {
+            fval2arr(t, u as u32, tag, val);
             HOK
         } else {
             !(u as c_int)
         }
     } else {
-        unsafe { luaH_psetint(t, key, val) }
+        luaH_psetint(t, key, val)
     }
-}
+}}
 
 #[inline]
 unsafe fn checknoTM(mt: *mut Table, e: usize) -> bool {
@@ -1351,34 +1343,30 @@ pub unsafe  fn luaH_next(
     state: *mut lua_State,
     t: *mut Table,
     key: StkId,
-) -> c_int {
-    let asize = unsafe { (*t).asize };
-    let mut i = unsafe { findindex(state, t, s2v(key), asize) };
+) -> c_int { unsafe {
+    let asize = (*t).asize;
+    let mut i = findindex(state, t, s2v(key), asize);
     while i < asize {
-        let tag = unsafe { *getArrTag(t, i) };
+        let tag = *getArrTag(t, i);
         if !tagisempty(tag) {
-            unsafe {
                 setivalue(s2v(key), i as lua_Integer + 1);
                 farr2val(t, i, tag, s2v(key.add(1)));
-            }
             return 1;
         }
         i += 1;
     }
     i -= asize;
-    while i < unsafe { sizenode(t) } {
-        let n = unsafe { gnode(t, i) };
-        if !unsafe { isempty(gval(n)) } {
-            unsafe {
+    while i < sizenode(t) {
+        let n = gnode(t, i);
+        if !isempty(gval(n)) {
                 getnodekey(s2v(key), n);
                 setobj2s(state, key.add(1), gval(n));
-            }
             return 1;
         }
         i += 1;
     }
     0
-}
+}}
 
 pub(crate) unsafe fn raw_luaH_new(state: *mut c_void) -> *mut c_void {
     unsafe { crate::runtime::luaH_new(state.cast()).cast() }
@@ -1531,7 +1519,7 @@ unsafe fn checktab(state: *mut lua_State, arg: c_int, what: c_int) {
 #[inline]
 unsafe fn aux_getn(state: *mut lua_State, n: c_int, what: c_int) -> lua_Integer {
     unsafe { checktab(state, n, what | TAB_L) };
-    unsafe { luaL_len(state, n) }
+    luaL_len(state, n)
 }
 
 unsafe  fn tcreate(state: *mut lua_State) -> c_int {
@@ -1856,7 +1844,7 @@ unsafe fn auxsort(
             up = p - 1;
         }
         if (up - lo) / 128 > n {
-            rnd = unsafe { luaL_makeseed(state) };
+            rnd = luaL_makeseed(state);
         }
     }
     Ok(())

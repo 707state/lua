@@ -15,12 +15,6 @@ use core::ffi::{c_char, c_int, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr;
 
-/// Local alias for `G()` from runtime.rs (lowercase for consistency with original code).
-#[inline]
-unsafe fn g(state: *mut lua_State) -> *mut GlobalState {
-    unsafe { G(state) }
-}
-
 #[inline]
 unsafe fn setthvalue2s(state: *mut lua_State, stack: StkId, thread: *mut lua_State) {
     let _ = state;
@@ -94,7 +88,7 @@ unsafe fn free_tstring_hash(state: *mut lua_State, hash: *mut *mut TString, coun
 
 unsafe  fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
     let _ = ud;
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     unsafe { stack_init(state, state) };
     unsafe { init_registry(state, g) };
     unsafe { raw_luaS_init(state.cast()) };
@@ -232,7 +226,7 @@ unsafe fn preinit_thread(state: *mut lua_State, g: *mut GlobalState) {
 }
 
 unsafe fn close_state(state: *mut lua_State) {
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     if !unsafe { completestate(g) } {
         unsafe { luaC_freeallobjects(state) };
     } else {
@@ -331,7 +325,7 @@ pub unsafe  fn luaE_threadsize(state: *mut lua_State) -> usize {
 }
 
 pub unsafe fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     if unsafe { (*g).gcdebt <= 0 } {
         unsafe { luaC_step(state) };
     }
@@ -498,12 +492,12 @@ pub unsafe  fn lua_newstate(
 
 #[unsafe(no_mangle)]
 pub unsafe  fn lua_close(state: *mut lua_State) {
-    let main = unsafe { mainthread(g(state)) };
+    let main = unsafe { mainthread(G(state)) };
     unsafe { close_state(main) };
 }
 
 pub(crate) unsafe fn luaE_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) {
-    let g = unsafe { g(state) };
+    let g = unsafe { G(state) };
     if let Some(warnf) = unsafe { (*g).warnf } {
         unsafe { warnf((*g).ud_warn, msg, tocont) };
     }

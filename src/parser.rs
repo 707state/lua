@@ -14,7 +14,6 @@ use crate::lex::*;
 use crate::mem::*;
 use crate::object::*;
 use crate::runtime::*;
-use crate::base_rs::*;
 use crate::state::luaE_incCstack;
 use core::mem::size_of;
 use core::ptr;
@@ -73,29 +72,29 @@ unsafe fn mask1(n: u32, p: u32) -> Instruction {
 }
 
 #[inline]
-unsafe fn setarg(i: &mut Instruction, v: c_int, pos: u32, size: u32) {
+unsafe fn setarg(i: &mut Instruction, v: c_int, pos: u32, size: u32) { unsafe {
     *i = (*i & !((mask1(size, pos)) as Instruction)) | (((v as u32) << pos) & mask1(size, pos));
-}
+}}
 
 #[inline]
-unsafe fn GETARG_A(i: Instruction) -> c_int {
+unsafe fn GETARG_A(i: Instruction) -> c_int { unsafe {
     ((i >> POS_A) & mask1(SIZE_A, 0)) as c_int
-}
+}}
 
 #[inline]
-unsafe fn SETARG_Bx(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_Bx(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_BX, SIZE_BX);
-}
+}}
 
 #[inline]
-unsafe fn SETARG_C(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_C(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_C, SIZE_C);
-}
+}}
 
 #[inline]
-unsafe fn SET_OPCODE(i: &mut Instruction, o: c_int) {
+unsafe fn SET_OPCODE(i: &mut Instruction, o: c_int) { unsafe {
     setarg(i, o, POS_OP, SIZE_OP);
-}
+}}
 
 #[inline]
 unsafe fn CREATE_ABCk(o: c_int, a: c_int, b: c_int, c: c_int, k: c_int) -> Instruction {
@@ -127,60 +126,34 @@ unsafe fn vkisindexed(k: c_int) -> bool {
 }
 
 #[inline]
-unsafe fn varinreg(v: *const Vardesc) -> bool {
+unsafe fn varinreg(v: *const Vardesc) -> bool { unsafe {
     (*v).vd.kind <= RDKTOCLOSE
-}
+}}
 
 #[inline]
-unsafe fn varglobal(v: *const Vardesc) -> bool {
+unsafe fn varglobal(v: *const Vardesc) -> bool { unsafe {
     (*v).vd.kind >= GDKREG
-}
+}}
 
 #[inline]
-unsafe fn isvararg(p: *mut Proto) -> bool {
+unsafe fn isvararg(p: *mut Proto) -> bool { unsafe {
     (*p).flag & (PF_VAHID | PF_VATAB) != 0
-}
+}}
 
 #[inline]
-unsafe fn needvatab(p: *mut Proto) {
+unsafe fn needvatab(p: *mut Proto) { unsafe {
     (*p).flag |= PF_VATAB;
-}
+}}
 
 #[inline]
-unsafe fn setclLvalue2s(_L: *mut lua_State, o: StkId, cl: *mut LClosure) {
+unsafe fn setclLvalue2s(_L: *mut lua_State, o: StkId, cl: *mut LClosure) { unsafe {
     (*s2v(o)).value_.gc = cl.cast();
     settt_(s2v(o), LUA_VLCL | BIT_ISCOLLECTABLE);
-}
-
-#[inline]
-unsafe fn cast_byte(v: c_int) -> lu_byte {
-    v as lu_byte
-}
+}}
 
 #[inline]
 unsafe fn cast_short(v: c_int) -> i16 {
     v as i16
-}
-
-#[inline]
-unsafe fn grow_vector<T>(
-    L: *mut lua_State,
-    block: *mut T,
-    nelems: c_int,
-    size: &mut c_int,
-    limit: c_int,
-    what: *const c_char,
-) -> *mut T {
-    luaM_growaux_(
-        L,
-        block.cast(),
-        nelems,
-        size,
-        size_of::<T>() as c_uint,
-        limit,
-        what,
-    )
-    .cast()
 }
 
 #[inline]
@@ -194,28 +167,23 @@ unsafe fn shrink_vector<T>(
 }
 
 #[inline]
-unsafe fn getlocvars(p: *mut Proto) -> *mut LocVar {
+unsafe fn getlocvars(p: *mut Proto) -> *mut LocVar { unsafe {
     (*p).locvars.cast()
-}
+}}
 
 #[inline]
-unsafe fn getabslineinfo(p: *mut Proto) -> *mut AbsLineInfo {
-    (*p).abslineinfo.cast()
-}
-
-#[inline]
-unsafe fn getinstruction(fs: *mut FuncState, e: *mut expdesc) -> *mut Instruction {
+unsafe fn getinstruction(fs: *mut FuncState, e: *mut expdesc) -> *mut Instruction { unsafe {
     (*(*fs).f).code.add((*e).u.info as usize)
-}
+}}
 
-unsafe fn error_expected(ls: *mut LexState, token: c_int) -> ! {
+unsafe fn error_expected(ls: *mut LexState, token: c_int) -> ! { unsafe {
     luaX_syntaxerror(
         ls,
         luaO_pushfstring((*ls).L, c"%s expected".as_ptr(), luaX_token2str(ls, token)),
     )
-}
+}}
 
-unsafe fn errorlimit(fs: *mut FuncState, limit: c_int, what: *const c_char) -> ! {
+unsafe fn errorlimit(fs: *mut FuncState, limit: c_int, what: *const c_char) -> ! { unsafe {
     let L = (*(*fs).ls).L;
     let line = (*(*fs).f).linedefined;
     let where_ = if line == 0 {
@@ -231,7 +199,7 @@ unsafe fn errorlimit(fs: *mut FuncState, limit: c_int, what: *const c_char) -> !
         where_,
     );
     luaX_syntaxerror((*fs).ls, msg)
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaY_checklimit(
@@ -239,39 +207,39 @@ pub unsafe  fn luaY_checklimit(
     v: c_int,
     l: c_int,
     what: *const c_char,
-) {
+) { unsafe {
     if v > l {
         errorlimit(fs, l, what);
     }
-}
+}}
 
-unsafe fn testnext(ls: *mut LexState, c: c_int) -> c_int {
+unsafe fn testnext(ls: *mut LexState, c: c_int) -> c_int { unsafe {
     if (*ls).t.token == c {
         luaX_next(ls);
         1
     } else {
         0
     }
-}
+}}
 
-unsafe fn check(ls: *mut LexState, c: c_int) {
+unsafe fn check(ls: *mut LexState, c: c_int) { unsafe {
     if (*ls).t.token != c {
         error_expected(ls, c);
     }
-}
+}}
 
-unsafe fn checknext(ls: *mut LexState, c: c_int) {
+unsafe fn checknext(ls: *mut LexState, c: c_int) { unsafe {
     check(ls, c);
     luaX_next(ls);
-}
+}}
 
-unsafe fn check_condition(ls: *mut LexState, cond: bool, msg: *const c_char) {
+unsafe fn check_condition(ls: *mut LexState, cond: bool, msg: *const c_char) { unsafe {
     if !cond {
         luaX_syntaxerror(ls, msg);
     }
-}
+}}
 
-unsafe fn check_match(ls: *mut LexState, what: c_int, who: c_int, where_: c_int) {
+unsafe fn check_match(ls: *mut LexState, what: c_int, who: c_int, where_: c_int) { unsafe {
     if testnext(ls, what) == 0 {
         if where_ == (*ls).linenumber {
             error_expected(ls, what);
@@ -288,34 +256,34 @@ unsafe fn check_match(ls: *mut LexState, what: c_int, who: c_int, where_: c_int)
             );
         }
     }
-}
+}}
 
-unsafe fn str_checkname(ls: *mut LexState) -> *mut TString {
+unsafe fn str_checkname(ls: *mut LexState) -> *mut TString { unsafe {
     check(ls, TK_NAME);
     let ts = (*ls).t.seminfo.ts;
     luaX_next(ls);
     ts
-}
+}}
 
-unsafe fn init_exp(e: *mut expdesc, k: c_int, i: c_int) {
+unsafe fn init_exp(e: *mut expdesc, k: c_int, i: c_int) { unsafe {
     (*e).f = NO_JUMP;
     (*e).t = NO_JUMP;
     (*e).k = k;
     (*e).u.info = i;
-}
+}}
 
-unsafe fn codestring(e: *mut expdesc, s: *mut TString) {
+unsafe fn codestring(e: *mut expdesc, s: *mut TString) { unsafe {
     (*e).f = NO_JUMP;
     (*e).t = NO_JUMP;
     (*e).k = VKSTR;
     (*e).u.strval = s;
-}
+}}
 
-unsafe fn codename(ls: *mut LexState, e: *mut expdesc) {
+unsafe fn codename(ls: *mut LexState, e: *mut expdesc) { unsafe {
     codestring(e, str_checkname(ls));
-}
+}}
 
-unsafe fn registerlocalvar(ls: *mut LexState, fs: *mut FuncState, varname: *mut TString) -> i16 {
+unsafe fn registerlocalvar(ls: *mut LexState, fs: *mut FuncState, varname: *mut TString) -> i16 { unsafe {
     let f = (*fs).f;
     let mut oldsize = (*f).sizelocvars;
     (*f).locvars = grow_vector::<LocVar>(
@@ -337,9 +305,9 @@ unsafe fn registerlocalvar(ls: *mut LexState, fs: *mut FuncState, varname: *mut 
     let res = (*fs).ndebugvars;
     (*fs).ndebugvars += 1;
     res
-}
+}}
 
-unsafe fn new_varkind(ls: *mut LexState, name: *mut TString, kind: lu_byte) -> c_int {
+unsafe fn new_varkind(ls: *mut LexState, name: *mut TString, kind: lu_byte) -> c_int { unsafe {
     let L = (*ls).L;
     let fs = (*ls).fs;
     let dyd = (*ls).dyd;
@@ -356,24 +324,24 @@ unsafe fn new_varkind(ls: *mut LexState, name: *mut TString, kind: lu_byte) -> c
     (*var).vd.name = name;
     (*dyd).actvar.n += 1;
     (*dyd).actvar.n - 1 - (*fs).firstlocal
-}
+}}
 
-unsafe fn new_localvar(ls: *mut LexState, name: *mut TString) -> c_int {
+unsafe fn new_localvar(ls: *mut LexState, name: *mut TString) -> c_int { unsafe {
     new_varkind(ls, name, VDKREG)
-}
+}}
 
-unsafe fn new_localvarliteral(ls: *mut LexState, v: &'static [u8]) -> c_int {
+unsafe fn new_localvarliteral(ls: *mut LexState, v: &'static [u8]) -> c_int { unsafe {
     new_localvar(ls, luaX_newstring(ls, v.as_ptr().cast(), v.len() - 1))
-}
+}}
 
-unsafe fn getlocalvardesc(fs: *mut FuncState, vidx: c_int) -> *mut Vardesc {
+unsafe fn getlocalvardesc(fs: *mut FuncState, vidx: c_int) -> *mut Vardesc { unsafe {
     (*(*(*fs).ls).dyd)
         .actvar
         .arr
         .add(((*fs).firstlocal + vidx) as usize)
-}
+}}
 
-unsafe fn reglevel(fs: *mut FuncState, mut nvar: c_int) -> lu_byte {
+unsafe fn reglevel(fs: *mut FuncState, mut nvar: c_int) -> lu_byte { unsafe {
     while nvar > 0 {
         nvar -= 1;
         let vd = getlocalvardesc(fs, nvar);
@@ -382,14 +350,14 @@ unsafe fn reglevel(fs: *mut FuncState, mut nvar: c_int) -> lu_byte {
         }
     }
     0
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaY_nvarstack(fs: *mut FuncState) -> lu_byte {
+pub unsafe  fn luaY_nvarstack(fs: *mut FuncState) -> lu_byte { unsafe {
     reglevel(fs, (*fs).nactvar as c_int)
-}
+}}
 
-unsafe fn localdebuginfo(fs: *mut FuncState, vidx: c_int) -> *mut LocVar {
+unsafe fn localdebuginfo(fs: *mut FuncState, vidx: c_int) -> *mut LocVar { unsafe {
     let vd = getlocalvardesc(fs, vidx);
     if !varinreg(vd) {
         ptr::null_mut()
@@ -398,17 +366,17 @@ unsafe fn localdebuginfo(fs: *mut FuncState, vidx: c_int) -> *mut LocVar {
         debug_assert!(idx < (*fs).ndebugvars);
         getlocvars((*fs).f).add(idx as usize)
     }
-}
+}}
 
-unsafe fn init_var(fs: *mut FuncState, e: *mut expdesc, vidx: c_int) {
+unsafe fn init_var(fs: *mut FuncState, e: *mut expdesc, vidx: c_int) { unsafe {
     (*e).f = NO_JUMP;
     (*e).t = NO_JUMP;
     (*e).k = VLOCAL;
     (*e).u.var.vidx = cast_short(vidx);
     (*e).u.var.ridx = (*getlocalvardesc(fs, vidx)).vd.ridx;
-}
+}}
 
-unsafe fn check_readonly(ls: *mut LexState, e: *mut expdesc) {
+unsafe fn check_readonly(ls: *mut LexState, e: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let mut varname: *mut TString = ptr::null_mut();
     match (*e).k {
@@ -454,9 +422,9 @@ unsafe fn check_readonly(ls: *mut LexState, e: *mut expdesc) {
     if !varname.is_null() {
         luaK_semerror1(ls, c"attempt to assign to const variable '%s'".as_ptr(), getstr(varname));
     }
-}
+}}
 
-unsafe fn adjustlocalvars(ls: *mut LexState, nvars: c_int) {
+unsafe fn adjustlocalvars(ls: *mut LexState, nvars: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut reglevel_ = luaY_nvarstack(fs) as c_int;
     for _ in 0..nvars {
@@ -468,9 +436,9 @@ unsafe fn adjustlocalvars(ls: *mut LexState, nvars: c_int) {
         (*var).vd.pidx = registerlocalvar(ls, fs, (*var).vd.name);
         luaY_checklimit(fs, reglevel_, MAXVARS, c"local variables".as_ptr());
     }
-}
+}}
 
-unsafe fn removevars(fs: *mut FuncState, tolevel: c_int) {
+unsafe fn removevars(fs: *mut FuncState, tolevel: c_int) { unsafe {
     (*(*(*fs).ls).dyd).actvar.n -= (*fs).nactvar as c_int - tolevel;
     while (*fs).nactvar as c_int > tolevel {
         (*fs).nactvar -= 1;
@@ -479,9 +447,9 @@ unsafe fn removevars(fs: *mut FuncState, tolevel: c_int) {
             (*var).endpc = (*fs).pc;
         }
     }
-}
+}}
 
-unsafe fn searchupvalue(fs: *mut FuncState, name: *mut TString) -> c_int {
+unsafe fn searchupvalue(fs: *mut FuncState, name: *mut TString) -> c_int { unsafe {
     let up = (*(*fs).f).upvalues;
     for i in 0..(*fs).nups as c_int {
         if eqstr((*up.add(i as usize)).name, name) {
@@ -489,9 +457,9 @@ unsafe fn searchupvalue(fs: *mut FuncState, name: *mut TString) -> c_int {
         }
     }
     -1
-}
+}}
 
-unsafe fn allocupvalue(fs: *mut FuncState) -> *mut Upvaldesc {
+unsafe fn allocupvalue(fs: *mut FuncState) -> *mut Upvaldesc { unsafe {
     let f = (*fs).f;
     let mut oldsize = (*f).sizeupvalues;
     luaY_checklimit(fs, (*fs).nups as c_int + 1, MAXUPVAL, c"upvalues".as_ptr());
@@ -510,9 +478,9 @@ unsafe fn allocupvalue(fs: *mut FuncState) -> *mut Upvaldesc {
     let up = (*f).upvalues.add((*fs).nups as usize);
     (*fs).nups = (*fs).nups.wrapping_add(1);
     up
-}
+}}
 
-unsafe fn newupvalue(fs: *mut FuncState, name: *mut TString, v: *mut expdesc) -> c_int {
+unsafe fn newupvalue(fs: *mut FuncState, name: *mut TString, v: *mut expdesc) -> c_int { unsafe {
     let up = allocupvalue(fs);
     let prev = (*fs).prev;
     if (*v).k == VLOCAL {
@@ -532,9 +500,9 @@ unsafe fn newupvalue(fs: *mut FuncState, name: *mut TString, v: *mut expdesc) ->
     (*up).name = name;
     luaC_objbarrier((*(*fs).ls).L, obj2gco((*fs).f), obj2gco(name));
     (*fs).nups as c_int - 1
-}
+}}
 
-unsafe fn searchvar(fs: *mut FuncState, n: *mut TString, var: *mut expdesc) -> c_int {
+unsafe fn searchvar(fs: *mut FuncState, n: *mut TString, var: *mut expdesc) -> c_int { unsafe {
     let mut i = (*fs).nactvar as c_int - 1;
     while i >= 0 {
         let vd = getlocalvardesc(fs, i);
@@ -563,25 +531,25 @@ unsafe fn searchvar(fs: *mut FuncState, n: *mut TString, var: *mut expdesc) -> c
         i -= 1;
     }
     -1
-}
+}}
 
-unsafe fn markupval(fs: *mut FuncState, level: c_int) {
+unsafe fn markupval(fs: *mut FuncState, level: c_int) { unsafe {
     let mut bl = (*fs).bl;
     while (*bl).nactvar as c_int > level {
         bl = (*bl).previous;
     }
     (*bl).upval = 1;
     (*fs).needclose = 1;
-}
+}}
 
-unsafe fn marktobeclosed(fs: *mut FuncState) {
+unsafe fn marktobeclosed(fs: *mut FuncState) { unsafe {
     let bl = (*fs).bl;
     (*bl).upval = 1;
     (*bl).insidetbc = 1;
     (*fs).needclose = 1;
-}
+}}
 
-unsafe fn singlevaraux(fs: *mut FuncState, n: *mut TString, var: *mut expdesc, base: c_int) {
+unsafe fn singlevaraux(fs: *mut FuncState, n: *mut TString, var: *mut expdesc, base: c_int) { unsafe {
     let v = searchvar(fs, n, var);
     if v >= 0 {
         if base == 0 {
@@ -606,9 +574,9 @@ unsafe fn singlevaraux(fs: *mut FuncState, n: *mut TString, var: *mut expdesc, b
         }
         init_exp(var, VUPVAL, idx);
     }
-}
+}}
 
-unsafe fn buildglobal(ls: *mut LexState, varname: *mut TString, var: *mut expdesc) {
+unsafe fn buildglobal(ls: *mut LexState, varname: *mut TString, var: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let mut key = expdesc {
         k: 0,
@@ -619,16 +587,16 @@ unsafe fn buildglobal(ls: *mut LexState, varname: *mut TString, var: *mut expdes
     init_exp(var, VGLOBAL, -1);
     singlevaraux(fs, (*ls).envn, var, 1);
     if (*var).k == VGLOBAL {
-        let _msg = unsafe { crate::object::luaO_pushfstring((*ls).L, c"%s is global when accessing variable '%s'".as_ptr(), c"_ENV".as_ptr(), getstr(varname)) };
-        let _msg2 = unsafe { crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut()) };
+        let _msg = crate::object::luaO_pushfstring((*ls).L, c"%s is global when accessing variable '%s'".as_ptr(), c"_ENV".as_ptr(), getstr(varname));
+        let _msg2 = crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut());
         luaK_semerror(ls, _msg2);
     }
     luaK_exp2anyregup(fs, var);
     codestring(&mut key, varname);
     luaK_indexed(fs, var, &mut key);
-}
+}}
 
-unsafe fn buildvar(ls: *mut LexState, varname: *mut TString, var: *mut expdesc) {
+unsafe fn buildvar(ls: *mut LexState, varname: *mut TString, var: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     init_exp(var, VGLOBAL, -1);
     singlevaraux(fs, varname, var, 1);
@@ -642,13 +610,13 @@ unsafe fn buildvar(ls: *mut LexState, varname: *mut TString, var: *mut expdesc) 
             (*var).u.ind.ro = 1;
         }
     }
-}
+}}
 
-unsafe fn singlevar(ls: *mut LexState, var: *mut expdesc) {
+unsafe fn singlevar(ls: *mut LexState, var: *mut expdesc) { unsafe {
     buildvar(ls, str_checkname(ls), var);
-}
+}}
 
-unsafe fn adjust_assign(ls: *mut LexState, nvars: c_int, nexps: c_int, e: *mut expdesc) {
+unsafe fn adjust_assign(ls: *mut LexState, nvars: c_int, nexps: c_int, e: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let needed = nvars - nexps;
     luaK_checkstack(fs, needed);
@@ -671,19 +639,19 @@ unsafe fn adjust_assign(ls: *mut LexState, nvars: c_int, nexps: c_int, e: *mut e
     } else {
         (*fs).freereg = ((*fs).freereg as c_int + needed) as u8;
     }
-}
+}}
 
 #[inline]
-unsafe fn enterlevel(ls: *mut LexState) {
+unsafe fn enterlevel(ls: *mut LexState) { unsafe {
     luaE_incCstack((*ls).L);
-}
+}}
 
 #[inline]
-unsafe fn leavelevel(ls: *mut LexState) {
+unsafe fn leavelevel(ls: *mut LexState) { unsafe {
     (*(*ls).L).nCcalls -= 1;
-}
+}}
 
-unsafe fn jumpscopeerror(ls: *mut LexState, gt: *mut Labeldesc) -> ! {
+unsafe fn jumpscopeerror(ls: *mut LexState, gt: *mut Labeldesc) -> ! { unsafe {
     let tsname = (*getlocalvardesc((*ls).fs, (*gt).nactvar as c_int)).vd.name;
     let varname = if tsname.is_null() {
         c"*".as_ptr()
@@ -691,13 +659,13 @@ unsafe fn jumpscopeerror(ls: *mut LexState, gt: *mut Labeldesc) -> ! {
         getstr(tsname)
     };
     {
-        let _m = unsafe { crate::object::luaO_pushfstring((*ls).L, c"<goto %s> at line %d jumps into the scope of '%s'".as_ptr(), getstr((*gt).name), (*gt).line, varname) };
-        let _m2 = unsafe { crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut()) };
+        let _m = crate::object::luaO_pushfstring((*ls).L, c"<goto %s> at line %d jumps into the scope of '%s'".as_ptr(), getstr((*gt).name), (*gt).line, varname);
+        let _m2 = crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut());
         luaK_semerror(ls, _m2)
     }
-}
+}}
 
-unsafe fn closegoto(ls: *mut LexState, g: c_int, label: *mut Labeldesc, bup: c_int) {
+unsafe fn closegoto(ls: *mut LexState, g: c_int, label: *mut Labeldesc, bup: c_int) { unsafe {
     let fs = (*ls).fs;
     let gl = ptr::addr_of_mut!((*(*ls).dyd).gt);
     let gt = (*gl).arr.add(g as usize);
@@ -716,9 +684,9 @@ unsafe fn closegoto(ls: *mut LexState, g: c_int, label: *mut Labeldesc, bup: c_i
         *(*gl).arr.add(i as usize) = *(*gl).arr.add((i + 1) as usize);
     }
     (*gl).n -= 1;
-}
+}}
 
-unsafe fn findlabel(ls: *mut LexState, name: *mut TString, mut ilb: c_int) -> *mut Labeldesc {
+unsafe fn findlabel(ls: *mut LexState, name: *mut TString, mut ilb: c_int) -> *mut Labeldesc { unsafe {
     let dyd = (*ls).dyd;
     while ilb < (*dyd).label.n {
         let lb = (*dyd).label.arr.add(ilb as usize);
@@ -728,7 +696,7 @@ unsafe fn findlabel(ls: *mut LexState, name: *mut TString, mut ilb: c_int) -> *m
         ilb += 1;
     }
     ptr::null_mut()
-}
+}}
 
 unsafe fn newlabelentry(
     ls: *mut LexState,
@@ -736,7 +704,7 @@ unsafe fn newlabelentry(
     name: *mut TString,
     line: c_int,
     pc: c_int,
-) -> c_int {
+) -> c_int { unsafe {
     let n = (*l).n;
     (*l).arr = grow_vector::<Labeldesc>(
         (*ls).L,
@@ -754,25 +722,25 @@ unsafe fn newlabelentry(
     (*entry).pc = pc;
     (*l).n = n + 1;
     n
-}
+}}
 
-unsafe fn newgotoentry(ls: *mut LexState, name: *mut TString, line: c_int) -> c_int {
+unsafe fn newgotoentry(ls: *mut LexState, name: *mut TString, line: c_int) -> c_int { unsafe {
     let fs = (*ls).fs;
     let pc = luaK_jump(fs);
     luaK_codeABCk(fs, OP_CLOSE, 0, 1, 0, 0);
     newlabelentry(ls, ptr::addr_of_mut!((*(*ls).dyd).gt), name, line, pc)
-}
+}}
 
-unsafe fn createlabel(ls: *mut LexState, name: *mut TString, line: c_int, last: c_int) {
+unsafe fn createlabel(ls: *mut LexState, name: *mut TString, line: c_int, last: c_int) { unsafe {
     let fs = (*ls).fs;
     let ll = ptr::addr_of_mut!((*(*ls).dyd).label);
     let l = newlabelentry(ls, ll, name, line, luaK_getlabel(fs));
     if last != 0 {
         (*(*ll).arr.add(l as usize)).nactvar = (*(*fs).bl).nactvar;
     }
-}
+}}
 
-unsafe fn solvegotos(fs: *mut FuncState, bl: *mut BlockCnt) {
+unsafe fn solvegotos(fs: *mut FuncState, bl: *mut BlockCnt) { unsafe {
     let ls = (*fs).ls;
     let gl = ptr::addr_of_mut!((*(*ls).dyd).gt);
     let outlevel = reglevel(fs, (*bl).nactvar as c_int);
@@ -791,9 +759,9 @@ unsafe fn solvegotos(fs: *mut FuncState, bl: *mut BlockCnt) {
         }
     }
     (*(*ls).dyd).label.n = (*bl).firstlabel;
-}
+}}
 
-unsafe fn enterblock(fs: *mut FuncState, bl: *mut BlockCnt, isloop: lu_byte) {
+unsafe fn enterblock(fs: *mut FuncState, bl: *mut BlockCnt, isloop: lu_byte) { unsafe {
     (*bl).isloop = isloop;
     (*bl).nactvar = (*fs).nactvar;
     (*bl).firstlabel = (*(*(*fs).ls).dyd).label.n;
@@ -807,18 +775,18 @@ unsafe fn enterblock(fs: *mut FuncState, bl: *mut BlockCnt, isloop: lu_byte) {
     (*bl).previous = (*fs).bl;
     (*fs).bl = bl;
     debug_assert!((*fs).freereg == luaY_nvarstack(fs));
-}
+}}
 
-unsafe fn undefgoto(ls: *mut LexState, gt: *mut Labeldesc) -> ! {
+unsafe fn undefgoto(ls: *mut LexState, gt: *mut Labeldesc) -> ! { unsafe {
     debug_assert!(!eqstr((*gt).name, (*ls).brkn));
     {
-        let _m = unsafe { crate::object::luaO_pushfstring((*ls).L, c"no visible label '%s' for <goto> at line %d".as_ptr(), getstr((*gt).name), (*gt).line) };
-        let _m2 = unsafe { crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut()) };
+        let _m = crate::object::luaO_pushfstring((*ls).L, c"no visible label '%s' for <goto> at line %d".as_ptr(), getstr((*gt).name), (*gt).line);
+        let _m2 = crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut());
         luaK_semerror(ls, _m2)
     }
-}
+}}
 
-unsafe fn leaveblock(fs: *mut FuncState) {
+unsafe fn leaveblock(fs: *mut FuncState) { unsafe {
     let bl = (*fs).bl;
     let ls = (*fs).ls;
     let stklevel = reglevel(fs, (*bl).nactvar as c_int);
@@ -838,9 +806,9 @@ unsafe fn leaveblock(fs: *mut FuncState) {
         }
     }
     (*fs).bl = (*bl).previous;
-}
+}}
 
-unsafe fn addprototype(ls: *mut LexState) -> *mut Proto {
+unsafe fn addprototype(ls: *mut LexState) -> *mut Proto { unsafe {
     let L = (*ls).L;
     let fs = (*ls).fs;
     let f = (*fs).f;
@@ -864,15 +832,15 @@ unsafe fn addprototype(ls: *mut LexState) -> *mut Proto {
     (*fs).np += 1;
     luaC_objbarrier(L, obj2gco(f), obj2gco(clp));
     clp
-}
+}}
 
-unsafe fn codeclosure(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn codeclosure(ls: *mut LexState, v: *mut expdesc) { unsafe {
     let fs = (*(*ls).fs).prev;
     init_exp(v, VRELOC, luaK_codeABx(fs, OP_CLOSURE, 0, (*fs).np - 1));
     luaK_exp2nextreg(fs, v);
-}
+}}
 
-unsafe fn open_func(ls: *mut LexState, fs: *mut FuncState, bl: *mut BlockCnt) {
+unsafe fn open_func(ls: *mut LexState, fs: *mut FuncState, bl: *mut BlockCnt) { unsafe {
     let L = (*ls).L;
     let f = (*fs).f;
     (*fs).prev = (*ls).fs;
@@ -900,9 +868,9 @@ unsafe fn open_func(ls: *mut LexState, fs: *mut FuncState, bl: *mut BlockCnt) {
     sethvalue2s(L, (*L).top.p, (*fs).kcache);
     luaD_inctop(L);
     enterblock(fs, bl, 0);
-}
+}}
 
-unsafe fn close_func(ls: *mut LexState) {
+unsafe fn close_func(ls: *mut LexState) { unsafe {
     let L = (*ls).L;
     let fs = (*ls).fs;
     let f = (*fs).f;
@@ -937,17 +905,17 @@ unsafe fn close_func(ls: *mut LexState) {
     (*ls).fs = (*fs).prev;
     (*L).top.p = (*L).top.p.sub(1);
     luaC_checkGC(L);
-}
+}}
 
-unsafe fn block_follow(ls: *mut LexState, withuntil: c_int) -> c_int {
+unsafe fn block_follow(ls: *mut LexState, withuntil: c_int) -> c_int { unsafe {
     match (*ls).t.token {
         TK_ELSE | TK_ELSEIF | TK_END | TK_EOS => 1,
         TK_UNTIL => withuntil,
         _ => 0,
     }
-}
+}}
 
-unsafe fn statlist(ls: *mut LexState) {
+unsafe fn statlist(ls: *mut LexState) { unsafe {
     while block_follow(ls, 1) == 0 {
         if (*ls).t.token == TK_RETURN {
             statement(ls);
@@ -955,9 +923,9 @@ unsafe fn statlist(ls: *mut LexState) {
         }
         statement(ls);
     }
-}
+}}
 
-unsafe fn fieldsel(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn fieldsel(ls: *mut LexState, v: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let mut key = expdesc {
         k: 0,
@@ -969,16 +937,16 @@ unsafe fn fieldsel(ls: *mut LexState, v: *mut expdesc) {
     luaX_next(ls);
     codename(ls, &mut key);
     luaK_indexed(fs, v, &mut key);
-}
+}}
 
-unsafe fn yindex(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn yindex(ls: *mut LexState, v: *mut expdesc) { unsafe {
     luaX_next(ls);
     expr(ls, v);
     luaK_exp2val((*ls).fs, v);
     checknext(ls, ']' as c_int);
-}
+}}
 
-unsafe fn recfield(ls: *mut LexState, cc: *mut ConsControl) {
+unsafe fn recfield(ls: *mut LexState, cc: *mut ConsControl) { unsafe {
     let fs = (*ls).fs;
     let reg = (*(*ls).fs).freereg;
     let mut tab = expdesc {
@@ -1011,9 +979,9 @@ unsafe fn recfield(ls: *mut LexState, cc: *mut ConsControl) {
     expr(ls, &mut val);
     luaK_storevar(fs, &mut tab, &mut val);
     (*fs).freereg = reg;
-}
+}}
 
-unsafe fn closelistfield(fs: *mut FuncState, cc: *mut ConsControl) {
+unsafe fn closelistfield(fs: *mut FuncState, cc: *mut ConsControl) { unsafe {
     debug_assert!((*cc).tostore > 0);
     luaK_exp2nextreg(fs, ptr::addr_of_mut!((*cc).v));
     (*cc).v.k = VVOID;
@@ -1022,9 +990,9 @@ unsafe fn closelistfield(fs: *mut FuncState, cc: *mut ConsControl) {
         (*cc).na += (*cc).tostore;
         (*cc).tostore = 0;
     }
-}
+}}
 
-unsafe fn lastlistfield(fs: *mut FuncState, cc: *mut ConsControl) {
+unsafe fn lastlistfield(fs: *mut FuncState, cc: *mut ConsControl) { unsafe {
     if (*cc).tostore == 0 {
         return;
     }
@@ -1039,14 +1007,14 @@ unsafe fn lastlistfield(fs: *mut FuncState, cc: *mut ConsControl) {
         luaK_setlist(fs, (*(*cc).t).u.info, (*cc).na, (*cc).tostore);
     }
     (*cc).na += (*cc).tostore;
-}
+}}
 
-unsafe fn listfield(ls: *mut LexState, cc: *mut ConsControl) {
+unsafe fn listfield(ls: *mut LexState, cc: *mut ConsControl) { unsafe {
     expr(ls, ptr::addr_of_mut!((*cc).v));
     (*cc).tostore += 1;
-}
+}}
 
-unsafe fn field(ls: *mut LexState, cc: *mut ConsControl) {
+unsafe fn field(ls: *mut LexState, cc: *mut ConsControl) { unsafe {
     match (*ls).t.token {
         TK_NAME => {
             if luaX_lookahead(ls) != '=' as c_int {
@@ -1058,9 +1026,9 @@ unsafe fn field(ls: *mut LexState, cc: *mut ConsControl) {
         x if x == '[' as c_int => recfield(ls, cc),
         _ => listfield(ls, cc),
     }
-}
+}}
 
-unsafe fn maxtostore(fs: *mut FuncState) -> c_int {
+unsafe fn maxtostore(fs: *mut FuncState) -> c_int { unsafe {
     let numfreeregs = MAX_FSTACK - (*fs).freereg as c_int;
     if numfreeregs >= 160 {
         numfreeregs / 5
@@ -1069,9 +1037,9 @@ unsafe fn maxtostore(fs: *mut FuncState) -> c_int {
     } else {
         1
     }
-}
+}}
 
-unsafe fn constructor(ls: *mut LexState, t: *mut expdesc) {
+unsafe fn constructor(ls: *mut LexState, t: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let line = (*ls).linenumber;
     let pc = luaK_codevABCk(fs, OP_NEWTABLE, 0, 0, 0, 0);
@@ -1115,14 +1083,14 @@ unsafe fn constructor(ls: *mut LexState, t: *mut expdesc) {
     check_match(ls, '}' as c_int, '{' as c_int, line);
     lastlistfield(fs, &mut cc);
     luaK_settablesize(fs, pc, (*t).u.info, cc.na, cc.nh);
-}
+}}
 
-unsafe fn setvararg(fs: *mut FuncState) {
+unsafe fn setvararg(fs: *mut FuncState) { unsafe {
     (*(*fs).f).flag |= PF_VAHID;
     luaK_codeABCk(fs, OP_VARARGPREP, 0, 0, 0, 0);
-}
+}}
 
-unsafe fn parlist(ls: *mut LexState) {
+unsafe fn parlist(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let f = (*fs).f;
     let mut nparams = 0;
@@ -1157,9 +1125,9 @@ unsafe fn parlist(ls: *mut LexState) {
         adjustlocalvars(ls, 1);
     }
     luaK_reserveregs(fs, (*fs).nactvar as c_int);
-}
+}}
 
-unsafe fn body(ls: *mut LexState, e: *mut expdesc, ismethod: c_int, line: c_int) {
+unsafe fn body(ls: *mut LexState, e: *mut expdesc, ismethod: c_int, line: c_int) { unsafe {
     let mut new_fs = FuncState {
         f: addprototype(ls),
         prev: ptr::null_mut(),
@@ -1204,9 +1172,9 @@ unsafe fn body(ls: *mut LexState, e: *mut expdesc, ismethod: c_int, line: c_int)
     check_match(ls, TK_END, TK_FUNCTION, line);
     codeclosure(ls, e);
     close_func(ls);
-}
+}}
 
-unsafe fn explist(ls: *mut LexState, v: *mut expdesc) -> c_int {
+unsafe fn explist(ls: *mut LexState, v: *mut expdesc) -> c_int { unsafe {
     let mut n = 1;
     expr(ls, v);
     while testnext(ls, ',' as c_int) != 0 {
@@ -1215,9 +1183,9 @@ unsafe fn explist(ls: *mut LexState, v: *mut expdesc) -> c_int {
         n += 1;
     }
     n
-}
+}}
 
-unsafe fn funcargs(ls: *mut LexState, f: *mut expdesc) {
+unsafe fn funcargs(ls: *mut LexState, f: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let mut args = expdesc {
         k: 0,
@@ -1263,9 +1231,9 @@ unsafe fn funcargs(ls: *mut LexState, f: *mut expdesc) {
     );
     luaK_fixline(fs, line);
     (*fs).freereg = cast_byte(base + 1);
-}
+}}
 
-unsafe fn primaryexp(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn primaryexp(ls: *mut LexState, v: *mut expdesc) { unsafe {
     match (*ls).t.token {
         x if x == '(' as c_int => {
             let line = (*ls).linenumber;
@@ -1277,9 +1245,9 @@ unsafe fn primaryexp(ls: *mut LexState, v: *mut expdesc) {
         TK_NAME => singlevar(ls, v),
         _ => luaX_syntaxerror(ls, c"unexpected symbol".as_ptr()),
     }
-}
+}}
 
-unsafe fn suffixedexp(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn suffixedexp(ls: *mut LexState, v: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     primaryexp(ls, v);
     loop {
@@ -1315,9 +1283,9 @@ unsafe fn suffixedexp(ls: *mut LexState, v: *mut expdesc) {
             _ => return,
         }
     }
-}
+}}
 
-unsafe fn simpleexp(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn simpleexp(ls: *mut LexState, v: *mut expdesc) { unsafe {
     match (*ls).t.token {
         TK_FLT => {
             init_exp(v, VKFLT, 0);
@@ -1359,7 +1327,7 @@ unsafe fn simpleexp(ls: *mut LexState, v: *mut expdesc) {
         }
     }
     luaX_next(ls);
-}
+}}
 
 unsafe fn getunopr(op: c_int) -> c_int {
     match op {
@@ -1398,7 +1366,7 @@ unsafe fn getbinopr(op: c_int) -> c_int {
     }
 }
 
-unsafe fn subexpr(ls: *mut LexState, v: *mut expdesc, limit: c_int) -> c_int {
+unsafe fn subexpr(ls: *mut LexState, v: *mut expdesc, limit: c_int) -> c_int { unsafe {
     enterlevel(ls);
     let uop = getunopr((*ls).t.token);
     if uop != OPR_NOUNOPR {
@@ -1426,13 +1394,13 @@ unsafe fn subexpr(ls: *mut LexState, v: *mut expdesc, limit: c_int) -> c_int {
     }
     leavelevel(ls);
     op
-}
+}}
 
-unsafe fn expr(ls: *mut LexState, v: *mut expdesc) {
+unsafe fn expr(ls: *mut LexState, v: *mut expdesc) { unsafe {
     subexpr(ls, v, 0);
-}
+}}
 
-unsafe fn block(ls: *mut LexState) {
+unsafe fn block(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let mut bl = BlockCnt {
         previous: ptr::null_mut(),
@@ -1446,9 +1414,9 @@ unsafe fn block(ls: *mut LexState) {
     enterblock(fs, &mut bl, 0);
     statlist(ls);
     leaveblock(fs);
-}
+}}
 
-unsafe fn check_conflict(ls: *mut LexState, mut lh: *mut LHS_assign, v: *mut expdesc) {
+unsafe fn check_conflict(ls: *mut LexState, mut lh: *mut LHS_assign, v: *mut expdesc) { unsafe {
     let fs = (*ls).fs;
     let extra = (*fs).freereg;
     let mut conflict = 0;
@@ -1484,9 +1452,9 @@ unsafe fn check_conflict(ls: *mut LexState, mut lh: *mut LHS_assign, v: *mut exp
         }
         luaK_reserveregs(fs, 1);
     }
-}
+}}
 
-unsafe fn storevartop(fs: *mut FuncState, var: *mut expdesc) {
+unsafe fn storevartop(fs: *mut FuncState, var: *mut expdesc) { unsafe {
     let mut e = expdesc {
         k: 0,
         u: ExpdescUnion { info: 0 },
@@ -1495,9 +1463,9 @@ unsafe fn storevartop(fs: *mut FuncState, var: *mut expdesc) {
     };
     init_exp(&mut e, VNONRELOC, (*fs).freereg as c_int - 1);
     luaK_storevar(fs, var, &mut e);
-}
+}}
 
-unsafe fn restassign(ls: *mut LexState, lh: *mut LHS_assign, nvars: c_int) {
+unsafe fn restassign(ls: *mut LexState, lh: *mut LHS_assign, nvars: c_int) { unsafe {
     let mut e = expdesc {
         k: 0,
         u: ExpdescUnion { info: 0 },
@@ -1535,9 +1503,9 @@ unsafe fn restassign(ls: *mut LexState, lh: *mut LHS_assign, nvars: c_int) {
         }
     }
     storevartop((*ls).fs, ptr::addr_of_mut!((*lh).v));
-}
+}}
 
-unsafe fn cond(ls: *mut LexState) -> c_int {
+unsafe fn cond(ls: *mut LexState) -> c_int { unsafe {
     let mut v = expdesc {
         k: 0,
         u: ExpdescUnion { info: 0 },
@@ -1550,14 +1518,14 @@ unsafe fn cond(ls: *mut LexState) -> c_int {
     }
     luaK_goiftrue((*ls).fs, &mut v);
     v.f
-}
+}}
 
-unsafe fn gotostat(ls: *mut LexState, line: c_int) {
+unsafe fn gotostat(ls: *mut LexState, line: c_int) { unsafe {
     let name = str_checkname(ls);
     newgotoentry(ls, name, line);
-}
+}}
 
-unsafe fn breakstat(ls: *mut LexState, line: c_int) {
+unsafe fn breakstat(ls: *mut LexState, line: c_int) { unsafe {
     let mut bl = (*(*ls).fs).bl;
     while !bl.is_null() {
         if (*bl).isloop != 0 {
@@ -1569,29 +1537,29 @@ unsafe fn breakstat(ls: *mut LexState, line: c_int) {
         bl = (*bl).previous;
     }
     luaX_syntaxerror(ls, c"break outside loop".as_ptr());
-}
+}}
 
-unsafe fn checkrepeated(ls: *mut LexState, name: *mut TString) {
+unsafe fn checkrepeated(ls: *mut LexState, name: *mut TString) { unsafe {
     let lb = findlabel(ls, name, (*(*ls).fs).firstlabel);
     if !lb.is_null() {
         {
-            let _m = unsafe { crate::object::luaO_pushfstring((*ls).L, c"label '%s' already defined on line %d".as_ptr(), getstr(name), (*lb).line) };
-            let _m2 = unsafe { crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut()) };
+            let _m = crate::object::luaO_pushfstring((*ls).L, c"label '%s' already defined on line %d".as_ptr(), getstr(name), (*lb).line);
+            let _m2 = crate::api::lua_tolstring((*ls).L, -1, core::ptr::null_mut());
             luaK_semerror(ls, _m2);
         }
     }
-}
+}}
 
-unsafe fn labelstat(ls: *mut LexState, name: *mut TString, line: c_int) {
+unsafe fn labelstat(ls: *mut LexState, name: *mut TString, line: c_int) { unsafe {
     checknext(ls, TK_DBCOLON);
     while (*ls).t.token == ';' as c_int || (*ls).t.token == TK_DBCOLON {
         statement(ls);
     }
     checkrepeated(ls, name);
     createlabel(ls, name, line, block_follow(ls, 0));
-}
+}}
 
-unsafe fn whilestat(ls: *mut LexState, line: c_int) {
+unsafe fn whilestat(ls: *mut LexState, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut bl = BlockCnt {
         previous: ptr::null_mut(),
@@ -1612,9 +1580,9 @@ unsafe fn whilestat(ls: *mut LexState, line: c_int) {
     check_match(ls, TK_END, TK_WHILE, line);
     leaveblock(fs);
     luaK_patchtohere(fs, condexit);
-}
+}}
 
-unsafe fn repeatstat(ls: *mut LexState, line: c_int) {
+unsafe fn repeatstat(ls: *mut LexState, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let repeat_init = luaK_getlabel(fs);
     let mut bl1 = BlockCnt {
@@ -1658,9 +1626,9 @@ unsafe fn repeatstat(ls: *mut LexState, line: c_int) {
     }
     luaK_patchlist(fs, condexit, repeat_init);
     leaveblock(fs);
-}
+}}
 
-unsafe fn exp1(ls: *mut LexState) {
+unsafe fn exp1(ls: *mut LexState) { unsafe {
     let mut e = expdesc {
         k: 0,
         u: ExpdescUnion { info: 0 },
@@ -1669,9 +1637,9 @@ unsafe fn exp1(ls: *mut LexState) {
     };
     expr(ls, &mut e);
     luaK_exp2nextreg((*ls).fs, &mut e);
-}
+}}
 
-unsafe fn fixforjump(fs: *mut FuncState, pc: c_int, dest: c_int, back: c_int) {
+unsafe fn fixforjump(fs: *mut FuncState, pc: c_int, dest: c_int, back: c_int) { unsafe {
     let jmp = (*(*fs).f).code.add(pc as usize);
     let mut offset = dest - (pc + 1);
     if back != 0 {
@@ -1681,9 +1649,9 @@ unsafe fn fixforjump(fs: *mut FuncState, pc: c_int, dest: c_int, back: c_int) {
         luaX_syntaxerror((*fs).ls, c"control structure too long".as_ptr());
     }
     SETARG_Bx(&mut *jmp, offset);
-}
+}}
 
-unsafe fn forbody(ls: *mut LexState, base: c_int, line: c_int, nvars: c_int, isgen: c_int) {
+unsafe fn forbody(ls: *mut LexState, base: c_int, line: c_int, nvars: c_int, isgen: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut bl = BlockCnt {
         previous: ptr::null_mut(),
@@ -1720,9 +1688,9 @@ unsafe fn forbody(ls: *mut LexState, base: c_int, line: c_int, nvars: c_int, isg
     );
     fixforjump(fs, endfor, prep + 1, 1);
     luaK_fixline(fs, line);
-}
+}}
 
-unsafe fn fornum(ls: *mut LexState, varname: *mut TString, line: c_int) {
+unsafe fn fornum(ls: *mut LexState, varname: *mut TString, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let base = (*fs).freereg as c_int;
     new_localvarliteral(ls, b"(for state)\0");
@@ -1740,9 +1708,9 @@ unsafe fn fornum(ls: *mut LexState, varname: *mut TString, line: c_int) {
     }
     adjustlocalvars(ls, 2);
     forbody(ls, base, line, 1, 0);
-}
+}}
 
-unsafe fn forlist(ls: *mut LexState, indexname: *mut TString) {
+unsafe fn forlist(ls: *mut LexState, indexname: *mut TString) { unsafe {
     let fs = (*ls).fs;
     let mut e = expdesc {
         k: 0,
@@ -1767,9 +1735,9 @@ unsafe fn forlist(ls: *mut LexState, indexname: *mut TString) {
     marktobeclosed(fs);
     luaK_checkstack(fs, 2);
     forbody(ls, base, line, nvars - 3, 1);
-}
+}}
 
-unsafe fn forstat(ls: *mut LexState, line: c_int) {
+unsafe fn forstat(ls: *mut LexState, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut bl = BlockCnt {
         previous: ptr::null_mut(),
@@ -1790,9 +1758,9 @@ unsafe fn forstat(ls: *mut LexState, line: c_int) {
     }
     check_match(ls, TK_END, TK_FOR, line);
     leaveblock(fs);
-}
+}}
 
-unsafe fn test_then_block(ls: *mut LexState, escapelist: *mut c_int) {
+unsafe fn test_then_block(ls: *mut LexState, escapelist: *mut c_int) { unsafe {
     let fs = (*ls).fs;
     luaX_next(ls);
     let condtrue = cond(ls);
@@ -1802,9 +1770,9 @@ unsafe fn test_then_block(ls: *mut LexState, escapelist: *mut c_int) {
         luaK_concat(fs, escapelist, luaK_jump(fs));
     }
     luaK_patchtohere(fs, condtrue);
-}
+}}
 
-unsafe fn ifstat(ls: *mut LexState, line: c_int) {
+unsafe fn ifstat(ls: *mut LexState, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut escapelist = NO_JUMP;
     test_then_block(ls, &mut escapelist);
@@ -1816,9 +1784,9 @@ unsafe fn ifstat(ls: *mut LexState, line: c_int) {
     }
     check_match(ls, TK_END, TK_IF, line);
     luaK_patchtohere(fs, escapelist);
-}
+}}
 
-unsafe fn localfunc(ls: *mut LexState) {
+unsafe fn localfunc(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let fvar = (*fs).nactvar as c_int;
     let mut b = expdesc {
@@ -1831,9 +1799,9 @@ unsafe fn localfunc(ls: *mut LexState) {
     adjustlocalvars(ls, 1);
     body(ls, &mut b, 0, (*ls).linenumber);
     (*localdebuginfo(fs, fvar)).startpc = (*fs).pc;
-}
+}}
 
-unsafe fn getvarattribute(ls: *mut LexState, df: lu_byte) -> lu_byte {
+unsafe fn getvarattribute(ls: *mut LexState, df: lu_byte) -> lu_byte { unsafe {
     if testnext(ls, '<' as c_int) != 0 {
         let ts = str_checkname(ls);
         let attr = getstr(ts);
@@ -1848,16 +1816,16 @@ unsafe fn getvarattribute(ls: *mut LexState, df: lu_byte) -> lu_byte {
     } else {
         df
     }
-}
+}}
 
-unsafe fn checktoclose(fs: *mut FuncState, level: c_int) {
+unsafe fn checktoclose(fs: *mut FuncState, level: c_int) { unsafe {
     if level != -1 {
         marktobeclosed(fs);
         luaK_codeABCk(fs, OP_TBC, reglevel(fs, level) as c_int, 0, 0, 0);
     }
-}
+}}
 
-unsafe fn localstat(ls: *mut LexState) {
+unsafe fn localstat(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let mut toclose = -1;
     let mut vidx = 0;
@@ -1903,18 +1871,18 @@ unsafe fn localstat(ls: *mut LexState) {
         adjustlocalvars(ls, nvars);
     }
     checktoclose(fs, toclose);
-}
+}}
 
-unsafe fn getglobalattribute(ls: *mut LexState, df: lu_byte) -> lu_byte {
+unsafe fn getglobalattribute(ls: *mut LexState, df: lu_byte) -> lu_byte { unsafe {
     let kind = getvarattribute(ls, df);
     match kind {
         RDKTOCLOSE => luaK_semerror(ls, c"global variables cannot be to-be-closed".as_ptr()),
         RDKCONST => GDKCONST,
         _ => kind,
     }
-}
+}}
 
-unsafe fn checkglobal(ls: *mut LexState, varname: *mut TString, line: c_int) {
+unsafe fn checkglobal(ls: *mut LexState, varname: *mut TString, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut var = expdesc {
         k: 0,
@@ -1925,9 +1893,9 @@ unsafe fn checkglobal(ls: *mut LexState, varname: *mut TString, line: c_int) {
     buildglobal(ls, varname, &mut var);
     let k = var.u.ind.keystr;
     luaK_codecheckglobal(fs, &mut var, k, line);
-}
+}}
 
-unsafe fn initglobal(ls: *mut LexState, nvars: c_int, firstidx: c_int, n: c_int, line: c_int) {
+unsafe fn initglobal(ls: *mut LexState, nvars: c_int, firstidx: c_int, n: c_int, line: c_int) { unsafe {
     if n == nvars {
         let mut e = expdesc {
             k: 0,
@@ -1953,9 +1921,9 @@ unsafe fn initglobal(ls: *mut LexState, nvars: c_int, firstidx: c_int, n: c_int,
         checkglobal(ls, varname, line);
         storevartop(fs, &mut var);
     }
-}
+}}
 
-unsafe fn globalnames(ls: *mut LexState, defkind: lu_byte) {
+unsafe fn globalnames(ls: *mut LexState, defkind: lu_byte) { unsafe {
     let fs = (*ls).fs;
     let mut nvars = 0;
     let mut lastidx = 0;
@@ -1972,9 +1940,9 @@ unsafe fn globalnames(ls: *mut LexState, defkind: lu_byte) {
         initglobal(ls, nvars, lastidx - nvars + 1, 0, (*ls).linenumber);
     }
     (*fs).nactvar += nvars as i16;
-}
+}}
 
-unsafe fn globalstat(ls: *mut LexState) {
+unsafe fn globalstat(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let defkind = getglobalattribute(ls, GDKREG);
     if testnext(ls, '*' as c_int) == 0 {
@@ -1983,9 +1951,9 @@ unsafe fn globalstat(ls: *mut LexState) {
         new_varkind(ls, ptr::null_mut(), defkind);
         (*fs).nactvar += 1;
     }
-}
+}}
 
-unsafe fn globalfunc(ls: *mut LexState, line: c_int) {
+unsafe fn globalfunc(ls: *mut LexState, line: c_int) { unsafe {
     let fs = (*ls).fs;
     let mut var = expdesc {
         k: 0,
@@ -2007,18 +1975,18 @@ unsafe fn globalfunc(ls: *mut LexState, line: c_int) {
     checkglobal(ls, fname, line);
     luaK_storevar(fs, &mut var, &mut b);
     luaK_fixline(fs, line);
-}
+}}
 
-unsafe fn globalstatfunc(ls: *mut LexState, line: c_int) {
+unsafe fn globalstatfunc(ls: *mut LexState, line: c_int) { unsafe {
     luaX_next(ls);
     if testnext(ls, TK_FUNCTION) != 0 {
         globalfunc(ls, line);
     } else {
         globalstat(ls);
     }
-}
+}}
 
-unsafe fn funcname(ls: *mut LexState, v: *mut expdesc) -> c_int {
+unsafe fn funcname(ls: *mut LexState, v: *mut expdesc) -> c_int { unsafe {
     let mut ismethod = 0;
     singlevar(ls, v);
     while (*ls).t.token == '.' as c_int {
@@ -2029,9 +1997,9 @@ unsafe fn funcname(ls: *mut LexState, v: *mut expdesc) -> c_int {
         fieldsel(ls, v);
     }
     ismethod
-}
+}}
 
-unsafe fn funcstat(ls: *mut LexState, line: c_int) {
+unsafe fn funcstat(ls: *mut LexState, line: c_int) { unsafe {
     let mut v = expdesc {
         k: 0,
         u: ExpdescUnion { info: 0 },
@@ -2050,9 +2018,9 @@ unsafe fn funcstat(ls: *mut LexState, line: c_int) {
     body(ls, &mut b, ismethod, line);
     luaK_storevar((*ls).fs, &mut v, &mut b);
     luaK_fixline((*ls).fs, line);
-}
+}}
 
-unsafe fn exprstat(ls: *mut LexState) {
+unsafe fn exprstat(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let mut v = LHS_assign {
         prev: ptr::null_mut(),
@@ -2071,9 +2039,9 @@ unsafe fn exprstat(ls: *mut LexState) {
         let inst = getinstruction(fs, ptr::addr_of_mut!(v.v));
         SETARG_C(&mut *inst, 1);
     }
-}
+}}
 
-unsafe fn retstat(ls: *mut LexState) {
+unsafe fn retstat(ls: *mut LexState) { unsafe {
     let fs = (*ls).fs;
     let mut e = expdesc {
         k: 0,
@@ -2107,9 +2075,9 @@ unsafe fn retstat(ls: *mut LexState) {
     }
     luaK_ret(fs, first, nret);
     testnext(ls, ';' as c_int);
-}
+}}
 
-unsafe fn statement(ls: *mut LexState) {
+unsafe fn statement(ls: *mut LexState) { unsafe {
     let line = (*ls).linenumber;
     enterlevel(ls);
     match (*ls).t.token {
@@ -2164,9 +2132,9 @@ unsafe fn statement(ls: *mut LexState) {
     debug_assert!((*(*ls).fs).freereg >= luaY_nvarstack((*ls).fs));
     (*(*ls).fs).freereg = luaY_nvarstack((*ls).fs);
     leavelevel(ls);
-}
+}}
 
-unsafe fn mainfunc(ls: *mut LexState, fs: *mut FuncState) {
+unsafe fn mainfunc(ls: *mut LexState, fs: *mut FuncState) { unsafe {
     let mut bl = BlockCnt {
         previous: ptr::null_mut(),
         firstlabel: 0,
@@ -2188,7 +2156,7 @@ unsafe fn mainfunc(ls: *mut LexState, fs: *mut FuncState) {
     statlist(ls);
     check(ls, TK_EOS);
     close_func(ls);
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe  fn luaY_parser(
@@ -2198,7 +2166,7 @@ pub unsafe  fn luaY_parser(
     dyd: *mut Dyndata,
     name: *const c_char,
     firstchar: c_int,
-) -> *mut LClosure {
+) -> *mut LClosure { unsafe {
     let mut lexstate = LexState {
         current: 0,
         linenumber: 0,
@@ -2263,4 +2231,4 @@ pub unsafe  fn luaY_parser(
     debug_assert!((*dyd).actvar.n == 0 && (*dyd).gt.n == 0 && (*dyd).label.n == 0);
     (*L).top.p = (*L).top.p.sub(1);
     cl
-}
+}}

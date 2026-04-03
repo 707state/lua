@@ -62,7 +62,7 @@ static STDLIBS: [luaL_Reg; 11] = [
 ];
 
 pub fn luaL_openselectedlibs(state: *mut lua_State, load: c_int, preload: c_int) {
-    unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
+    luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast());
 
     let mut mask = 1;
     for lib in STDLIBS.iter().take_while(|lib| !lib.name.is_null()) {

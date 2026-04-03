@@ -113,9 +113,9 @@ fn encode_utf8(mut code: u32, out: &mut [u8; 6]) -> usize {
 
 unsafe  fn utflen(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
-    let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
-    let mut posi = u_posrelat(unsafe { luaL_optinteger(state, 2, 1) }, len);
-    let mut posj = u_posrelat(unsafe { luaL_optinteger(state, 3, -1) }, len);
+    let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
+    let mut posi = u_posrelat(luaL_optinteger(state, 2, 1), len);
+    let mut posj = u_posrelat(luaL_optinteger(state, 3, -1), len);
     let lax = unsafe { lua_toboolean(state, 4) } != 0;
 
     unsafe {
@@ -156,9 +156,9 @@ unsafe  fn utflen(state: *mut lua_State) -> c_int {
 
 unsafe  fn codepoint(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
-    let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
-    let posi = u_posrelat(unsafe { luaL_optinteger(state, 2, 1) }, len);
-    let pose = u_posrelat(unsafe { luaL_optinteger(state, 3, posi) }, len);
+    let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
+    let posi = u_posrelat(luaL_optinteger(state, 2, 1), len);
+    let pose = u_posrelat(luaL_optinteger(state, 3, posi), len);
     let lax = unsafe { lua_toboolean(state, 4) } != 0;
 
     unsafe {
@@ -173,13 +173,12 @@ unsafe  fn codepoint(state: *mut lua_State) -> c_int {
     }
 
     let mut max_returns = (pose - posi + 1) as c_int;
-    unsafe {
         luaL_checkstack(
             state,
             max_returns,
             ERR_STRING_SLICE_TOO_LONG.as_ptr().cast(),
         )
-    };
+    ;
 
     let mut current = unsafe { s.add((posi - 1) as usize) };
     let end = unsafe { s.add(pose as usize) };
@@ -197,7 +196,7 @@ unsafe  fn codepoint(state: *mut lua_State) -> c_int {
 }
 
 unsafe fn pushutfchar(state: *mut lua_State, arg: c_int, out: &mut Vec<u8>) {
-    let code = unsafe { luaL_checkinteger(state, arg) } as lua_Unsigned;
+    let code = luaL_checkinteger(state, arg) as lua_Unsigned;
     unsafe {
         argcheck(
             state,
@@ -231,10 +230,10 @@ unsafe  fn utfchar(state: *mut lua_State) -> c_int {
 
 unsafe  fn byteoffset(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
-    let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
-    let mut n = unsafe { luaL_checkinteger(state, 2) };
+    let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
+    let mut n = luaL_checkinteger(state, 2);
     let mut posi = if n >= 0 { 1 } else { len as lua_Integer + 1 };
-    posi = u_posrelat(unsafe { luaL_optinteger(state, 3, posi) }, len);
+    posi = u_posrelat(luaL_optinteger(state, 3, posi), len);
     unsafe {
         argcheck(
             state,
@@ -299,7 +298,7 @@ unsafe  fn byteoffset(state: *mut lua_State) -> c_int {
 
 unsafe fn iter_aux(state: *mut lua_State, strict: bool) -> c_int {
     let mut len = 0_usize;
-    let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
+    let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
     let end = unsafe { s.add(len) };
     let mut n = unsafe { lua_tointegerx(state, 2, ptr::null_mut()) } as lua_Unsigned;
     if n < len as lua_Unsigned {
@@ -332,7 +331,7 @@ unsafe  fn iter_auxlax(state: *mut lua_State) -> c_int {
 unsafe  fn iter_codes(state: *mut lua_State) -> c_int {
     let lax = unsafe { lua_toboolean(state, 2) } != 0;
     let mut len = 0_usize;
-    let s = unsafe { luaL_checklstring(state, 1, &mut len) }.cast::<u8>();
+    let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
     unsafe { argcheck(state, len == 0 || !iscontp(s), 1, MSG_INVALID) };
     unsafe {
         crate::api::lua_pushcclosure(

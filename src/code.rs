@@ -7,14 +7,12 @@
 )]
 
 use crate::lex::luaX_syntaxerror;
-use crate::mem::*;
 use crate::object::luaO_ceillog2;
 use crate::object::luaO_pushfstring;
 use crate::object::luaO_rawarith;
 use crate::opcodes::*;
 use crate::parser_rs::*;
 use crate::runtime::*;
-use crate::lua_module::*;
 use crate::vm_rs::*;
 
 #[derive(Copy, Clone)]
@@ -32,84 +30,84 @@ unsafe fn mask1(n: u32, p: u32) -> Instruction {
 }
 
 #[inline]
-unsafe fn getarg(i: Instruction, pos: u32, size: u32) -> c_int {
+unsafe fn getarg(i: Instruction, pos: u32, size: u32) -> c_int { unsafe {
     ((i >> pos) & mask1(size, 0)) as c_int
-}
+}}
 
 #[inline]
-unsafe fn setarg(i: &mut Instruction, v: c_int, pos: u32, size: u32) {
+unsafe fn setarg(i: &mut Instruction, v: c_int, pos: u32, size: u32) { unsafe {
     *i = (*i & !mask1(size, pos)) | (((v as u32) << pos) & mask1(size, pos));
-}
+}}
 
 #[inline]
-unsafe fn GET_OPCODE(i: Instruction) -> c_int {
+unsafe fn GET_OPCODE(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_OP, SIZE_OP)
-}
+}}
 
 #[inline]
-unsafe fn SET_OPCODE(i: &mut Instruction, o: c_int) {
+unsafe fn SET_OPCODE(i: &mut Instruction, o: c_int) { unsafe {
     setarg(i, o, POS_OP, SIZE_OP);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_A(i: Instruction) -> c_int {
+unsafe fn GETARG_A(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_A, SIZE_A)
-}
+}}
 
 #[inline]
-unsafe fn SETARG_A(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_A(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_A, SIZE_A);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_B(i: Instruction) -> c_int {
+unsafe fn GETARG_B(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_B, SIZE_B)
-}
+}}
 
 #[inline]
-unsafe fn SETARG_B(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_B(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_B, SIZE_B);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_C(i: Instruction) -> c_int {
+unsafe fn GETARG_C(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_C, SIZE_C)
-}
+}}
 
 #[inline]
-unsafe fn SETARG_C(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_C(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_C, SIZE_C);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_k(i: Instruction) -> c_int {
+unsafe fn GETARG_k(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_k, 1)
-}
+}}
 
 #[inline]
-unsafe fn SETARG_k(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_k(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_k, 1);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_Bx(i: Instruction) -> c_int {
+unsafe fn GETARG_Bx(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_Bx, SIZE_Bx)
-}
+}}
 
 #[inline]
-unsafe fn SETARG_Bx(i: &mut Instruction, v: c_int) {
+unsafe fn SETARG_Bx(i: &mut Instruction, v: c_int) { unsafe {
     setarg(i, v, POS_Bx, SIZE_Bx);
-}
+}}
 
 #[inline]
-unsafe fn GETARG_sJ(i: Instruction) -> c_int {
+unsafe fn GETARG_sJ(i: Instruction) -> c_int { unsafe {
     getarg(i, POS_sJ, SIZE_sJ) - OFFSET_sJ
-}
+}}
 
 #[inline]
-unsafe fn SETARG_sJ(i: &mut Instruction, j: c_int) {
+unsafe fn SETARG_sJ(i: &mut Instruction, j: c_int) { unsafe {
     setarg(i, j + OFFSET_sJ, POS_sJ, SIZE_sJ);
-}
+}}
 
 #[inline]
 unsafe fn CREATE_ABCk(o: c_int, a: c_int, b: c_int, c: c_int, k: c_int) -> Instruction {
@@ -155,9 +153,9 @@ unsafe fn testTMode(op: c_int) -> bool {
 }
 
 #[inline]
-unsafe fn hasjumps(e: *const expdesc) -> bool {
+unsafe fn hasjumps(e: *const expdesc) -> bool { unsafe {
     (*e).t != (*e).f
-}
+}}
 
 #[inline]
 unsafe fn foldbinop(op: c_int) -> bool {
@@ -180,57 +178,32 @@ unsafe fn fitsBx(i: lua_Integer) -> bool {
 }
 
 #[inline]
-unsafe fn nvalue(o: *const TValue) -> lua_Number {
+unsafe fn nvalue(o: *const TValue) -> lua_Number { unsafe {
     if ttisinteger(o) {
         ivalue(o) as lua_Number
     } else {
         fltvalue(o)
     }
-}
+}}
+
 
 #[inline]
-unsafe fn grow_vector<T>(
-    L: *mut lua_State,
-    block: *mut T,
-    nelems: c_int,
-    size: &mut c_int,
-    limit: c_int,
-    what: *const c_char,
-) -> *mut T {
-    crate::mem::luaM_growaux_(
-        L,
-        block.cast(),
-        nelems,
-        size,
-        size_of::<T>() as c_uint,
-        limit,
-        what,
-    )
-    .cast()
-}
-
-#[inline]
-unsafe fn getabslineinfo(p: *mut Proto) -> *mut AbsLineInfo {
-    (*p).abslineinfo.cast()
-}
-
-#[inline]
-unsafe fn needvatab(p: *mut Proto) {
+unsafe fn needvatab(p: *mut Proto) { unsafe {
     (*p).flag |= PF_VATAB;
-}
+}}
 
 #[inline]
-unsafe fn getinstruction_ref(fs: *mut FuncState, e: *const expdesc) -> *mut Instruction {
+unsafe fn getinstruction_ref(fs: *mut FuncState, e: *const expdesc) -> *mut Instruction { unsafe {
     (*(*fs).f).code.add((*e).u.info as usize)
-}
+}}
 
 #[inline]
-unsafe fn getinstruction(fs: *mut FuncState, e: *const expdesc) -> Instruction {
+unsafe fn getinstruction(fs: *mut FuncState, e: *const expdesc) -> Instruction { unsafe {
     *getinstruction_ref(fs, e)
-}
+}}
 
 #[inline]
-unsafe fn tonumeral(e: *const expdesc, v: *mut TValue) -> c_int {
+unsafe fn tonumeral(e: *const expdesc, v: *mut TValue) -> c_int { unsafe {
     if hasjumps(e) {
         return 0;
     }
@@ -249,37 +222,32 @@ unsafe fn tonumeral(e: *const expdesc, v: *mut TValue) -> c_int {
         }
         _ => 0,
     }
-}
+}}
 
 #[inline]
-unsafe fn const2val(fs: *mut FuncState, e: *const expdesc) -> *mut TValue {
+unsafe fn const2val(fs: *mut FuncState, e: *const expdesc) -> *mut TValue { unsafe {
     ptr::addr_of_mut!((*(*(*(*fs).ls).dyd).actvar.arr.add((*e).u.info as usize)).k)
-}
+}}
 
 #[inline]
-unsafe fn previousinstruction(fs: *mut FuncState) -> Instruction {
+unsafe fn previousinstruction(fs: *mut FuncState) -> Instruction { unsafe {
     if (*fs).pc > (*fs).lasttarget {
-        unsafe{*(*(*fs).f).code.add(((*fs).pc - 1) as usize)}
+        *(*(*fs).f).code.add(((*fs).pc - 1) as usize)
     } else {
        !0
     }
-}
+}}
 
 #[inline]
-unsafe fn cast_byte(v: c_int) -> lu_byte {
-    v as lu_byte
-}
-
-#[inline]
-unsafe fn freereg(fs: *mut FuncState, reg: c_int) {
+unsafe fn freereg(fs: *mut FuncState, reg: c_int) { unsafe {
     if reg >= luaY_nvarstack(fs) as c_int {
         (*fs).freereg = (*fs).freereg.wrapping_sub(1);
         debug_assert_eq!(reg, (*fs).freereg as c_int);
     }
-}
+}}
 
 #[inline]
-unsafe fn freeregs(fs: *mut FuncState, r1: c_int, r2: c_int) {
+unsafe fn freeregs(fs: *mut FuncState, r1: c_int, r2: c_int) { unsafe {
     if r1 > r2 {
         freereg(fs, r1);
         freereg(fs, r2);
@@ -287,17 +255,17 @@ unsafe fn freeregs(fs: *mut FuncState, r1: c_int, r2: c_int) {
         freereg(fs, r2);
         freereg(fs, r1);
     }
-}
+}}
 
 #[inline]
-unsafe fn freeexp(fs: *mut FuncState, e: *mut expdesc) {
+unsafe fn freeexp(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     if (*e).k == VNONRELOC {
         freereg(fs, (*e).u.info);
     }
-}
+}}
 
 #[inline]
-unsafe fn freeexps(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc) {
+unsafe fn freeexps(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc) { unsafe {
     let r1 = if (*e1).k == VNONRELOC {
         (*e1).u.info
     } else {
@@ -309,12 +277,7 @@ unsafe fn freeexps(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc) {
         -1
     };
     freeregs(fs, r1, r2);
-}
-
-#[inline]
-unsafe fn luaV_rawequalobj(t1: *const TValue, t2: *const TValue) -> c_int {
-    luaV_equalobj(ptr::null_mut(), t1, t2)
-}
+}}
 
 /// 语义错误（只接受预格式化的消息字符串，消除 extern C 变参）
 #[unsafe(no_mangle)]
@@ -344,7 +307,7 @@ pub unsafe fn luaK_exp2const(
     fs: *mut FuncState,
     e: *const expdesc,
     v: *mut TValue,
-) -> c_int {
+) -> c_int { unsafe {
     if hasjumps(e) {
         return 0;
     }
@@ -371,10 +334,10 @@ pub unsafe fn luaK_exp2const(
         }
         _ => tonumeral(e, v),
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_nil(fs: *mut FuncState, mut from: c_int, n: c_int) {
+pub unsafe fn luaK_nil(fs: *mut FuncState, mut from: c_int, n: c_int) { unsafe {
     let mut l = from + n - 1;
     let prev = previousinstruction(fs);
     if GET_OPCODE(prev) == OP_LOADNIL {
@@ -394,20 +357,20 @@ pub unsafe fn luaK_nil(fs: *mut FuncState, mut from: c_int, n: c_int) {
         }
     }
     luaK_codeABCk(fs, OP_LOADNIL, from, n - 1, 0, 0);
-}
+}}
 
 #[inline]
-unsafe fn getjump(fs: *mut FuncState, pc: c_int) -> c_int {
+unsafe fn getjump(fs: *mut FuncState, pc: c_int) -> c_int { unsafe {
     let offset = GETARG_sJ(*(*(*fs).f).code.add(pc as usize));
     if offset == NO_JUMP {
         NO_JUMP
     } else {
         pc + 1 + offset
     }
-}
+}}
 
 #[inline]
-unsafe fn fixjump(fs: *mut FuncState, pc: c_int, dest: c_int) {
+unsafe fn fixjump(fs: *mut FuncState, pc: c_int, dest: c_int) { unsafe {
     let jmp = (*(*fs).f).code.add(pc as usize);
     let offset = dest - (pc + 1);
     if !(-OFFSET_sJ <= offset && offset <= MAXARG_sJ - OFFSET_sJ) {
@@ -415,9 +378,9 @@ unsafe fn fixjump(fs: *mut FuncState, pc: c_int, dest: c_int) {
     }
     debug_assert_eq!(GET_OPCODE(*jmp), OP_JMP);
     SETARG_sJ(&mut *jmp, offset);
-}
+}}
 
-pub unsafe fn luaK_concat(fs: *mut FuncState, l1: *mut c_int, l2: c_int) {
+pub unsafe fn luaK_concat(fs: *mut FuncState, l1: *mut c_int, l2: c_int) { unsafe {
     if l2 == NO_JUMP {
         return;
     }
@@ -434,23 +397,23 @@ pub unsafe fn luaK_concat(fs: *mut FuncState, l1: *mut c_int, l2: c_int) {
         list = next;
     }
     fixjump(fs, list, l2);
-}
+}}
 
 #[inline]
-unsafe fn codesJ(fs: *mut FuncState, o: c_int, sj: c_int, k: c_int) -> c_int {
+unsafe fn codesJ(fs: *mut FuncState, o: c_int, sj: c_int, k: c_int) -> c_int { unsafe {
     let j = sj + OFFSET_sJ;
     debug_assert_eq!(getOpMode(o), isJ);
     debug_assert!(j <= MAXARG_sJ && (k & !1) == 0);
     luaK_code(fs, CREATE_sJ(o, j, k))
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_jump(fs: *mut FuncState) -> c_int {
+pub unsafe fn luaK_jump(fs: *mut FuncState) -> c_int { unsafe {
     codesJ(fs, OP_JMP, NO_JUMP, 0)
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_ret(fs: *mut FuncState, first: c_int, nret: c_int) {
+pub unsafe fn luaK_ret(fs: *mut FuncState, first: c_int, nret: c_int) { unsafe {
     let op = match nret {
         0 => OP_RETURN0,
         1 => OP_RETURN1,
@@ -458,32 +421,32 @@ pub unsafe fn luaK_ret(fs: *mut FuncState, first: c_int, nret: c_int) {
     };
     luaY_checklimit(fs, nret + 1, MAXARG_B, c"returns".as_ptr());
     luaK_codeABCk(fs, op, first, nret + 1, 0, 0);
-}
+}}
 
 #[inline]
-unsafe fn condjump(fs: *mut FuncState, op: c_int, a: c_int, b: c_int, c: c_int, k: c_int) -> c_int {
+unsafe fn condjump(fs: *mut FuncState, op: c_int, a: c_int, b: c_int, c: c_int, k: c_int) -> c_int { unsafe {
     luaK_codeABCk(fs, op, a, b, c, k);
     luaK_jump(fs)
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_getlabel(fs: *mut FuncState) -> c_int {
+pub unsafe fn luaK_getlabel(fs: *mut FuncState) -> c_int { unsafe {
     (*fs).lasttarget = (*fs).pc;
     (*fs).pc
-}
+}}
 
 #[inline]
-unsafe fn getjumpcontrol(fs: *mut FuncState, pc: c_int) -> *mut Instruction {
+unsafe fn getjumpcontrol(fs: *mut FuncState, pc: c_int) -> *mut Instruction { unsafe {
     let pi = (*(*fs).f).code.add(pc as usize);
     if pc >= 1 && testTMode(GET_OPCODE(*pi.sub(1))) {
         pi.sub(1)
     } else {
         pi
     }
-}
+}}
 
 #[inline]
-unsafe fn patchtestreg(fs: *mut FuncState, node: c_int, reg: c_int) -> c_int {
+unsafe fn patchtestreg(fs: *mut FuncState, node: c_int, reg: c_int) -> c_int { unsafe {
     let i = getjumpcontrol(fs, node);
     if GET_OPCODE(*i) != OP_TESTSET {
         return 0;
@@ -494,15 +457,15 @@ unsafe fn patchtestreg(fs: *mut FuncState, node: c_int, reg: c_int) -> c_int {
         *i = CREATE_ABCk(OP_TEST, GETARG_B(*i), 0, 0, GETARG_k(*i));
     }
     1
-}
+}}
 
 #[inline]
-unsafe fn removevalues(fs: *mut FuncState, mut list: c_int) {
+unsafe fn removevalues(fs: *mut FuncState, mut list: c_int) { unsafe {
     while list != NO_JUMP {
         patchtestreg(fs, list, NO_REG);
         list = getjump(fs, list);
     }
-}
+}}
 
 #[inline]
 unsafe fn patchlistaux(
@@ -511,7 +474,7 @@ unsafe fn patchlistaux(
     vtarget: c_int,
     reg: c_int,
     dtarget: c_int,
-) {
+) { unsafe {
     while list != NO_JUMP {
         let next = getjump(fs, list);
         if patchtestreg(fs, list, reg) != 0 {
@@ -521,22 +484,22 @@ unsafe fn patchlistaux(
         }
         list = next;
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_patchlist(fs: *mut FuncState, list: c_int, target: c_int) {
+pub unsafe fn luaK_patchlist(fs: *mut FuncState, list: c_int, target: c_int) { unsafe {
     debug_assert!(target <= (*fs).pc);
     patchlistaux(fs, list, target, NO_REG, target);
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_patchtohere(fs: *mut FuncState, list: c_int) {
+pub unsafe fn luaK_patchtohere(fs: *mut FuncState, list: c_int) { unsafe {
     let hr = luaK_getlabel(fs);
     luaK_patchlist(fs, list, hr);
-}
+}}
 
 #[inline]
-unsafe fn savelineinfo(fs: *mut FuncState, f: *mut Proto, line: c_int) {
+unsafe fn savelineinfo(fs: *mut FuncState, f: *mut Proto, line: c_int) { unsafe {
     let mut linedif = line - (*fs).previousline;
     let pc = (*fs).pc - 1;
     if linedif.abs() >= LIMLINEDIFF || ((*fs).iwthabs as c_int) >= MAXIWTHABS {
@@ -570,10 +533,10 @@ unsafe fn savelineinfo(fs: *mut FuncState, f: *mut Proto, line: c_int) {
     );
     *(*f).lineinfo.add(pc as usize) = linedif as i8;
     (*fs).previousline = line;
-}
+}}
 
 #[inline]
-unsafe fn removelastlineinfo(fs: *mut FuncState) {
+unsafe fn removelastlineinfo(fs: *mut FuncState) { unsafe {
     let f = (*fs).f;
     let pc = (*fs).pc - 1;
     let lineinfo = *(*f).lineinfo.add(pc as usize);
@@ -588,16 +551,16 @@ unsafe fn removelastlineinfo(fs: *mut FuncState) {
         (*fs).nabslineinfo -= 1;
         (*fs).iwthabs = (MAXIWTHABS + 1) as u8;
     }
-}
+}}
 
 #[inline]
-unsafe fn removelastinstruction(fs: *mut FuncState) {
+unsafe fn removelastinstruction(fs: *mut FuncState) { unsafe {
     removelastlineinfo(fs);
     (*fs).pc -= 1;
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_code(fs: *mut FuncState, i: Instruction) -> c_int {
+pub unsafe fn luaK_code(fs: *mut FuncState, i: Instruction) -> c_int { unsafe {
     let f = (*fs).f;
     (*f).code = grow_vector(
         (*(*fs).ls).L,
@@ -611,7 +574,7 @@ pub unsafe fn luaK_code(fs: *mut FuncState, i: Instruction) -> c_int {
     (*fs).pc += 1;
     savelineinfo(fs, f, (*(*fs).ls).lastline);
     (*fs).pc - 1
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_codeABCk(
@@ -621,10 +584,10 @@ pub unsafe fn luaK_codeABCk(
     b: c_int,
     c: c_int,
     k: c_int,
-) -> c_int {
+) -> c_int { unsafe {
     debug_assert_eq!(getOpMode(o), iABC);
     luaK_code(fs, CREATE_ABCk(o, a, b, c, k))
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_codevABCk(
@@ -634,10 +597,10 @@ pub unsafe fn luaK_codevABCk(
     b: c_int,
     c: c_int,
     k: c_int,
-) -> c_int {
+) -> c_int { unsafe {
     debug_assert_eq!(getOpMode(o), ivABC);
     luaK_code(fs, CREATE_vABCk(o, a, b, c, k))
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_codeABx(
@@ -645,23 +608,23 @@ pub unsafe fn luaK_codeABx(
     o: c_int,
     a: c_int,
     bx: c_int,
-) -> c_int {
+) -> c_int { unsafe {
     debug_assert_eq!(getOpMode(o), iABx);
     luaK_code(fs, CREATE_ABx(o, a, bx))
-}
+}}
 
 #[inline]
-unsafe fn codeAsBx(fs: *mut FuncState, o: c_int, a: c_int, bc: c_int) -> c_int {
+unsafe fn codeAsBx(fs: *mut FuncState, o: c_int, a: c_int, bc: c_int) -> c_int { unsafe {
     luaK_code(fs, CREATE_ABx(o, a, bc + OFFSET_sBx))
-}
+}}
 
 #[inline]
-unsafe fn codeextraarg(fs: *mut FuncState, a: c_int) -> c_int {
+unsafe fn codeextraarg(fs: *mut FuncState, a: c_int) -> c_int { unsafe {
     luaK_code(fs, CREATE_Ax(OP_EXTRAARG, a))
-}
+}}
 
 #[inline]
-unsafe fn luaK_codek(fs: *mut FuncState, reg: c_int, k: c_int) -> c_int {
+unsafe fn luaK_codek(fs: *mut FuncState, reg: c_int, k: c_int) -> c_int { unsafe {
     if k <= MAXARG_Bx {
         luaK_codeABx(fs, OP_LOADK, reg, k)
     } else {
@@ -669,25 +632,25 @@ unsafe fn luaK_codek(fs: *mut FuncState, reg: c_int, k: c_int) -> c_int {
         codeextraarg(fs, k);
         p
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_checkstack(fs: *mut FuncState, n: c_int) {
+pub unsafe fn luaK_checkstack(fs: *mut FuncState, n: c_int) { unsafe {
     let newstack = (*fs).freereg as c_int + n;
     if newstack > (*(*fs).f).maxstacksize as c_int {
         luaY_checklimit(fs, newstack, MAX_FSTACK, c"registers".as_ptr());
         (*(*fs).f).maxstacksize = cast_byte(newstack);
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_reserveregs(fs: *mut FuncState, n: c_int) {
+pub unsafe fn luaK_reserveregs(fs: *mut FuncState, n: c_int) { unsafe {
     luaK_checkstack(fs, n);
     (*fs).freereg = cast_byte((*fs).freereg as c_int + n);
-}
+}}
 
 #[inline]
-unsafe fn addk(fs: *mut FuncState, f: *mut Proto, v: *mut TValue) -> c_int {
+unsafe fn addk(fs: *mut FuncState, f: *mut Proto, v: *mut TValue) -> c_int { unsafe {
     let L = (*(*fs).ls).L;
     let mut oldsize = (*f).sizek;
     let k = (*fs).nk;
@@ -707,10 +670,10 @@ unsafe fn addk(fs: *mut FuncState, f: *mut Proto, v: *mut TValue) -> c_int {
     (*fs).nk += 1;
     luaC_barrier(L, obj2gco(f), v);
     k
-}
+}}
 
 #[inline]
-unsafe fn k2proto(fs: *mut FuncState, key: *mut TValue, v: *mut TValue) -> c_int {
+unsafe fn k2proto(fs: *mut FuncState, key: *mut TValue, v: *mut TValue) -> c_int { unsafe {
     let mut val = TValue {
         value_: Value { i: 0 },
         tt_: 0,
@@ -727,30 +690,30 @@ unsafe fn k2proto(fs: *mut FuncState, key: *mut TValue, v: *mut TValue) -> c_int
         luaH_set((*(*fs).ls).L, (*fs).kcache, key, ptr::addr_of_mut!(val));
         k
     }
-}
+}}
 
 #[inline]
-unsafe fn stringK(fs: *mut FuncState, s: *mut TString) -> c_int {
+unsafe fn stringK(fs: *mut FuncState, s: *mut TString) -> c_int { unsafe {
     let mut o = TValue {
         value_: Value { i: 0 },
         tt_: 0,
     };
     setsvalue(ptr::addr_of_mut!(o), s);
     k2proto(fs, ptr::addr_of_mut!(o), ptr::addr_of_mut!(o))
-}
+}}
 
 #[inline]
-unsafe fn luaK_intK(fs: *mut FuncState, n: lua_Integer) -> c_int {
+unsafe fn luaK_intK(fs: *mut FuncState, n: lua_Integer) -> c_int { unsafe {
     let mut o = TValue {
         value_: Value { i: 0 },
         tt_: 0,
     };
     setivalue(ptr::addr_of_mut!(o), n);
     k2proto(fs, ptr::addr_of_mut!(o), ptr::addr_of_mut!(o))
-}
+}}
 
 #[inline]
-unsafe fn luaK_numberK(fs: *mut FuncState, r: lua_Number) -> c_int {
+unsafe fn luaK_numberK(fs: *mut FuncState, r: lua_Number) -> c_int { unsafe {
     let mut o = TValue {
         value_: Value { i: 0 },
         tt_: 0,
@@ -775,30 +738,30 @@ unsafe fn luaK_numberK(fs: *mut FuncState, r: lua_Number) -> c_int {
         }
     }
     addk(fs, (*fs).f, ptr::addr_of_mut!(o))
-}
+}}
 
 #[inline]
-unsafe fn boolF(fs: *mut FuncState) -> c_int {
+unsafe fn boolF(fs: *mut FuncState) -> c_int { unsafe {
     let mut o = TValue {
         value_: Value { i: 0 },
         tt_: 0,
     };
     setbfvalue(ptr::addr_of_mut!(o));
     k2proto(fs, ptr::addr_of_mut!(o), ptr::addr_of_mut!(o))
-}
+}}
 
 #[inline]
-unsafe fn boolT(fs: *mut FuncState) -> c_int {
+unsafe fn boolT(fs: *mut FuncState) -> c_int { unsafe {
     let mut o = TValue {
         value_: Value { i: 0 },
         tt_: 0,
     };
     setbtvalue(ptr::addr_of_mut!(o));
     k2proto(fs, ptr::addr_of_mut!(o), ptr::addr_of_mut!(o))
-}
+}}
 
 #[inline]
-unsafe fn nilK(fs: *mut FuncState) -> c_int {
+unsafe fn nilK(fs: *mut FuncState) -> c_int { unsafe {
     let mut k = TValue {
         value_: Value { i: 0 },
         tt_: 0,
@@ -810,26 +773,26 @@ unsafe fn nilK(fs: *mut FuncState) -> c_int {
     setnilvalue(ptr::addr_of_mut!(v));
     sethvalue(ptr::addr_of_mut!(k), (*fs).kcache);
     k2proto(fs, ptr::addr_of_mut!(k), ptr::addr_of_mut!(v))
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_int(fs: *mut FuncState, reg: c_int, i: lua_Integer) {
+pub unsafe fn luaK_int(fs: *mut FuncState, reg: c_int, i: lua_Integer) { unsafe {
     if fitsBx(i) {
         codeAsBx(fs, OP_LOADI, reg, i as c_int);
     } else {
         luaK_codek(fs, reg, luaK_intK(fs, i));
     }
-}
+}}
 
 #[inline]
-unsafe fn luaK_float(fs: *mut FuncState, reg: c_int, f: lua_Number) {
+unsafe fn luaK_float(fs: *mut FuncState, reg: c_int, f: lua_Number) { unsafe {
     let mut fi = 0;
     if luaV_flttointeger(f, ptr::addr_of_mut!(fi), F2Ieq) != 0 && fitsBx(fi) {
         codeAsBx(fs, OP_LOADF, reg, fi as c_int);
     } else {
         luaK_codek(fs, reg, luaK_numberK(fs, f));
     }
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_codecheckglobal(
@@ -837,17 +800,17 @@ pub unsafe fn luaK_codecheckglobal(
     var: *mut expdesc,
     mut k: c_int,
     line: c_int,
-) {
+) { unsafe {
     luaK_exp2anyreg(fs, var);
     luaK_fixline(fs, line);
     k = if k >= MAXARG_Bx { 0 } else { k + 1 };
     luaK_codeABx(fs, OP_ERRNNIL, (*var).u.info, k);
     luaK_fixline(fs, line);
     freeexp(fs, var);
-}
+}}
 
 #[inline]
-unsafe fn const2exp(v: *mut TValue, e: *mut expdesc) {
+unsafe fn const2exp(v: *mut TValue, e: *mut expdesc) { unsafe {
     match ttypetag(v) {
         LUA_VNUMINT => {
             (*e).k = VKINT;
@@ -866,14 +829,14 @@ unsafe fn const2exp(v: *mut TValue, e: *mut expdesc) {
         }
         _ => debug_assert!(false),
     }
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_setreturns(
     fs: *mut FuncState,
     e: *mut expdesc,
     nresults: c_int,
-) {
+) { unsafe {
     let pc = getinstruction_ref(fs, e);
     luaY_checklimit(fs, nresults + 1, MAXARG_C, c"multiple results".as_ptr());
     if (*e).k == VCALL {
@@ -884,18 +847,18 @@ pub unsafe fn luaK_setreturns(
         SETARG_A(&mut *pc, (*fs).freereg as c_int);
         luaK_reserveregs(fs, 1);
     }
-}
+}}
 
 #[inline]
-unsafe fn str2K(fs: *mut FuncState, e: *mut expdesc) -> c_int {
+unsafe fn str2K(fs: *mut FuncState, e: *mut expdesc) -> c_int { unsafe {
     let info = stringK(fs, (*e).u.strval);
     (*e).u.info = info;
     (*e).k = VK;
     info
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_setoneret(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_setoneret(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     if (*e).k == VCALL {
         debug_assert_eq!(GETARG_C(getinstruction(fs, e)), 2);
         (*e).k = VNONRELOC;
@@ -905,16 +868,16 @@ pub unsafe fn luaK_setoneret(fs: *mut FuncState, e: *mut expdesc) {
         SETARG_C(&mut *pc, 2);
         (*e).k = VRELOC;
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_vapar2local(fs: *mut FuncState, var: *mut expdesc) {
+pub unsafe fn luaK_vapar2local(fs: *mut FuncState, var: *mut expdesc) { unsafe {
     needvatab((*fs).f);
     (*var).k = VLOCAL;
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_dischargevars(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_dischargevars(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     match (*e).k {
         VCONST => const2exp(const2val(fs, e), e),
         VVARGVAR => {
@@ -994,10 +957,10 @@ pub unsafe fn luaK_dischargevars(fs: *mut FuncState, e: *mut expdesc) {
         VVARARG | VCALL => luaK_setoneret(fs, e),
         _ => {}
     }
-}
+}}
 
 #[inline]
-unsafe fn discharge2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) {
+unsafe fn discharge2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) { unsafe {
     luaK_dischargevars(fs, e);
     match (*e).k {
         VNIL => luaK_nil(fs, reg, 1),
@@ -1032,24 +995,24 @@ unsafe fn discharge2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) {
     }
     (*e).u.info = reg;
     (*e).k = VNONRELOC;
-}
+}}
 
 #[inline]
-unsafe fn discharge2anyreg(fs: *mut FuncState, e: *mut expdesc) {
+unsafe fn discharge2anyreg(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     if (*e).k != VNONRELOC {
         luaK_reserveregs(fs, 1);
         discharge2reg(fs, e, (*fs).freereg as c_int - 1);
     }
-}
+}}
 
 #[inline]
-unsafe fn code_loadbool(fs: *mut FuncState, a: c_int, op: c_int) -> c_int {
+unsafe fn code_loadbool(fs: *mut FuncState, a: c_int, op: c_int) -> c_int { unsafe {
     luaK_getlabel(fs);
     luaK_codeABCk(fs, op, a, 0, 0, 0)
-}
+}}
 
 #[inline]
-unsafe fn need_value(fs: *mut FuncState, mut list: c_int) -> c_int {
+unsafe fn need_value(fs: *mut FuncState, mut list: c_int) -> c_int { unsafe {
     while list != NO_JUMP {
         let i = *getjumpcontrol(fs, list);
         if GET_OPCODE(i) != OP_TESTSET {
@@ -1058,10 +1021,10 @@ unsafe fn need_value(fs: *mut FuncState, mut list: c_int) -> c_int {
         list = getjump(fs, list);
     }
     0
-}
+}}
 
 #[inline]
-unsafe fn exp2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) {
+unsafe fn exp2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) { unsafe {
     discharge2reg(fs, e, reg);
     if (*e).k == VJMP {
         luaK_concat(fs, ptr::addr_of_mut!((*e).t), (*e).u.info);
@@ -1087,18 +1050,18 @@ unsafe fn exp2reg(fs: *mut FuncState, e: *mut expdesc, reg: c_int) {
     (*e).t = NO_JUMP;
     (*e).u.info = reg;
     (*e).k = VNONRELOC;
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_exp2nextreg(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_exp2nextreg(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     luaK_dischargevars(fs, e);
     freeexp(fs, e);
     luaK_reserveregs(fs, 1);
     exp2reg(fs, e, (*fs).freereg as c_int - 1);
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_exp2anyreg(fs: *mut FuncState, e: *mut expdesc) -> c_int {
+pub unsafe fn luaK_exp2anyreg(fs: *mut FuncState, e: *mut expdesc) -> c_int { unsafe {
     luaK_dischargevars(fs, e);
     if (*e).k == VNONRELOC {
         if !hasjumps(e) {
@@ -1111,26 +1074,26 @@ pub unsafe fn luaK_exp2anyreg(fs: *mut FuncState, e: *mut expdesc) -> c_int {
     }
     luaK_exp2nextreg(fs, e);
     (*e).u.info
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_exp2anyregup(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_exp2anyregup(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     if (((*e).k != VUPVAL) && ((*e).k != VVARGVAR)) || hasjumps(e) {
         luaK_exp2anyreg(fs, e);
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_exp2val(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_exp2val(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     if (*e).k == VJMP || hasjumps(e) {
         luaK_exp2anyreg(fs, e);
     } else {
         luaK_dischargevars(fs, e);
     }
-}
+}}
 
 #[inline]
-unsafe fn luaK_exp2K(fs: *mut FuncState, e: *mut expdesc) -> c_int {
+unsafe fn luaK_exp2K(fs: *mut FuncState, e: *mut expdesc) -> c_int { unsafe {
     if hasjumps(e) {
         return 0;
     }
@@ -1151,30 +1114,30 @@ unsafe fn luaK_exp2K(fs: *mut FuncState, e: *mut expdesc) -> c_int {
     } else {
         0
     }
-}
+}}
 
 #[inline]
-unsafe fn exp2RK(fs: *mut FuncState, e: *mut expdesc) -> c_int {
+unsafe fn exp2RK(fs: *mut FuncState, e: *mut expdesc) -> c_int { unsafe {
     if luaK_exp2K(fs, e) != 0 {
         1
     } else {
         luaK_exp2anyreg(fs, e);
         0
     }
-}
+}}
 
 #[inline]
-unsafe fn codeABRK(fs: *mut FuncState, o: c_int, a: c_int, b: c_int, ec: *mut expdesc) {
+unsafe fn codeABRK(fs: *mut FuncState, o: c_int, a: c_int, b: c_int, ec: *mut expdesc) { unsafe {
     let k = exp2RK(fs, ec);
     luaK_codeABCk(fs, o, a, b, (*ec).u.info, k);
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_storevar(
     fs: *mut FuncState,
     var: *mut expdesc,
     ex: *mut expdesc,
-) {
+) { unsafe {
     match (*var).k {
         VLOCAL => {
             freeexp(fs, ex);
@@ -1226,16 +1189,16 @@ pub unsafe fn luaK_storevar(
         _ => debug_assert!(false),
     }
     freeexp(fs, ex);
-}
+}}
 
 #[inline]
-unsafe fn negatecondition(fs: *mut FuncState, e: *mut expdesc) {
+unsafe fn negatecondition(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     let pc = getjumpcontrol(fs, (*e).u.info);
     SETARG_k(&mut *pc, GETARG_k(*pc) ^ 1);
-}
+}}
 
 #[inline]
-unsafe fn jumponcond(fs: *mut FuncState, e: *mut expdesc, cond: c_int) -> c_int {
+unsafe fn jumponcond(fs: *mut FuncState, e: *mut expdesc, cond: c_int) -> c_int { unsafe {
     if (*e).k == VRELOC {
         let ie = getinstruction(fs, e);
         if GET_OPCODE(ie) == OP_NOT {
@@ -1253,10 +1216,10 @@ unsafe fn jumponcond(fs: *mut FuncState, e: *mut expdesc, cond: c_int) -> c_int 
     discharge2anyreg(fs, e);
     freeexp(fs, e);
     condjump(fs, OP_TESTSET, NO_REG, (*e).u.info, 0, cond)
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_goiftrue(fs: *mut FuncState, e: *mut expdesc) {
+pub unsafe fn luaK_goiftrue(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     luaK_dischargevars(fs, e);
     let pc = match (*e).k {
         VJMP => {
@@ -1269,10 +1232,10 @@ pub unsafe fn luaK_goiftrue(fs: *mut FuncState, e: *mut expdesc) {
     luaK_concat(fs, ptr::addr_of_mut!((*e).f), pc);
     luaK_patchtohere(fs, (*e).t);
     (*e).t = NO_JUMP;
-}
+}}
 
 #[inline]
-unsafe fn luaK_goiffalse(fs: *mut FuncState, e: *mut expdesc) {
+unsafe fn luaK_goiffalse(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     luaK_dischargevars(fs, e);
     let pc = match (*e).k {
         VJMP => (*e).u.info,
@@ -1282,10 +1245,10 @@ unsafe fn luaK_goiffalse(fs: *mut FuncState, e: *mut expdesc) {
     luaK_concat(fs, ptr::addr_of_mut!((*e).t), pc);
     luaK_patchtohere(fs, (*e).f);
     (*e).f = NO_JUMP;
-}
+}}
 
 #[inline]
-unsafe fn codenot(fs: *mut FuncState, e: *mut expdesc) {
+unsafe fn codenot(fs: *mut FuncState, e: *mut expdesc) { unsafe {
     match (*e).k {
         VNIL | VFALSE => (*e).k = VTRUE,
         VK | VKFLT | VKINT | VKSTR | VTRUE => (*e).k = VFALSE,
@@ -1301,33 +1264,33 @@ unsafe fn codenot(fs: *mut FuncState, e: *mut expdesc) {
     core::mem::swap(&mut (*e).f, &mut (*e).t);
     removevalues(fs, (*e).f);
     removevalues(fs, (*e).t);
-}
+}}
 
 #[inline]
-unsafe fn isKstr(fs: *mut FuncState, e: *mut expdesc) -> bool {
+unsafe fn isKstr(fs: *mut FuncState, e: *mut expdesc) -> bool { unsafe {
     (*e).k == VK
         && !hasjumps(e)
         && (*e).u.info <= MAXINDEXRK
         && ttisshrstring((*(*fs).f).k.add((*e).u.info as usize))
-}
+}}
 
 #[inline]
-unsafe fn isKint(e: *mut expdesc) -> bool {
+unsafe fn isKint(e: *mut expdesc) -> bool { unsafe {
     (*e).k == VKINT && !hasjumps(e)
-}
+}}
 
 #[inline]
-unsafe fn isCint(e: *mut expdesc) -> bool {
+unsafe fn isCint(e: *mut expdesc) -> bool { unsafe {
     isKint(e) && ((*e).u.ival as u64) <= MAXARG_C as u64
-}
+}}
 
 #[inline]
-unsafe fn isSCint(e: *mut expdesc) -> bool {
+unsafe fn isSCint(e: *mut expdesc) -> bool { unsafe {
     isKint(e) && fitsC((*e).u.ival)
-}
+}}
 
 #[inline]
-unsafe fn isSCnumber(e: *mut expdesc, pi: *mut c_int, isfloat: *mut c_int) -> c_int {
+unsafe fn isSCnumber(e: *mut expdesc, pi: *mut c_int, isfloat: *mut c_int) -> c_int { unsafe {
     let mut i = 0;
     if (*e).k == VKINT {
         i = (*e).u.ival;
@@ -1342,10 +1305,10 @@ unsafe fn isSCnumber(e: *mut expdesc, pi: *mut c_int, isfloat: *mut c_int) -> c_
     } else {
         0
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_self(fs: *mut FuncState, e: *mut expdesc, key: *mut expdesc) {
+pub unsafe fn luaK_self(fs: *mut FuncState, e: *mut expdesc, key: *mut expdesc) { unsafe {
     luaK_exp2anyreg(fs, e);
     let ereg = (*e).u.info;
     freeexp(fs, e);
@@ -1361,16 +1324,16 @@ pub unsafe fn luaK_self(fs: *mut FuncState, e: *mut expdesc, key: *mut expdesc) 
         luaK_codeABCk(fs, OP_GETTABLE, base, ereg, (*key).u.info, 0);
     }
     freeexp(fs, key);
-}
+}}
 
 #[inline]
-unsafe fn fillidxk(t: *mut expdesc, idx: c_int, k: c_int) {
+unsafe fn fillidxk(t: *mut expdesc, idx: c_int, k: c_int) { unsafe {
     (*t).u.ind.idx = idx as i16;
     (*t).k = k;
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_indexed(fs: *mut FuncState, t: *mut expdesc, k: *mut expdesc) {
+pub unsafe fn luaK_indexed(fs: *mut FuncState, t: *mut expdesc, k: *mut expdesc) { unsafe {
     let mut keystr = -1;
     if (*k).k == VKSTR {
         keystr = str2K(fs, k);
@@ -1403,10 +1366,10 @@ pub unsafe fn luaK_indexed(fs: *mut FuncState, t: *mut expdesc, k: *mut expdesc)
     }
     (*t).u.ind.keystr = keystr;
     (*t).u.ind.ro = 0;
-}
+}}
 
 #[inline]
-unsafe fn validop(op: c_int, v1: *mut TValue, v2: *mut TValue) -> c_int {
+unsafe fn validop(op: c_int, v1: *mut TValue, v2: *mut TValue) -> c_int { unsafe {
     match op {
         LUA_OPBAND | LUA_OPBOR | LUA_OPBXOR | LUA_OPSHL | LUA_OPSHR | LUA_OPBNOT => {
             let mut i = 0;
@@ -1417,7 +1380,7 @@ unsafe fn validop(op: c_int, v1: *mut TValue, v2: *mut TValue) -> c_int {
         LUA_OPDIV | LUA_OPIDIV | LUA_OPMOD => (nvalue(v2) != 0.0) as c_int,
         _ => 1,
     }
-}
+}}
 
 #[inline]
 unsafe fn constfolding(
@@ -1425,7 +1388,7 @@ unsafe fn constfolding(
     op: c_int,
     e1: *mut expdesc,
     e2: *const expdesc,
-) -> c_int {
+) -> c_int { unsafe {
     let mut v1 = TValue {
         value_: Value { i: 0 },
         tt_: 0,
@@ -1463,7 +1426,7 @@ unsafe fn constfolding(
         (*e1).u.nval = n;
     }
     1
-}
+}}
 
 #[inline]
 unsafe fn binopr2op(opr: c_int, baser: c_int, base: c_int) -> c_int {
@@ -1481,13 +1444,13 @@ unsafe fn binopr2TM(opr: c_int) -> c_int {
 }
 
 #[inline]
-unsafe fn codeunexpval(fs: *mut FuncState, op: c_int, e: *mut expdesc, line: c_int) {
+unsafe fn codeunexpval(fs: *mut FuncState, op: c_int, e: *mut expdesc, line: c_int) { unsafe {
     let r = luaK_exp2anyreg(fs, e);
     freeexp(fs, e);
     (*e).u.info = luaK_codeABCk(fs, op, 0, r, 0, 0);
     (*e).k = VRELOC;
     luaK_fixline(fs, line);
-}
+}}
 
 #[inline]
 unsafe fn finishbinexpval(
@@ -1500,7 +1463,7 @@ unsafe fn finishbinexpval(
     line: c_int,
     mmop: c_int,
     event: c_int,
-) {
+) { unsafe {
     let v1 = luaK_exp2anyreg(fs, e1);
     let pc = luaK_codeABCk(fs, op, 0, v1, v2, 0);
     freeexps(fs, e1, e2);
@@ -1509,7 +1472,7 @@ unsafe fn finishbinexpval(
     luaK_fixline(fs, line);
     luaK_codeABCk(fs, mmop, v1, v2, event, flip);
     luaK_fixline(fs, line);
-}
+}}
 
 #[inline]
 unsafe fn codebinexpval(
@@ -1518,11 +1481,11 @@ unsafe fn codebinexpval(
     e1: *mut expdesc,
     e2: *mut expdesc,
     line: c_int,
-) {
+) { unsafe {
     let op = binopr2op(opr, OPR_ADD, OP_ADD);
     let v2 = luaK_exp2anyreg(fs, e2);
     finishbinexpval(fs, e1, e2, op, v2, 0, line, OP_MMBIN, binopr2TM(opr));
-}
+}}
 
 #[inline]
 unsafe fn codebini(
@@ -1533,10 +1496,10 @@ unsafe fn codebini(
     flip: c_int,
     line: c_int,
     event: c_int,
-) {
+) { unsafe {
     let v2 = int2sC((*e2).u.ival as c_int);
     finishbinexpval(fs, e1, e2, op, v2, flip, line, OP_MMBINI, event);
-}
+}}
 
 #[inline]
 unsafe fn codebinK(
@@ -1546,12 +1509,12 @@ unsafe fn codebinK(
     e2: *mut expdesc,
     flip: c_int,
     line: c_int,
-) {
+) { unsafe {
     let event = binopr2TM(opr);
     let v2 = (*e2).u.info;
     let op = binopr2op(opr, OPR_ADD, OP_ADDK);
     finishbinexpval(fs, e1, e2, op, v2, flip, line, OP_MMBINK, event);
-}
+}}
 
 #[inline]
 unsafe fn finishbinexpneg(
@@ -1561,7 +1524,7 @@ unsafe fn finishbinexpneg(
     op: c_int,
     line: c_int,
     event: c_int,
-) -> c_int {
+) -> c_int { unsafe {
     if !isKint(e2) {
         return 0;
     }
@@ -1574,12 +1537,12 @@ unsafe fn finishbinexpneg(
     let last = (*(*fs).f).code.add(((*fs).pc - 1) as usize);
     SETARG_B(&mut *last, int2sC(v2));
     1
-}
+}}
 
 #[inline]
-unsafe fn swapexps(e1: *mut expdesc, e2: *mut expdesc) {
+unsafe fn swapexps(e1: *mut expdesc, e2: *mut expdesc) { unsafe {
     core::mem::swap(&mut *e1, &mut *e2);
-}
+}}
 
 #[inline]
 unsafe fn codebinNoK(
@@ -1589,12 +1552,12 @@ unsafe fn codebinNoK(
     e2: *mut expdesc,
     flip: c_int,
     line: c_int,
-) {
+) { unsafe {
     if flip != 0 {
         swapexps(e1, e2);
     }
     codebinexpval(fs, opr, e1, e2, line);
-}
+}}
 
 #[inline]
 unsafe fn codearith(
@@ -1604,13 +1567,13 @@ unsafe fn codearith(
     e2: *mut expdesc,
     flip: c_int,
     line: c_int,
-) {
+) { unsafe {
     if tonumeral(e2, ptr::null_mut()) != 0 && luaK_exp2K(fs, e2) != 0 {
         codebinK(fs, opr, e1, e2, flip, line);
     } else {
         codebinNoK(fs, opr, e1, e2, flip, line);
     }
-}
+}}
 
 #[inline]
 unsafe fn codecommutative(
@@ -1619,7 +1582,7 @@ unsafe fn codecommutative(
     e1: *mut expdesc,
     e2: *mut expdesc,
     line: c_int,
-) {
+) { unsafe {
     let mut flip = 0;
     if tonumeral(e1, ptr::null_mut()) != 0 {
         swapexps(e1, e2);
@@ -1630,7 +1593,7 @@ unsafe fn codecommutative(
     } else {
         codearith(fs, op, e1, e2, flip, line);
     }
-}
+}}
 
 #[inline]
 unsafe fn codebitwise(
@@ -1639,7 +1602,7 @@ unsafe fn codebitwise(
     e1: *mut expdesc,
     e2: *mut expdesc,
     line: c_int,
-) {
+) { unsafe {
     let mut flip = 0;
     if (*e1).k == VKINT {
         swapexps(e1, e2);
@@ -1650,10 +1613,10 @@ unsafe fn codebitwise(
     } else {
         codebinNoK(fs, opr, e1, e2, flip, line);
     }
-}
+}}
 
 #[inline]
-unsafe fn codeorder(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut expdesc) {
+unsafe fn codeorder(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut expdesc) { unsafe {
     let mut im = 0;
     let mut isfloat = 0;
     let (r1, r2, op) = if isSCnumber(e2, ptr::addr_of_mut!(im), ptr::addr_of_mut!(isfloat)) != 0 {
@@ -1670,10 +1633,10 @@ unsafe fn codeorder(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut e
     freeexps(fs, e1, e2);
     (*e1).u.info = condjump(fs, op, r1, r2, isfloat, 1);
     (*e1).k = VJMP;
-}
+}}
 
 #[inline]
-unsafe fn codeeq(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut expdesc) {
+unsafe fn codeeq(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut expdesc) { unsafe {
     if (*e1).k != VNONRELOC {
         swapexps(e1, e2);
     }
@@ -1690,7 +1653,7 @@ unsafe fn codeeq(fs: *mut FuncState, opr: c_int, e1: *mut expdesc, e2: *mut expd
     freeexps(fs, e1, e2);
     (*e1).u.info = condjump(fs, op, r1, r2, isfloat, (opr == OPR_EQ) as c_int);
     (*e1).k = VJMP;
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_prefix(
@@ -1698,7 +1661,7 @@ pub unsafe fn luaK_prefix(
     opr: c_int,
     e: *mut expdesc,
     line: c_int,
-) {
+) { unsafe {
     let ef = expdesc {
         k: VKINT,
         u: ExpdescUnion { ival: 0 },
@@ -1716,10 +1679,10 @@ pub unsafe fn luaK_prefix(
         OPR_NOT => codenot(fs, e),
         _ => debug_assert!(false),
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_infix(fs: *mut FuncState, op: c_int, v: *mut expdesc) {
+pub unsafe fn luaK_infix(fs: *mut FuncState, op: c_int, v: *mut expdesc) { unsafe {
     luaK_dischargevars(fs, v);
     match op {
         OPR_AND => luaK_goiftrue(fs, v),
@@ -1745,10 +1708,10 @@ pub unsafe fn luaK_infix(fs: *mut FuncState, op: c_int, v: *mut expdesc) {
         }
         _ => debug_assert!(false),
     }
-}
+}}
 
 #[inline]
-unsafe fn codeconcat(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc, line: c_int) {
+unsafe fn codeconcat(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc, line: c_int) { unsafe {
     let ie2 = previousinstruction(fs);
     if GET_OPCODE(ie2) == OP_CONCAT {
         let n = GETARG_B(ie2);
@@ -1761,7 +1724,7 @@ unsafe fn codeconcat(fs: *mut FuncState, e1: *mut expdesc, e2: *mut expdesc, lin
         freeexp(fs, e2);
         luaK_fixline(fs, line);
     }
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_posfix(
@@ -1770,7 +1733,7 @@ pub unsafe fn luaK_posfix(
     e1: *mut expdesc,
     e2: *mut expdesc,
     line: c_int,
-) {
+) { unsafe {
     luaK_dischargevars(fs, e2);
     if foldbinop(opr) && constfolding(fs, opr + LUA_OPADD, e1, e2) != 0 {
         return;
@@ -1820,13 +1783,13 @@ pub unsafe fn luaK_posfix(
         OPR_LT | OPR_LE => codeorder(fs, opr, e1, e2),
         _ => debug_assert!(false),
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_fixline(fs: *mut FuncState, line: c_int) {
+pub unsafe fn luaK_fixline(fs: *mut FuncState, line: c_int) { unsafe {
     removelastlineinfo(fs);
     savelineinfo(fs, (*fs).f, line);
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_settablesize(
@@ -1835,7 +1798,7 @@ pub unsafe fn luaK_settablesize(
     ra: c_int,
     asize: c_int,
     mut hsize: c_int,
-) {
+) { unsafe {
     let inst = (*(*fs).f).code.add(pc as usize);
     let extra = asize / (MAXARG_vC + 1);
     let rc = asize % (MAXARG_vC + 1);
@@ -1847,7 +1810,7 @@ pub unsafe fn luaK_settablesize(
     };
     *inst = CREATE_vABCk(OP_NEWTABLE, ra, hsize, rc, k);
     *inst.add(1) = CREATE_Ax(OP_EXTRAARG, extra);
-}
+}}
 
 #[unsafe(no_mangle)]
 pub unsafe fn luaK_setlist(
@@ -1855,7 +1818,7 @@ pub unsafe fn luaK_setlist(
     base: c_int,
     mut nelems: c_int,
     mut tostore: c_int,
-) {
+) { unsafe {
     if tostore == LUA_MULTRET {
         tostore = 0;
     }
@@ -1868,10 +1831,10 @@ pub unsafe fn luaK_setlist(
         codeextraarg(fs, extra);
     }
     (*fs).freereg = cast_byte(base + 1);
-}
+}}
 
 #[inline]
-unsafe fn finaltarget(code: *mut Instruction, mut i: c_int) -> c_int {
+unsafe fn finaltarget(code: *mut Instruction, mut i: c_int) -> c_int { unsafe {
     let mut count = 0;
     while count < 100 {
         let pc = *code.add(i as usize);
@@ -1882,15 +1845,13 @@ unsafe fn finaltarget(code: *mut Instruction, mut i: c_int) -> c_int {
         count += 1;
     }
     i
-}
+}}
 
 #[unsafe(no_mangle)]
-pub unsafe fn luaK_finish(fs: *mut FuncState) {
+pub unsafe fn luaK_finish(fs: *mut FuncState) { unsafe {
     let p = (*fs).f;
     if (*p).flag & PF_VATAB != 0 {
-       unsafe {
           (*p).flag &= !PF_VAHID; 
-       }
     }
     let mut i = 0;
     while i < (*fs).pc {
@@ -1936,4 +1897,4 @@ pub unsafe fn luaK_finish(fs: *mut FuncState) {
         }
         i += 1;
     }
-}
+}}

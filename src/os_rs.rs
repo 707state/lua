@@ -263,7 +263,7 @@ unsafe fn l_checktime(state: *mut lua_State, arg: c_int) -> Result<time_t, c_int
 
 unsafe  fn os_execute(state: *mut lua_State) -> c_int {
     let cmd = unsafe { l_optstring(state, 1) };
-    unsafe { reset_errno() };
+    reset_errno();
     let stat = unsafe { system(cmd) };
     if !cmd.is_null() {
         luaL_execresult(state, stat)
@@ -275,14 +275,14 @@ unsafe  fn os_execute(state: *mut lua_State) -> c_int {
 
 unsafe  fn os_remove(state: *mut lua_State) -> c_int {
     let filename = unsafe { l_checkstring(state, 1) };
-    unsafe { reset_errno() };
+    reset_errno();
     unsafe { luaL_fileresult(state, (remove(filename) == 0) as c_int, filename) }
 }
 
 unsafe  fn os_rename(state: *mut lua_State) -> c_int {
     let fromname = unsafe { l_checkstring(state, 1) };
     let toname = unsafe { l_checkstring(state, 2) };
-    unsafe { reset_errno() };
+    reset_errno();
     unsafe { luaL_fileresult(state, (rename(fromname, toname) == 0) as c_int, ptr::null()) }
 }
 

@@ -1,4 +1,6 @@
-use core::ffi::{VaList, c_char, c_int};
+use core::ffi::{c_char, c_int};
+use core::ptr;
+use std::ffi::CStr;
 
 pub(crate) use crate::api::*;
 use crate::{aux_rs::luaL_where, luaffi::LuaCFunction};
@@ -8,7 +10,6 @@ pub use crate::runtime::{
     lua_CFunction, lua_Integer, lua_Number, lua_State, lua_Unsigned,
     LUA_REGISTRYINDEX, LUA_VERSION_NUM,
 };
-use crate::runtime::*;
 
 #[repr(C)]
 pub(crate) struct luaL_Reg {
@@ -28,7 +29,7 @@ pub(crate) unsafe extern "C" fn luaL_error(
     fmt: *const c_char,
     argp: ...
 ) -> c_int {
-    unsafe { luaL_where(state, 1) };
+    luaL_where(state, 1);
     unsafe { lua_pushvfstring(state, fmt, argp) };
     unsafe { lua_concat(state, 2) };
     unsafe { lua_error(state) }
@@ -36,7 +37,7 @@ pub(crate) unsafe extern "C" fn luaL_error(
 
 /// 非变参版本的 luaL_error，接受预格式化的字符串（消除变参调用）
 pub(crate) unsafe fn luaL_error_str(state: *mut lua_State, msg: *const c_char) -> c_int {
-    unsafe { luaL_where(state, 1) };
+    luaL_where(state, 1);
     unsafe { lua_pushstring(state, msg) };
     unsafe { lua_concat(state, 2) };
     unsafe { lua_error(state) }
@@ -55,6 +56,27 @@ pub unsafe fn lua_pop(state: *mut lua_State, count: c_int) {
 #[inline]
 pub(crate) unsafe fn push_fail(state: *mut lua_State) {
     unsafe { lua_pushnil(state) };
+}
+
+#[inline]
+pub(crate) unsafe fn cstr<'a>(ptr: *const c_char) -> &'a CStr {
+    unsafe { CStr::from_ptr(ptr) }
+}
+
+#[inline]
+pub(crate) unsafe fn tostring_ptr(state: *mut lua_State, idx: c_int) -> *const c_char {
+    unsafe { lua_tolstring(state, idx, ptr::null_mut()) }
+}
+
+#[inline]
+pub(crate) unsafe fn lua_insert_local(state: *mut lua_State, idx: c_int) {
+    unsafe { lua_rotate(state, idx, 1) };
+}
+
+#[inline]
+pub(crate) unsafe fn lua_replace_local(state: *mut lua_State, idx: c_int) {
+    unsafe { lua_copy(state, -1, idx) };
+    unsafe { lua_pop(state, 1) };
 }
 
 #[inline]
