@@ -17,7 +17,6 @@ pub mod gc;
 pub mod init;
 pub mod io_rs;
 pub mod lex;
-pub mod load_rs;
 pub mod lua_module;
 pub mod luaffi;
 pub mod luavm;

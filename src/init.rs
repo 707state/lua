@@ -20,7 +20,6 @@ use crate::base_rs::BaseModule;
 use crate::coro_rs::CoroutineModule;
 use crate::db_rs::DebugModule;
 use crate::io_rs::IoModule;
-use crate::load_rs::PackageModule;
 use crate::lua_module::{LUA_REGISTRYINDEX, lua_State, lua_pop, lua_setfield, push_cfunction};
 use crate::math_rs::MathModule;
 use crate::module::{ModuleDescriptor, ModuleRegistry};
@@ -68,10 +67,6 @@ static STDLIB_ENTRIES: &[StdlibEntry] = &[
         mask: LUA_GLIBK,
     },
     StdlibEntry {
-        desc: ModuleDescriptor::of::<PackageModule>(),
-        mask: LUA_LOADLIBK,
-    },
-    StdlibEntry {
         desc: ModuleDescriptor::of::<CoroutineModule>(),
         mask: LUA_COLIBK,
     },
@@ -113,9 +108,8 @@ pub static STANDARD_LIBS: ModuleRegistry = {
     // 由于 `ModuleRegistry` 只持有 `&'static [ModuleDescriptor]`，
     // 我们需要在 `module.rs` 中使用一个辅助数组。
     // 此处改用构造一个实际持有切片的 ModuleRegistry。
-    static DESCS: [ModuleDescriptor; 10] = [
+    static DESCS: [ModuleDescriptor; 9] = [
         ModuleDescriptor::of::<BaseModule>(),
-        ModuleDescriptor::of::<PackageModule>(),
         ModuleDescriptor::of::<CoroutineModule>(),
         ModuleDescriptor::of::<DebugModule>(),
         ModuleDescriptor::of::<IoModule>(),
