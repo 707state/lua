@@ -419,25 +419,9 @@ pub unsafe fn lua_pushstring(L: *mut lua_State, mut s: *const c_char) -> *const 
     s
 }
 
-pub unsafe fn lua_pushvfstring(
-    L: *mut lua_State,
-    fmt: *const c_char,
-    argp: VaList<'_>,
-) -> *const c_char {
-    let ret = unsafe { luaO_pushvfstring(L, fmt, argp) };
-    unsafe { luaC_checkGC(L) };
-    ret
-}
-
-pub unsafe extern "C" fn lua_pushfstring(
-    L: *mut lua_State,
-    fmt: *const c_char,
-    argp: ...
-) -> *const c_char {
-    let ret = unsafe { luaO_pushvfstring(L, fmt, argp) };
-    if ret.is_null() {
-        unsafe { luaD_throw(L, LUA_ERRMEM) };
-    }
+/// 将已格式化好的 Rust 字符串推入 Lua 栈（替代 C 风格的 lua_pushfstring/lua_pushvfstring）
+pub unsafe fn lua_pushfstring_rs(L: *mut lua_State, s: &str) -> *const c_char {
+    let ret = unsafe { luaO_pushstr(L, s) };
     unsafe { luaC_checkGC(L) };
     ret
 }
@@ -488,10 +472,7 @@ pub unsafe fn lua_pushthread(L: *mut lua_State) -> c_int {
 }
 
 pub unsafe fn lua_getglobal(L: *mut lua_State, name: *const c_char) -> c_int {
-    let mut gt = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
+    let mut gt = TValue::new_nil();
     unsafe { getGlobalTable(L, ptr::addr_of_mut!(gt)) };
     unsafe { auxgetstr(L, ptr::addr_of!(gt), name) }
 }
@@ -507,7 +488,7 @@ pub unsafe fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int {
     if unsafe { tagisempty(tag) } {
         tag = unsafe { luaV_finishget(L, t, s2v((*L).top.p.sub(1)), (*L).top.p.sub(1), tag) };
     }
-    unsafe { novariant(tag) as c_int }
+    novariant(tag) as c_int
 }
 
 #[unsafe(no_mangle)]
@@ -523,15 +504,12 @@ pub unsafe fn lua_geti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
         LUA_TNIL | (3 << 4)
     };
     if unsafe { tagisempty(tag) } {
-        let mut key = TValue {
-            value_: Value { ub: 0 },
-            tt_: 0,
-        };
+        let mut key = TValue::new_nil();
         unsafe { setivalue(ptr::addr_of_mut!(key), n) };
         tag = unsafe { luaV_finishget(L, t, ptr::addr_of_mut!(key), (*L).top.p, tag) };
     }
     unsafe { api_incr_top(L) };
-    unsafe { novariant(tag) as c_int }
+    novariant(tag) as c_int
 }
 
 pub unsafe fn lua_rawget(L: *mut lua_State, idx: c_int) -> c_int {
@@ -550,10 +528,7 @@ pub unsafe fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: lua_Integer) -> c_in
 
 pub unsafe fn lua_rawgetp(L: *mut lua_State, idx: c_int, p: *const c_void) -> c_int {
     let t = unsafe { gettable(L, idx) };
-    let mut k = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
+    let mut k = TValue::new_nil();
     unsafe { setpvalue(ptr::addr_of_mut!(k), p as *mut c_void) };
     unsafe { finishrawget(L, luaH_get(t, ptr::addr_of!(k), s2v((*L).top.p))) }
 }
@@ -605,10 +580,7 @@ pub unsafe fn lua_getiuservalue(L: *mut lua_State, idx: c_int, n: c_int) -> c_in
 }
 
 pub unsafe fn lua_setglobal(L: *mut lua_State, name: *const c_char) {
-    let mut gt = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
+    let mut gt = TValue::new_nil();
     unsafe { getGlobalTable(L, ptr::addr_of_mut!(gt)) };
     unsafe { auxsetstr(L, ptr::addr_of!(gt), name) };
 }
@@ -641,7 +613,9 @@ pub unsafe fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
         let u = (n as lua_Unsigned).wrapping_sub(1);
         if u < unsafe { (*h).asize as lua_Unsigned } {
             let tag = unsafe { getArrTag(h, u as u32) };
-            if unsafe { checknoTM((*h).metatable, TM_NEWINDEX as usize) } || !unsafe { tagisempty(*tag) } {
+            if unsafe { checknoTM((*h).metatable, TM_NEWINDEX as usize) }
+                || !unsafe { tagisempty(*tag) }
+            {
                 unsafe { fval2arr(h, u as u32, tag, s2v((*L).top.p.sub(1))) };
                 HOK
             } else {
@@ -656,10 +630,7 @@ pub unsafe fn lua_seti(L: *mut lua_State, idx: c_int, n: lua_Integer) {
     if hres == HOK {
         unsafe { luaC_barrierback(L, gcvalue(t), s2v((*L).top.p.sub(1))) };
     } else {
-        let mut temp = TValue {
-            value_: Value { ub: 0 },
-            tt_: 0,
-        };
+        let mut temp = TValue::new_nil();
         unsafe { setivalue(ptr::addr_of_mut!(temp), n) };
         unsafe { luaV_finishset(L, t, ptr::addr_of_mut!(temp), s2v((*L).top.p.sub(1)), hres) };
     }
@@ -671,10 +642,7 @@ pub unsafe fn lua_rawset(L: *mut lua_State, idx: c_int) {
 }
 
 pub unsafe fn lua_rawsetp(L: *mut lua_State, idx: c_int, p: *const c_void) {
-    let mut k = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
+    let mut k = TValue::new_nil();
     unsafe { setpvalue(ptr::addr_of_mut!(k), p as *mut c_void) };
     unsafe { aux_rawset(L, idx, ptr::addr_of_mut!(k), 1) };
 }
@@ -869,10 +837,7 @@ pub unsafe fn lua_load(
     if status == LUA_OK {
         let f = unsafe { clLvalue(s2v((*L).top.p.sub(1))) };
         if unsafe { (*f).nupvalues >= 1 } {
-            let mut gt = TValue {
-                value_: Value { ub: 0 },
-                tt_: 0,
-            };
+            let mut gt = TValue::new_nil();
             unsafe { getGlobalTable(L, ptr::addr_of_mut!(gt)) };
             unsafe { setobj((*(*(*f).upvals.as_ptr())).v.p, ptr::addr_of!(gt)) };
             unsafe { luaC_barrier(L, obj2gco(*(*f).upvals.as_ptr()), ptr::addr_of!(gt)) };
@@ -900,7 +865,10 @@ pub unsafe fn lua_status(L: *mut lua_State) -> c_int {
     unsafe { APIstatus((*L).status) }
 }
 
-pub unsafe extern "C" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -> c_int {
+/// 执行无附加参数的 GC 操作（替代 C 风格变参的 lua_gc）。
+/// 适用于 LUA_GCSTOP / LUA_GCRESTART / LUA_GCCOLLECT / LUA_GCCOUNT /
+/// LUA_GCCOUNTB / LUA_GCISRUNNING / LUA_GCGEN / LUA_GCINC 等不需要额外参数的 what。
+pub unsafe fn lua_gc(L: *mut lua_State, what: c_int) -> c_int {
     let g = unsafe { G(L) };
     if unsafe { (*g).gcstp & (GCSTPGC | GCSTPCLS) } != 0 {
         return -1;
@@ -921,25 +889,6 @@ pub unsafe extern "C" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -
         }
         LUA_GCCOUNT => unsafe { (gettotalbytes(g) >> 10) as c_int },
         LUA_GCCOUNTB => unsafe { (gettotalbytes(g) & 0x3ff) as c_int },
-        LUA_GCSTEP => {
-            let oldstp = unsafe { (*g).gcstp };
-            let mut n = unsafe { args.arg::<usize>() as l_mem };
-            let mut res = 0;
-            unsafe { (*g).gcstp = 0 };
-            if n <= 0 {
-                n = unsafe { (*g).gcdebt };
-            }
-            unsafe { luaE_setdebt(g, (*g).gcdebt - n) };
-            let work = unsafe { (*g).gcdebt <= 0 };
-            if work {
-                unsafe { luaC_step(L) };
-                if unsafe { (*g).gcstate == GCSpause } {
-                    res = 1;
-                }
-            }
-            unsafe { (*g).gcstp = oldstp };
-            res
-        }
         LUA_GCISRUNNING => (unsafe { (*g).gcstp == 0 }) as c_int,
         LUA_GCGEN => {
             let res = if unsafe { (*g).gckind == KGC_INC } {
@@ -959,23 +908,47 @@ pub unsafe extern "C" fn lua_gc(L: *mut lua_State, what: c_int, mut args: ...) -
             unsafe { luaC_changemode(L, KGC_INC as c_int) };
             res
         }
-        LUA_GCPARAM => {
-            let param = unsafe { args.arg::<c_int>() };
-            let value = unsafe { args.arg::<c_int>() };
-            unsafe {
-                api_check(
-                    0 <= param && (param as usize) < LUA_GCPN,
-                    "invalid parameter",
-                )
-            };
-            let res = unsafe { luaO_applyparam((*g).gcparams[param as usize], 100) as c_int };
-            if value >= 0 {
-                unsafe { (*g).gcparams[param as usize] = luaO_codeparam(value as u32) };
-            }
-            res
-        }
         _ => -1,
     }
+}
+
+/// 执行 LUA_GCSTEP：执行 GC 增量步骤，`n` 为步长字节数（0 表示使用当前 GC debt）。
+/// 返回 1 表示 GC 完成了一个完整周期，0 表示未完成，-1 表示 GC 已停止。
+pub unsafe fn lua_gc_step(L: *mut lua_State, n: usize) -> c_int {
+    let g = unsafe { G(L) };
+    if unsafe { (*g).gcstp & (GCSTPGC | GCSTPCLS) } != 0 {
+        return -1;
+    }
+    let oldstp = unsafe { (*g).gcstp };
+    let mut n = n as l_mem;
+    let mut res = 0;
+    unsafe { (*g).gcstp = 0 };
+    if n <= 0 {
+        n = unsafe { (*g).gcdebt };
+    }
+    unsafe { luaE_setdebt(g, (*g).gcdebt - n) };
+    let work = unsafe { (*g).gcdebt <= 0 };
+    if work {
+        unsafe { luaC_step(L) };
+        if unsafe { (*g).gcstate == GCSpause } {
+            res = 1;
+        }
+    }
+    unsafe { (*g).gcstp = oldstp };
+    res
+}
+
+/// 执行 LUA_GCPARAM：获取或设置 GC 参数。
+/// `param` 为参数索引（LUA_GCPxxx 常量），`value` 为新值（负数表示只读取不修改）。
+/// 返回参数的当前值（修改前）。
+pub unsafe fn lua_gc_param(L: *mut lua_State, param: usize, value: c_int) -> c_int {
+    let g = unsafe { G(L) };
+    unsafe { api_check(param < LUA_GCPN, "invalid GC parameter index") };
+    let res = unsafe { luaO_applyparam((*g).gcparams[param], 100) as c_int };
+    if value >= 0 {
+        unsafe { (*g).gcparams[param] = luaO_codeparam(value as u32) };
+    }
+    res
 }
 
 pub unsafe fn lua_error(L: *mut lua_State) -> c_int {

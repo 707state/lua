@@ -17,14 +17,46 @@ use crate::undump::luaU_undump;
 use crate::vm_rs::*;
 use crate::zio::*;
 use core::mem::size_of;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::abort;
 
-use crate::runtime::JMP_BUF_SIZE;
+// 线程局部变量：记录当前线程处于 luaD_rawrunprotected 保护区的层数。
+// panic hook 利用此标记来静默 LuaError/LuaErrorBase 产生的 panic 消息，
+// 避免在正常的 Lua 错误处理流程中打印 "panicked at ..." 噪声。
+std::thread_local! {
+    static LUA_PROTECTED_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
 
-/// 通过 C 标准库调用 setjmp/longjmp，完全绕过 Rust panic 机制
-unsafe extern "C" {
-    fn setjmp(env: *mut core::ffi::c_void) -> c_int;
-    fn longjmp(env: *mut core::ffi::c_void, val: c_int) -> !;
+/// 返回当前线程是否处于至少一层 luaD_rawrunprotected 保护区中。
+#[inline]
+pub(crate) fn in_lua_protected_call() -> bool {
+    LUA_PROTECTED_DEPTH.with(|d| d.get() > 0)
+}
+
+/// 安装全局 panic hook（只需调用一次）：
+/// 对 LuaError / LuaErrorBase 类型的 panic 且在 Lua 保护区内时，静默输出。
+pub(crate) fn install_lua_panic_hook() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // 如果当前线程正在 Lua 保护区内，且 payload 是 LuaError 或 LuaErrorBase，
+            // 则静默处理（不打印 panic 消息），因为这是正常的 Lua 错误传播。
+            if in_lua_protected_call() {
+                if let Some(payload) = info.payload().downcast_ref::<LuaError>() {
+                    let _ = payload; // 静默
+                    return;
+                }
+                if let Some(payload) = info.payload().downcast_ref::<LuaErrorBase>() {
+                    let _ = payload; // 静默
+                    return;
+                }
+            }
+            // 其他 panic（真实错误）照常走原来的 hook
+            prev(info);
+        }));
+    });
 }
 
 #[repr(C)]
@@ -113,19 +145,6 @@ unsafe fn uplevel(up: *mut UpVal) -> StkId {
     unsafe { (*up).v.p.cast() }
 }
 
-unsafe fn alloc_longjmp(previous: *mut lua_longjmp) -> *mut lua_longjmp {
-    Box::into_raw(Box::new(lua_longjmp {
-        previous,
-        status: LUA_OK,
-        buf: [0; JMP_BUF_SIZE],
-    }))
-}
-
-unsafe fn free_longjmp(lj: *mut lua_longjmp) {
-    unsafe { drop(Box::from_raw(lj)) };
-}
-
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, oldtop: StkId) {
     if errcode == LUA_ERRMEM {
         unsafe { setsvalue2s(L, oldtop, (*G(L)).memerrmsg) };
@@ -142,19 +161,17 @@ pub unsafe fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, oldtop: StkI
     unsafe { (*L).top.p = oldtop.add(1) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
-    let errjmp = unsafe { (*L).errorJmp };
-    if !errjmp.is_null() {
-        unsafe { (*errjmp).status = errcode };
-        // 使用 C longjmp 跳回 setjmp 点，完全不经过 Rust panic 机制
-        unsafe { longjmp((*errjmp).buf.as_mut_ptr().cast(), 1) };
+    if unsafe { (*L).nesting_level > 0 } {
+        // 在 luaD_rawrunprotected 保护内：用 LuaError panic 跳出，由 catch_unwind 捕获
+        std::panic::panic_any(LuaError(errcode));
     } else {
+        // 没有保护点：尝试主线程或调用 panic handler
         let g = unsafe { G(L) };
         let mainth = unsafe { mainthread(g) };
         errcode = unsafe { luaE_resetthread(L, errcode) };
         unsafe { (*L).status = errcode };
-        if !unsafe { (*mainth).errorJmp }.is_null() {
+        if unsafe { (*mainth).nesting_level > 0 } {
             unsafe {
                 setobjs2s(L, (*mainth).top.p, (*L).top.p.sub(1));
                 (*mainth).top.p = (*mainth).top.p.add(1);
@@ -169,54 +186,50 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe fn luaD_throwbaselevel(L: *mut lua_State, errcode: TStatus) -> ! {
-    let mut errjmp = unsafe { (*L).errorJmp };
-    if !errjmp.is_null() {
-        loop {
-            let previous = unsafe { (*errjmp).previous };
-            if previous.is_null() {
-                break;
-            }
-            errjmp = previous;
-        }
-        unsafe { (*L).errorJmp = errjmp };
-    }
-    unsafe { luaD_throw(L, errcode) };
+pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
+    // LuaErrorBase 会被每层 catch_unwind 识别并重新抛出，直到最外层才会被捕获并转为 LuaError
+    std::panic::panic_any(LuaErrorBase(errcode));
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void) -> TStatus {
     let oldnCcalls = unsafe { (*L).nCcalls };
-    let old_error = unsafe { (*L).errorJmp };
-    let lj = unsafe { alloc_longjmp(old_error) };
-    unsafe { (*L).errorJmp = lj };
+    // 进入保护区：lua_State 嵌套层数 +1，thread_local 深度计数 +1
+    unsafe { (*L).nesting_level = (*L).nesting_level.wrapping_add(1) };
+    LUA_PROTECTED_DEPTH.with(|d| d.set(d.get().wrapping_add(1)));
 
-    // 使用 C setjmp：返回 0 表示正常执行，非 0 表示从 longjmp 恢复
-    let jumped = unsafe { setjmp((*lj).buf.as_mut_ptr().cast()) };
-    if jumped == 0 {
-        // 正常执行路径
+    let result = catch_unwind(AssertUnwindSafe(|| {
         if let Some(f) = f {
             unsafe { f(L, ud) };
         }
-    }
-    // 无论正常结束还是 longjmp 跳回，都执行清理
-    unsafe {
-        (*L).errorJmp = old_error;
-        (*L).nCcalls = oldnCcalls;
-    }
+    }));
 
-    let status = if jumped == 0 {
-        LUA_OK
-    } else {
-        unsafe { (*lj).status }
-    };
+    // 离开保护区：嵌套层数 -1，thread_local 深度计数 -1
+    unsafe { (*L).nesting_level = (*L).nesting_level.wrapping_sub(1) };
+    LUA_PROTECTED_DEPTH.with(|d| d.set(d.get().wrapping_sub(1)));
+    unsafe { (*L).nCcalls = oldnCcalls };
 
-    unsafe { free_longjmp(lj) };
-    status
+    match result {
+        Ok(()) => LUA_OK,
+        Err(payload) => {
+            // 尝试 downcast 为 LuaError（来自 luaD_throw）
+            if let Some(&LuaError(code)) = payload.downcast_ref::<LuaError>() {
+                return code;
+            }
+            // 尝试 downcast 为 LuaErrorBase（来自 luaD_throwbaselevel）
+            if let Some(&LuaErrorBase(code)) = payload.downcast_ref::<LuaErrorBase>() {
+                // 如果当前层已是最外层（nesting_level == 0），则在此层捕获
+                if unsafe { (*L).nesting_level == 0 } {
+                    return code;
+                }
+                // 否则继续向外传播
+                std::panic::resume_unwind(Box::new(LuaErrorBase(code)));
+            }
+            // 其他 panic（非 Lua 错误）：继续传播
+            std::panic::resume_unwind(payload);
+        }
+    }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_errerr(L: *mut lua_State) -> ! {
     let msg = unsafe { luaS_new(L, c"error in error handling".as_ptr()) };
     unsafe {
@@ -226,7 +239,6 @@ pub unsafe fn luaD_errerr(L: *mut lua_State) -> ! {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_checkminstack(L: *mut lua_State) -> c_int {
     ((unsafe { stacksize(L) } < MAXSTACK - BASIC_STACK_SIZE as i32)
         && (unsafe { getCcalls(L) } < LUAI_MAXCCALLS - 2)) as c_int
@@ -279,7 +291,6 @@ unsafe fn correctstack(L: *mut lua_State, _oldstack: StkId) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_reallocstack(L: *mut lua_State, newsize: c_int, raiseerror: c_int) -> c_int {
     let oldsize = unsafe { stacksize(L) };
     let oldstack = unsafe { (*L).stack.p };
@@ -320,7 +331,6 @@ pub unsafe fn luaD_reallocstack(L: *mut lua_State, newsize: c_int, raiseerror: c
     1
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_growstack(L: *mut lua_State, n: c_int, raiseerror: c_int) -> c_int {
     let size = unsafe { stacksize(L) };
     if size > MAXSTACK {
@@ -343,13 +353,13 @@ pub unsafe fn luaD_growstack(L: *mut lua_State, n: c_int, raiseerror: c_int) -> 
         }
         unsafe { luaD_reallocstack(L, ERRORSTACKSIZE, raiseerror) };
         if raiseerror != 0 {
-            unsafe { luaG_runerror(L, c"stack overflow".as_ptr()) };
+            unsafe { luaG_runerror(L, "stack overflow") };
         }
         0
     } else {
         unsafe { luaD_reallocstack(L, ERRORSTACKSIZE, raiseerror) };
         if raiseerror != 0 {
-            unsafe { luaG_runerror(L, c"stack overflow".as_ptr()) };
+            unsafe { luaG_runerror(L, "stack overflow") };
         }
         0
     }
@@ -365,13 +375,12 @@ unsafe fn stackinuse(L: *mut lua_State) -> c_int {
         ci = unsafe { (*ci).previous };
     }
     let mut res = unsafe { lim.offset_from((*L).stack.p) as c_int + 1 };
-    if res < LUA_MINSTACK as i32{
+    if res < LUA_MINSTACK as i32 {
         res = LUA_MINSTACK as i32;
     }
     res
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_shrinkstack(L: *mut lua_State) {
     let inuse = unsafe { stackinuse(L) };
     let max = if inuse > MAXSTACK / 3 {
@@ -390,7 +399,6 @@ pub unsafe fn luaD_shrinkstack(L: *mut lua_State) {
     unsafe { luaE_shrinkCI(L) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_inctop(L: *mut lua_State) {
     unsafe {
         (*L).top.p = (*L).top.p.add(1);
@@ -398,7 +406,6 @@ pub unsafe fn luaD_inctop(L: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_hook(
     L: *mut lua_State,
     event: c_int,
@@ -456,7 +463,6 @@ pub unsafe fn luaD_hook(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_hookcall(L: *mut lua_State, ci: *mut CallInfo) {
     unsafe { (*L).oldpc = 0 };
     if unsafe { (*L).hookmask & LUA_MASKCALL } != 0 {
@@ -519,7 +525,7 @@ unsafe fn tryfuncTM(L: *mut lua_State, func: StkId, status: u32) -> u32 {
         setobj2s(L, func, tm);
     }
     if status & MAX_CCMT == MAX_CCMT {
-        unsafe { luaG_runerror(L, c"'__call' chain too long".as_ptr()) };
+        unsafe { luaG_runerror(L, "'__call' chain too long") };
     }
     status + (1u32 << CIST_CCMT)
 }
@@ -576,7 +582,6 @@ unsafe fn moveresults(L: *mut lua_State, mut res: StkId, nres: c_int, fwanted: u
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_poscall(L: *mut lua_State, ci: *mut CallInfo, nres: c_int) {
     let fwanted = unsafe { (*ci).callstatus & (CIST_TBC | CIST_NRESULTS) };
     if unsafe { (*L).hookmask } != 0 && fwanted & CIST_TBC == 0 {
@@ -632,7 +637,6 @@ unsafe fn precallC(L: *mut lua_State, mut func: StkId, status: u32, f: lua_CFunc
     n
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_pretailcall(
     L: *mut lua_State,
     ci: *mut CallInfo,
@@ -678,7 +682,6 @@ pub unsafe fn luaD_pretailcall(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_precall(L: *mut lua_State, mut func: StkId, nresults: c_int) -> *mut CallInfo {
     let mut status = (nresults + 1) as u32;
     unsafe { api_check(status <= (MAXRESULTS + 1) as u32, "invalid result count") };
@@ -732,12 +735,10 @@ unsafe fn ccall(L: *mut lua_State, func: StkId, nResults: c_int, inc: u32) {
     unsafe { (*L).nCcalls = (*L).nCcalls.wrapping_sub(inc) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_call(L: *mut lua_State, func: StkId, nResults: c_int) {
     unsafe { ccall(L, func, nResults, 1) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_callnoyield(L: *mut lua_State, func: StkId, nResults: c_int) {
     unsafe { ccall(L, func, nResults, NYCI) };
 }
@@ -863,7 +864,6 @@ unsafe fn precover(L: *mut lua_State, mut status: TStatus) -> TStatus {
     status
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_resume(
     L: *mut lua_State,
     from: *mut lua_State,
@@ -933,9 +933,9 @@ pub unsafe fn lua_yieldk(
     unsafe { api_checkpop(L, nresults) };
     if unsafe { !yieldable(L) } {
         if L != unsafe { mainthread(G(L)) } {
-            unsafe { luaG_runerror(L, c"attempt to yield across a C-call boundary".as_ptr()) };
+            unsafe { luaG_runerror(L, "attempt to yield across a C-call boundary") };
         } else {
-            unsafe { luaG_runerror(L, c"attempt to yield from outside a coroutine".as_ptr()) };
+            unsafe { luaG_runerror(L, "attempt to yield from outside a coroutine") };
         }
     }
     unsafe {
@@ -1020,14 +1020,15 @@ pub(crate) unsafe fn luaD_pcall(
 
 unsafe fn checkmode(L: *mut lua_State, mode: *const c_char, x: *const c_char) {
     if unsafe { strchr(mode, *x as c_int) }.is_null() {
+        let x_s = unsafe { std::ffi::CStr::from_ptr(x) }.to_string_lossy();
+        let mode_s = unsafe { std::ffi::CStr::from_ptr(mode) }.to_string_lossy();
         unsafe {
-            luaO_pushvfstring(
+            luaO_pushstr(
                 L,
-                c"attempt to load a %s chunk (mode is '%s')".as_ptr(),
-                core::mem::transmute_copy(&(&x, &mode)),
-            );
-            luaD_throw(L, LUA_ERRSYNTAX);
-        }
+                &format!("attempt to load a {x_s} chunk (mode is '{mode_s}')"),
+            )
+        };
+        unsafe { luaD_throw(L, LUA_ERRSYNTAX) };
     }
 }
 

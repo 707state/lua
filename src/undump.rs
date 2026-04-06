@@ -18,14 +18,44 @@ struct LoadState {
 }
 
 // luaO_pushfstring: 变参，直接用 crate::object::luaO_pushfstring
-#[inline] unsafe fn luaD_throw(s: *mut lua_State, e: u8) -> ! { unsafe { crate::do_rs::luaD_throw(s, e) } }
-#[inline] unsafe fn luaD_inctop(s: *mut lua_State) { unsafe { crate::do_rs::luaD_inctop(s) } }
-#[inline] unsafe fn luaS_newextlstr(s: *mut lua_State, c: *const c_char, l: usize, fa: lua_Alloc, u: *mut c_void) -> *mut TString { unsafe { crate::string::luaS_newextlstr(s, c, l, fa, u) } }
-#[inline] unsafe fn luaS_createlngstrobj(s: *mut lua_State, l: usize) -> *mut TString { unsafe { crate::string::luaS_createlngstrobj(s, l) } }
-#[inline] unsafe fn luaC_barrier_(s: *mut lua_State, o: *mut GCObject, v: *mut GCObject) { unsafe { crate::gc::luaC_barrier_(s, o, v) } }
-#[inline] unsafe fn luaC_barrierback_(s: *mut lua_State, o: *mut GCObject) { unsafe { crate::gc::luaC_barrierback_(s, o) } }
-#[inline] unsafe fn luaM_malloc_(s: *mut lua_State, sz: usize, t: c_int) -> *mut c_void { unsafe { crate::mem::luaM_malloc_(s, sz, t) } }
-#[inline] unsafe fn luaM_toobig(s: *mut lua_State) -> ! { unsafe { crate::mem::luaM_toobig(s) } }
+#[inline]
+unsafe fn luaD_throw(s: *mut lua_State, e: u8) -> ! {
+    unsafe { crate::do_rs::luaD_throw(s, e) }
+}
+#[inline]
+unsafe fn luaD_inctop(s: *mut lua_State) {
+    unsafe { crate::do_rs::luaD_inctop(s) }
+}
+#[inline]
+unsafe fn luaS_newextlstr(
+    s: *mut lua_State,
+    c: *const c_char,
+    l: usize,
+    fa: lua_Alloc,
+    u: *mut c_void,
+) -> *mut TString {
+    unsafe { crate::string::luaS_newextlstr(s, c, l, fa, u) }
+}
+#[inline]
+unsafe fn luaS_createlngstrobj(s: *mut lua_State, l: usize) -> *mut TString {
+    unsafe { crate::string::luaS_createlngstrobj(s, l) }
+}
+#[inline]
+unsafe fn luaC_barrier_(s: *mut lua_State, o: *mut GCObject, v: *mut GCObject) {
+    unsafe { crate::gc::luaC_barrier_(s, o, v) }
+}
+#[inline]
+unsafe fn luaC_barrierback_(s: *mut lua_State, o: *mut GCObject) {
+    unsafe { crate::gc::luaC_barrierback_(s, o) }
+}
+#[inline]
+unsafe fn luaM_malloc_(s: *mut lua_State, sz: usize, t: c_int) -> *mut c_void {
+    unsafe { crate::mem::luaM_malloc_(s, sz, t) }
+}
+#[inline]
+unsafe fn luaM_toobig(s: *mut lua_State) -> ! {
+    unsafe { crate::mem::luaM_toobig(s) }
+}
 
 #[inline]
 fn ctb(tag: u8) -> u8 {
@@ -92,13 +122,10 @@ unsafe fn alloc_array<T>(state: *mut lua_State, count: usize) -> *mut T {
 }
 
 fn error(state: &LoadState, why: *const c_char) -> ! {
-    let _ = unsafe {
-        crate::object::luaO_pushfstring(
-            state.l,
-            c"%s: bad binary format (%s)".as_ptr(),
-            state.name,
-            why,
-        )
+    let name_s = unsafe { std::ffi::CStr::from_ptr(state.name) }.to_string_lossy();
+    let why_s = unsafe { std::ffi::CStr::from_ptr(why) }.to_string_lossy();
+    unsafe {
+        crate::object::luaO_pushstr(state.l, &format!("{name_s}: bad binary format ({why_s})"))
     };
     unsafe { luaD_throw(state.l, LUA_ERRSYNTAX as u8) }
 }
@@ -187,64 +214,62 @@ fn load_integer(state: &mut LoadState) -> lua_Integer {
     }
 }
 
-unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut TString) { unsafe {
-    let size = load_size(state);
-    if size == 0 {
-        let index = load_varint(state, lua_Unsigned::MAX);
-        if index == 0 {
-            return;
-        }
+unsafe fn load_string(state: &mut LoadState, proto: *mut Proto, slot: *mut *mut TString) {
+    unsafe {
+        let size = load_size(state);
+        if size == 0 {
+            let index = load_varint(state, lua_Unsigned::MAX);
+            if index == 0 {
+                return;
+            }
 
-        let mut saved = MaybeUninit::<TValue>::uninit();
-        if novariant(
-            raw_luaH_getint(
+            let mut saved = MaybeUninit::<TValue>::uninit();
+            if novariant(raw_luaH_getint(
                 state.h.cast(),
                 index as lua_Integer,
                 saved.as_mut_ptr().cast(),
-            )
-        ) != LUA_TSTRING
-        {
-            error(state, c"invalid string index".as_ptr());
+            )) != LUA_TSTRING
+            {
+                error(state, c"invalid string index".as_ptr());
+            }
+            let string = tsvalue(saved.as_ptr());
+            *slot = string;
+            objbarrier(state.l, proto, string);
+            return;
         }
-        let string = tsvalue(saved.as_ptr());
-        *slot = string;
-        objbarrier(state.l, proto, string);
-        return;
-    }
 
-    let size = size - 1;
-    if size <= LUAI_MAXSHORTLEN {
-        let mut buffer = [0u8; LUAI_MAXSHORTLEN + 1];
-        load_block(state, buffer.as_mut_ptr().cast(), size + 1);
-        let string =
-            raw_luaS_newlstr(state.l.cast(), buffer.as_ptr().cast(), size).cast::<TString>()
-        ;
-        *slot = string;
-        objbarrier(state.l, proto, string);
-    } else if state.fixed {
-        let contents = getaddr_(state, size + 1).cast::<c_char>();
-        let string = luaS_newextlstr(state.l, contents, size, None, ptr::null_mut());
-        *slot = string;
-        objbarrier(state.l, proto, string);
-    } else {
-        let string = luaS_createlngstrobj(state.l, size);
-        *slot = string;
-        objbarrier(state.l, proto, string);
-        load_block(state, (*string).contents.cast(), size + 1);
-    }
+        let size = size - 1;
+        if size <= LUAI_MAXSHORTLEN {
+            let mut buffer = [0u8; LUAI_MAXSHORTLEN + 1];
+            load_block(state, buffer.as_mut_ptr().cast(), size + 1);
+            let string =
+                raw_luaS_newlstr(state.l.cast(), buffer.as_ptr().cast(), size).cast::<TString>();
+            *slot = string;
+            objbarrier(state.l, proto, string);
+        } else if state.fixed {
+            let contents = getaddr_(state, size + 1).cast::<c_char>();
+            let string = luaS_newextlstr(state.l, contents, size, None, ptr::null_mut());
+            *slot = string;
+            objbarrier(state.l, proto, string);
+        } else {
+            let string = luaS_createlngstrobj(state.l, size);
+            *slot = string;
+            objbarrier(state.l, proto, string);
+            load_block(state, (*string).contents.cast(), size + 1);
+        }
 
-    state.nstr += 1;
-    let mut saved = MaybeUninit::<TValue>::uninit();
-    setsvalue(saved.as_mut_ptr(), *slot);
+        state.nstr += 1;
+        let mut saved = MaybeUninit::<TValue>::uninit();
+        setsvalue(saved.as_mut_ptr(), *slot);
         raw_luaH_setint(
             state.l.cast(),
             state.h.cast(),
             state.nstr as lua_Integer,
             saved.as_mut_ptr().cast(),
-        )
-    ;
-    objbarrierback(state.l, state.h, *slot);
-}}
+        );
+        objbarrierback(state.l, state.h, *slot);
+    }
+}
 
 unsafe fn load_code(state: &mut LoadState, proto: *mut Proto) {
     let count = load_int(state) as usize;
@@ -448,8 +473,16 @@ fn checkliteral(state: &mut LoadState, expected: &[u8], message: *const c_char) 
 }
 
 fn numerror(state: &LoadState, what: *const c_char, tname: *const c_char) -> ! {
-    let msg = unsafe { crate::object::luaO_pushfstring(state.l, c"%s %s mismatch".as_ptr(), tname, what) };
-    error(state, msg)
+    let tname_s = unsafe { std::ffi::CStr::from_ptr(tname) }.to_string_lossy();
+    let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
+    let name_s = unsafe { std::ffi::CStr::from_ptr(state.name) }.to_string_lossy();
+    unsafe {
+        crate::object::luaO_pushstr(
+            state.l,
+            &format!("{name_s}: bad binary format ({tname_s} {what_s} mismatch)"),
+        )
+    };
+    unsafe { luaD_throw(state.l, LUA_ERRSYNTAX as u8) }
 }
 
 fn checknumsize(state: &mut LoadState, size: usize, tname: *const c_char) {
@@ -481,7 +514,7 @@ fn check_header(state: &mut LoadState) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaU_undump(
+pub unsafe fn luaU_undump(
     state: *mut lua_State,
     z: *mut ZIO,
     mut name: *const c_char,
@@ -505,7 +538,7 @@ pub unsafe  fn luaU_undump(
     };
 
     check_header(&mut load_state);
-    let closure = unsafe  {
+    let closure = unsafe {
         raw_luaF_newLclosure(state.cast(), load_byte(&mut load_state) as c_int).cast::<LClosure>()
     };
     unsafe { push_lclosure(state, closure) };

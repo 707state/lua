@@ -1,6 +1,6 @@
 use crate::aux_rs::*;
-use crate::lua_module::*;
 use crate::lua_module::luaL_Reg;
+use crate::lua_module::*;
 use crate::runtime::*;
 use core::ffi::c_int;
 use core::mem::size_of;
@@ -558,164 +558,164 @@ unsafe fn create_simd_library(state: *mut lua_State) {
     unsafe { lua_setfield(state, -2, FIELD_LANES.as_ptr().cast()) };
 }
 
-unsafe  fn simd_f64x4_add(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_add(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs + rhs) };
     1
 }
 
-unsafe  fn simd_f64x4_splat(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_splat(state: *mut lua_State) -> c_int {
     let value = { luaL_checknumber(state, 1) };
     unsafe { push_f64x4(state, Simd::splat(value)) };
     1
 }
 
-unsafe  fn simd_f64x4_sub(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_sub(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs - rhs) };
     1
 }
 
-unsafe  fn simd_f64x4_mul(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_mul(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs * rhs) };
     1
 }
 
-unsafe  fn simd_f64x4_div(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_div(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs / rhs) };
     1
 }
 
-unsafe  fn simd_f64x4_dot(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_dot(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { lua_pushnumber(state, (lhs * rhs).reduce_sum()) };
     1
 }
 
-unsafe  fn simd_f64x4_sum(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_sum(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { lua_pushnumber(state, value.reduce_sum()) };
     1
 }
 
-unsafe  fn simd_f64x4_product(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_product(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { lua_pushnumber(state, value.reduce_product()) };
     1
 }
 
-unsafe  fn simd_f64x4_min(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_min(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs.simd_min(rhs)) };
     1
 }
 
-unsafe  fn simd_f64x4_max(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_max(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_f64x4(state, lhs.simd_max(rhs)) };
     1
 }
 
-unsafe  fn simd_f64x4_sqrt(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_sqrt(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.sqrt()) };
     1
 }
 
-unsafe  fn simd_f64x4_abs(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_abs(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.abs()) };
     1
 }
 
-unsafe  fn simd_f64x4_neg(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_neg(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, -value) };
     1
 }
 
-unsafe  fn simd_f64x4_floor(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_floor(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.floor()) };
     1
 }
 
-unsafe  fn simd_f64x4_ceil(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_ceil(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.ceil()) };
     1
 }
 
-unsafe  fn simd_f64x4_round(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_round(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.round()) };
     1
 }
 
-unsafe  fn simd_f64x4_trunc(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_trunc(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.trunc()) };
     1
 }
 
-unsafe  fn simd_f64x4_recip(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_recip(state: *mut lua_State) -> c_int {
     let value = unsafe { read_f64x4(state, 1) };
     unsafe { push_f64x4(state, value.recip()) };
     1
 }
 
-unsafe  fn simd_f64x4_eq(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_eq(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_eq(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_f64x4_ne(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_ne(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_ne(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_f64x4_lt(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_lt(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_lt(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_f64x4_le(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_le(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_le(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_f64x4_gt(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_gt(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_gt(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_f64x4_ge(state: *mut lua_State) -> c_int {
+unsafe fn simd_f64x4_ge(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_f64x4(state, 1) };
     let rhs = unsafe { read_f64x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_ge(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_splat(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_splat(state: *mut lua_State) -> c_int {
     let value = { luaL_checkinteger(state, 1) };
     if !(i32::MIN as lua_Integer..=i32::MAX as lua_Integer).contains(&value) {
         return luaL_argerror(state, 1, ERR_I32_RANGE.as_ptr().cast());
@@ -724,143 +724,143 @@ unsafe  fn simd_i32x4_splat(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn simd_i32x4_add(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_add(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs + rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_sub(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_sub(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs - rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_mul(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_mul(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs * rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_sum(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_sum(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     unsafe { lua_pushinteger(state, value.reduce_sum() as lua_Integer) };
     1
 }
 
-unsafe  fn simd_i32x4_product(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_product(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     unsafe { lua_pushinteger(state, value.reduce_product() as lua_Integer) };
     1
 }
 
-unsafe  fn simd_i32x4_min(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_min(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs.simd_min(rhs)) };
     1
 }
 
-unsafe  fn simd_i32x4_max(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_max(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs.simd_max(rhs)) };
     1
 }
 
-unsafe  fn simd_i32x4_abs(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_abs(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     unsafe { push_i32x4(state, value.abs()) };
     1
 }
 
-unsafe  fn simd_i32x4_neg(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_neg(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     unsafe { push_i32x4(state, -value) };
     1
 }
 
-unsafe  fn simd_i32x4_bitand(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_bitand(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs & rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_bitor(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_bitor(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs | rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_bitxor(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_bitxor(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_i32x4(state, lhs ^ rhs) };
     1
 }
 
-unsafe  fn simd_i32x4_shl(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_shl(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     let amount = { luaL_checkinteger(state, 2) };
     unsafe { push_i32x4(state, value << Simd::splat(amount as i32)) };
     1
 }
 
-unsafe  fn simd_i32x4_shr(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_shr(state: *mut lua_State) -> c_int {
     let value = unsafe { read_i32x4(state, 1) };
     let amount = { luaL_checkinteger(state, 2) };
     unsafe { push_i32x4(state, value >> Simd::splat(amount as i32)) };
     1
 }
 
-unsafe  fn simd_i32x4_eq(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_eq(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_eq(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_ne(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_ne(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_ne(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_lt(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_lt(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_lt(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_le(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_le(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_le(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_gt(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_gt(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_gt(rhs).to_array()) };
     1
 }
 
-unsafe  fn simd_i32x4_ge(state: *mut lua_State) -> c_int {
+unsafe fn simd_i32x4_ge(state: *mut lua_State) -> c_int {
     let lhs = unsafe { read_i32x4(state, 1) };
     let rhs = unsafe { read_i32x4(state, 2) };
     unsafe { push_boolx4(state, lhs.simd_ge(rhs).to_array()) };
     1
 }
 
-unsafe  fn math_abs(state: *mut lua_State) -> c_int {
+unsafe fn math_abs(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         let value = { luaL_checkinteger(state, 1) };
         unsafe { lua_pushinteger(state, value.wrapping_abs()) };
@@ -871,39 +871,39 @@ unsafe  fn math_abs(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_sin(state: *mut lua_State) -> c_int {
+unsafe fn math_sin(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).sin()) };
     1
 }
 
-unsafe  fn math_cos(state: *mut lua_State) -> c_int {
+unsafe fn math_cos(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).cos()) };
     1
 }
 
-unsafe  fn math_tan(state: *mut lua_State) -> c_int {
+unsafe fn math_tan(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).tan()) };
     1
 }
 
-unsafe  fn math_asin(state: *mut lua_State) -> c_int {
+unsafe fn math_asin(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).asin()) };
     1
 }
 
-unsafe  fn math_acos(state: *mut lua_State) -> c_int {
+unsafe fn math_acos(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).acos()) };
     1
 }
 
-unsafe  fn math_atan(state: *mut lua_State) -> c_int {
+unsafe fn math_atan(state: *mut lua_State) -> c_int {
     let y = { luaL_checknumber(state, 1) };
     let x = { luaL_optnumber(state, 2, 1.0) };
     unsafe { lua_pushnumber(state, y.atan2(x)) };
     1
 }
 
-unsafe  fn math_toint(state: *mut lua_State) -> c_int {
+unsafe fn math_toint(state: *mut lua_State) -> c_int {
     let mut valid = 0;
     let value = unsafe { lua_tointegerx(state, 1, &mut valid) };
     if valid != 0 {
@@ -917,7 +917,7 @@ unsafe  fn math_toint(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_floor(state: *mut lua_State) -> c_int {
+unsafe fn math_floor(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         unsafe { lua_settop(state, 1) };
     } else {
@@ -927,7 +927,7 @@ unsafe  fn math_floor(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_ceil(state: *mut lua_State) -> c_int {
+unsafe fn math_ceil(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         unsafe { lua_settop(state, 1) };
     } else {
@@ -937,7 +937,7 @@ unsafe  fn math_ceil(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_fmod(state: *mut lua_State) -> c_int {
+unsafe fn math_fmod(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 && unsafe { lua_isinteger(state, 2) } != 0 {
         let divisor = { luaL_checkinteger(state, 2) };
         if divisor == 0 {
@@ -957,7 +957,7 @@ unsafe  fn math_fmod(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_modf(state: *mut lua_State) -> c_int {
+unsafe fn math_modf(state: *mut lua_State) -> c_int {
     if unsafe { lua_isinteger(state, 1) } != 0 {
         unsafe { lua_settop(state, 1) };
         unsafe { lua_pushnumber(state, 0.0) };
@@ -979,19 +979,19 @@ unsafe  fn math_modf(state: *mut lua_State) -> c_int {
     2
 }
 
-unsafe  fn math_sqrt(state: *mut lua_State) -> c_int {
+unsafe fn math_sqrt(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).sqrt()) };
     1
 }
 
-unsafe  fn math_ult(state: *mut lua_State) -> c_int {
+unsafe fn math_ult(state: *mut lua_State) -> c_int {
     let lhs = { luaL_checkinteger(state, 1) } as lua_Unsigned;
     let rhs = { luaL_checkinteger(state, 2) } as lua_Unsigned;
     unsafe { lua_pushboolean(state, (lhs < rhs) as c_int) };
     1
 }
 
-unsafe  fn math_log(state: *mut lua_State) -> c_int {
+unsafe fn math_log(state: *mut lua_State) -> c_int {
     let value = { luaL_checknumber(state, 1) };
     let result = if unsafe { lua_type(state, 2) } <= 0 {
         value.ln()
@@ -1009,22 +1009,22 @@ unsafe  fn math_log(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_exp(state: *mut lua_State) -> c_int {
+unsafe fn math_exp(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1).exp()) };
     1
 }
 
-unsafe  fn math_deg(state: *mut lua_State) -> c_int {
+unsafe fn math_deg(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1) * (180.0 / PI)) };
     1
 }
 
-unsafe  fn math_rad(state: *mut lua_State) -> c_int {
+unsafe fn math_rad(state: *mut lua_State) -> c_int {
     unsafe { lua_pushnumber(state, luaL_checknumber(state, 1) * (PI / 180.0)) };
     1
 }
 
-unsafe  fn math_frexp(state: *mut lua_State) -> c_int {
+unsafe fn math_frexp(state: *mut lua_State) -> c_int {
     let value = { luaL_checknumber(state, 1) };
     let mut exponent = 0;
     let mantissa = frexp(value, &mut exponent);
@@ -1033,14 +1033,14 @@ unsafe  fn math_frexp(state: *mut lua_State) -> c_int {
     2
 }
 
-unsafe  fn math_ldexp(state: *mut lua_State) -> c_int {
+unsafe fn math_ldexp(state: *mut lua_State) -> c_int {
     let value = { luaL_checknumber(state, 1) };
     let exponent = { luaL_checkinteger(state, 2) } as c_int;
     unsafe { lua_pushnumber(state, ldexp(value, exponent)) };
     1
 }
 
-unsafe  fn math_min(state: *mut lua_State) -> c_int {
+unsafe fn math_min(state: *mut lua_State) -> c_int {
     let count = unsafe { lua_gettop(state) };
     if count < 1 {
         return luaL_argerror(state, 1, b"value expected\0".as_ptr().cast());
@@ -1057,7 +1057,7 @@ unsafe  fn math_min(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_max(state: *mut lua_State) -> c_int {
+unsafe fn math_max(state: *mut lua_State) -> c_int {
     let count = unsafe { lua_gettop(state) };
     if count < 1 {
         return luaL_argerror(state, 1, b"value expected\0".as_ptr().cast());
@@ -1074,7 +1074,7 @@ unsafe  fn math_max(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_type(state: *mut lua_State) -> c_int {
+unsafe fn math_type(state: *mut lua_State) -> c_int {
     if unsafe { lua_type(state, 1) } == LUA_TNUMBER as c_int {
         let result = if unsafe { lua_isinteger(state, 1) } != 0 {
             STR_INTEGER
@@ -1091,7 +1091,7 @@ unsafe  fn math_type(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn math_random(state: *mut lua_State) -> c_int {
+unsafe fn math_random(state: *mut lua_State) -> c_int {
     let ran_state = unsafe { &mut *(lua_touserdata(state, lua_upvalueindex(1)) as *mut RanState) };
     let random = next_random_value(&mut ran_state.s);
 
@@ -1149,7 +1149,7 @@ unsafe  fn math_random(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn math_randomseed(state: *mut lua_State) -> c_int {
+unsafe fn math_randomseed(state: *mut lua_State) -> c_int {
     let ran_state = unsafe { &mut *(lua_touserdata(state, lua_upvalueindex(1)) as *mut RanState) };
     let (seed1, seed2) = if unsafe { lua_type(state, 1) } == -1 {
         (
@@ -1176,7 +1176,7 @@ unsafe fn setrandfunc(state: *mut lua_State) {
     };
 }
 
-pub(crate) unsafe  fn luaopen_math(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_math(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &MATHLIB_REGS) };
     unsafe { create_simd_library(state) };
     unsafe { lua_setfield(state, -2, FIELD_SIMD.as_ptr().cast()) };

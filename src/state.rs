@@ -86,7 +86,7 @@ unsafe fn free_tstring_hash(state: *mut lua_State, hash: *mut *mut TString, coun
     unsafe { luaM_free_(state, hash.cast(), size_of::<*mut TString>() * count) };
 }
 
-unsafe  fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
+unsafe fn f_luaopen(state: *mut lua_State, ud: *mut c_void) {
     let _ = ud;
     let g = unsafe { G(state) };
     unsafe { stack_init(state, state) };
@@ -210,7 +210,7 @@ unsafe fn preinit_thread(state: *mut lua_State, g: *mut GlobalState) {
         (*state).nci = 0;
         (*state).twups = state;
         (*state).nCcalls = 0;
-        (*state).errorJmp = ptr::null_mut();
+        (*state).nesting_level = 0;
         (*state).hook = None;
         (*state).hookmask = 0;
         (*state).basehookcount = 0;
@@ -245,7 +245,7 @@ unsafe fn close_state(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
+pub unsafe fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
     let tb = unsafe { gettotalbytes(g) };
     if debt > MAX_LMEM - tb {
         debt = MAX_LMEM - tb;
@@ -257,7 +257,7 @@ pub unsafe  fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
+pub unsafe fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
     let ci = unsafe { new_callinfo(state) };
     unsafe {
         (*(*state).ci).next = ci;
@@ -270,7 +270,7 @@ pub unsafe  fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_shrinkCI(state: *mut lua_State) {
+pub unsafe fn luaE_shrinkCI(state: *mut lua_State) {
     let mut ci = unsafe { (*(*state).ci).next };
     if ci.is_null() {
         return;
@@ -297,17 +297,17 @@ pub unsafe  fn luaE_shrinkCI(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_checkcstack(state: *mut lua_State) {
+pub unsafe fn luaE_checkcstack(state: *mut lua_State) {
     let calls = unsafe { get_ccalls(state) };
     if calls == LUAI_MAXCCALLS {
-        unsafe { luaG_runerror(state, c"C stack overflow".as_ptr()) };
+        unsafe { luaG_runerror(state, "C stack overflow") };
     } else if calls >= (LUAI_MAXCCALLS / 10 * 11) {
         unsafe { luaD_errerr(state) };
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_incCstack(state: *mut lua_State) {
+pub unsafe fn luaE_incCstack(state: *mut lua_State) {
     unsafe { (*state).nCcalls += 1 };
     if unsafe { get_ccalls(state) } >= LUAI_MAXCCALLS {
         unsafe { luaE_checkcstack(state) };
@@ -315,7 +315,7 @@ pub unsafe  fn luaE_incCstack(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_threadsize(state: *mut lua_State) -> usize {
+pub unsafe fn luaE_threadsize(state: *mut lua_State) -> usize {
     let mut sz =
         size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
     if unsafe { !(*state).stack.p.is_null() } {
@@ -352,7 +352,7 @@ pub unsafe fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
+pub unsafe fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
     let l = unsafe { thread.cast::<u8>().sub(offset_of!(LX, l)).cast::<LX>() };
     unsafe { luaF_closeupval(thread, (*thread).stack.p) };
     unsafe { freestack(thread) };
@@ -360,10 +360,7 @@ pub unsafe  fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_resetthread(
-    state: *mut lua_State,
-    mut status: TStatus,
-) -> TStatus {
+pub unsafe fn luaE_resetthread(state: *mut lua_State, mut status: TStatus) -> TStatus {
     unsafe { reset_ci(state) };
     if status == LUA_YIELD {
         status = LUA_OK;
@@ -384,10 +381,7 @@ pub unsafe  fn luaE_resetthread(
     status
 }
 
-pub(crate) unsafe  fn lua_closethread(
-    state: *mut lua_State,
-    from: *mut lua_State,
-) -> c_int {
+pub(crate) unsafe fn lua_closethread(state: *mut lua_State, from: *mut lua_State) -> c_int {
     unsafe {
         (*state).nCcalls = if from.is_null() { 0 } else { get_ccalls(from) };
     }
@@ -399,11 +393,7 @@ pub(crate) unsafe  fn lua_closethread(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_newstate(
-    f: lua_Alloc,
-    ud: *mut c_void,
-    seed: u32,
-) -> *mut lua_State {
+pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
     let Some(frealloc) = f else {
         return ptr::null_mut();
     };
@@ -491,7 +481,7 @@ pub unsafe  fn lua_newstate(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_close(state: *mut lua_State) {
+pub unsafe fn lua_close(state: *mut lua_State) {
     let main = unsafe { mainthread(G(state)) };
     unsafe { close_state(main) };
 }
@@ -504,7 +494,7 @@ pub(crate) unsafe fn luaE_warning(state: *mut lua_State, msg: *const c_char, toc
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
+pub unsafe fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
     let errobj = unsafe { s2v((*state).top.p.sub(1)) };
     let msg = if unsafe { ((*errobj).tt_ & 0x0f) == 4 } {
         unsafe { lua_tolstring(state.cast(), -1, ptr::null_mut()) }
@@ -521,7 +511,10 @@ pub unsafe  fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::*};
+    use crate::{
+        aux_rs::{luaL_checkversion_, luaL_newstate},
+        luaffi::*,
+    };
 
     unsafe fn test_hook(_: *mut lua_State, _: *mut lua_Debug) {}
 

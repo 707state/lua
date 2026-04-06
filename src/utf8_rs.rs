@@ -111,7 +111,7 @@ fn encode_utf8(mut code: u32, out: &mut [u8; 6]) -> usize {
     len
 }
 
-unsafe  fn utflen(state: *mut lua_State) -> c_int {
+unsafe fn utflen(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
     let mut posi = u_posrelat(luaL_optinteger(state, 2, 1), len);
@@ -154,7 +154,7 @@ unsafe  fn utflen(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn codepoint(state: *mut lua_State) -> c_int {
+unsafe fn codepoint(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
     let posi = u_posrelat(luaL_optinteger(state, 2, 1), len);
@@ -173,12 +173,11 @@ unsafe  fn codepoint(state: *mut lua_State) -> c_int {
     }
 
     let mut max_returns = (pose - posi + 1) as c_int;
-        luaL_checkstack(
-            state,
-            max_returns,
-            ERR_STRING_SLICE_TOO_LONG.as_ptr().cast(),
-        )
-    ;
+    luaL_checkstack(
+        state,
+        max_returns,
+        ERR_STRING_SLICE_TOO_LONG.as_ptr().cast(),
+    );
 
     let mut current = unsafe { s.add((posi - 1) as usize) };
     let end = unsafe { s.add(pose as usize) };
@@ -211,7 +210,7 @@ unsafe fn pushutfchar(state: *mut lua_State, arg: c_int, out: &mut Vec<u8>) {
     out.extend_from_slice(&buf[..len]);
 }
 
-unsafe  fn utfchar(state: *mut lua_State) -> c_int {
+unsafe fn utfchar(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     if n == 1 {
         let mut bytes = Vec::with_capacity(6);
@@ -228,7 +227,7 @@ unsafe  fn utfchar(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn byteoffset(state: *mut lua_State) -> c_int {
+unsafe fn byteoffset(state: *mut lua_State) -> c_int {
     let mut len = 0_usize;
     let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
     let mut n = luaL_checkinteger(state, 2);
@@ -320,15 +319,15 @@ unsafe fn iter_aux(state: *mut lua_State, strict: bool) -> c_int {
     2
 }
 
-unsafe  fn iter_auxstrict(state: *mut lua_State) -> c_int {
+unsafe fn iter_auxstrict(state: *mut lua_State) -> c_int {
     unsafe { iter_aux(state, true) }
 }
 
-unsafe  fn iter_auxlax(state: *mut lua_State) -> c_int {
+unsafe fn iter_auxlax(state: *mut lua_State) -> c_int {
     unsafe { iter_aux(state, false) }
 }
 
-unsafe  fn iter_codes(state: *mut lua_State) -> c_int {
+unsafe fn iter_codes(state: *mut lua_State) -> c_int {
     let lax = unsafe { lua_toboolean(state, 2) } != 0;
     let mut len = 0_usize;
     let s = luaL_checklstring(state, 1, &mut len).cast::<u8>();
@@ -349,7 +348,7 @@ unsafe  fn iter_codes(state: *mut lua_State) -> c_int {
     3
 }
 
-pub(crate) unsafe  fn luaopen_utf8(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_utf8(state: *mut lua_State) -> c_int {
     unsafe { create_library_with_nrec(state, &UTF8LIB_REGS, 6) };
     unsafe { lua_pushlstring(state, UTF8PATT.as_ptr().cast(), UTF8PATT.len()) };
     unsafe { lua_setfield(state, -2, FIELD_CHARPATTERN.as_ptr().cast()) };

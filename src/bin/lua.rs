@@ -3,8 +3,8 @@ use lua_rs::aux_rs::{
     luaL_newstate, luaL_tolstring, luaL_traceback,
 };
 use lua_rs::init::luaL_openselectedlibs;
+use lua_rs::lua_module::lua_State;
 use lua_rs::luaffi::*;
-use lua_rs::{link_anchor, lua_module::lua_State};
 
 // Shadow the u8 constants with i32 versions for comparison with c_int return values
 const LUA_OK: i32 = 0;
@@ -33,7 +33,6 @@ const HAS_E: i32 = 8;
 const HAS_E_CAP: i32 = 16;
 
 fn main() -> std::process::ExitCode {
-    let _ = link_anchor as fn();
     let args = env::args().collect::<Vec<_>>();
     let state = luaL_newstate();
     if state.is_null() {
@@ -458,6 +457,10 @@ impl LuaRuntime {
     fn add_return(&mut self) -> i32 {
         let line = unsafe { lua_to_string(self.state, -1) }.unwrap_or_default();
         let source = format!("return {line};");
+        // 注意：source 是 Rust 字符串，没有 push 到 Lua stack，
+        // 所以 stack 此时是 [1: original_line]。
+        // luaL_loadbufferx 成功：push chunk → [1: original_line, 2: chunk]
+        // luaL_loadbufferx 失败：push error  → [1: original_line, 2: error]
         let status = luaL_loadbufferx(
             self.state,
             source.as_ptr().cast(),
@@ -467,9 +470,13 @@ impl LuaRuntime {
         );
         unsafe {
             if status == LUA_OK {
+                // 成功：删除 slot 1 的原始字符串，只保留 chunk
                 lua_remove(self.state, -2);
+                // stack: [1: chunk]
             } else {
-                lua_pop(self.state, 2);
+                // 失败：只 pop error（1 个），保留 slot 1 的原始字符串供 multiline 使用
+                lua_pop(self.state, 1);
+                // stack: [1: original_line]
             }
         }
         status
@@ -503,17 +510,19 @@ impl LuaRuntime {
         if !self.push_line(true) {
             return -1;
         }
-        let status = if self.add_return() != LUA_OK {
-            self.multiline()
+        // add_return 成功时：stack = [chunk]（原始字符串已在内部被删除）
+        // add_return 失败时：stack = []，进入 multiline，multiline 会重新 push 并返回带原始行的 stack
+        // multiline 返回时：stack = [1: accumulated_line, 2: chunk_or_error]，需要 remove(1)
+        let add_status = self.add_return();
+        if add_status != LUA_OK {
+            let status = self.multiline();
+            // multiline 后 slot 1 是累积的输入字符串，需要移除，留下 chunk/error 在 slot 1
+            unsafe { lua_remove(self.state, 1) };
+            status
         } else {
+            // add_return 成功：stack 已经只有 chunk（slot 1），直接返回
             LUA_OK
-        };
-        let line = unsafe { lua_to_string(self.state, 1) }.unwrap_or_default();
-        unsafe { lua_remove(self.state, 1) };
-        if !line.is_empty() {
-            let _ = line;
         }
-        status
     }
 
     fn l_print(&mut self) {
@@ -563,7 +572,7 @@ impl LuaRuntime {
     }
 }
 
-unsafe  fn msghandler(state: *mut lua_State) -> i32 {
+unsafe fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");

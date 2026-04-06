@@ -85,10 +85,22 @@ static SYSLIB: [luaL_Reg; 12] = [
 ];
 
 // Lua API：直接调用 crate::api
-#[inline] unsafe fn lua_getfield(s: *mut lua_State, i: c_int, k: *const c_char) -> c_int { unsafe { crate::api::lua_getfield(s, i, k) } }
-#[inline] unsafe fn lua_type(s: *mut lua_State, i: c_int) -> c_int { unsafe { crate::api::lua_type(s, i) } }
-#[inline] unsafe fn lua_toboolean(s: *mut lua_State, i: c_int) -> c_int { unsafe { crate::api::lua_toboolean(s, i) } }
-#[inline] unsafe fn lua_tointegerx(s: *mut lua_State, i: c_int, n: *mut c_int) -> lua_Integer { unsafe { crate::api::lua_tointegerx(s, i, n) } }
+#[inline]
+unsafe fn lua_getfield(s: *mut lua_State, i: c_int, k: *const c_char) -> c_int {
+    unsafe { crate::api::lua_getfield(s, i, k) }
+}
+#[inline]
+unsafe fn lua_type(s: *mut lua_State, i: c_int) -> c_int {
+    unsafe { crate::api::lua_type(s, i) }
+}
+#[inline]
+unsafe fn lua_toboolean(s: *mut lua_State, i: c_int) -> c_int {
+    unsafe { crate::api::lua_toboolean(s, i) }
+}
+#[inline]
+unsafe fn lua_tointegerx(s: *mut lua_State, i: c_int, n: *mut c_int) -> lua_Integer {
+    unsafe { crate::api::lua_tointegerx(s, i, n) }
+}
 
 // C 系统调用（POSIX/libc，无直接 Rust std 等价，保留 extern C 声明）
 unsafe extern "C" {
@@ -261,7 +273,7 @@ unsafe fn l_checktime(state: *mut lua_State, arg: c_int) -> Result<time_t, c_int
     }
 }
 
-unsafe  fn os_execute(state: *mut lua_State) -> c_int {
+unsafe fn os_execute(state: *mut lua_State) -> c_int {
     let cmd = unsafe { l_optstring(state, 1) };
     reset_errno();
     let stat = unsafe { system(cmd) };
@@ -273,24 +285,24 @@ unsafe  fn os_execute(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn os_remove(state: *mut lua_State) -> c_int {
+unsafe fn os_remove(state: *mut lua_State) -> c_int {
     let filename = unsafe { l_checkstring(state, 1) };
     reset_errno();
     unsafe { luaL_fileresult(state, (remove(filename) == 0) as c_int, filename) }
 }
 
-unsafe  fn os_rename(state: *mut lua_State) -> c_int {
+unsafe fn os_rename(state: *mut lua_State) -> c_int {
     let fromname = unsafe { l_checkstring(state, 1) };
     let toname = unsafe { l_checkstring(state, 2) };
     reset_errno();
     unsafe { luaL_fileresult(state, (rename(fromname, toname) == 0) as c_int, ptr::null()) }
 }
 
-unsafe  fn os_tmpname(state: *mut lua_State) -> c_int {
+unsafe fn os_tmpname(state: *mut lua_State) -> c_int {
     let mut buff = TMP_TEMPLATE.to_vec();
     let fd = unsafe { mkstemp(buff.as_mut_ptr().cast()) };
     if fd == -1 {
-        return unsafe  {
+        return unsafe {
             lua_pushlstring(
                 state,
                 ERR_UNABLE_TMPNAME.as_ptr().cast(),
@@ -305,19 +317,19 @@ unsafe  fn os_tmpname(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn os_getenv(state: *mut lua_State) -> c_int {
+unsafe fn os_getenv(state: *mut lua_State) -> c_int {
     let key = unsafe { l_checkstring(state, 1) };
     unsafe { lua_pushstring(state, getenv(key)) };
     1
 }
 
-unsafe  fn os_clock(state: *mut lua_State) -> c_int {
+unsafe fn os_clock(state: *mut lua_State) -> c_int {
     let value = unsafe { clock() } as lua_Number / CLOCKS_PER_SEC_VALUE;
     unsafe { lua_pushnumber(state, value) };
     1
 }
 
-unsafe  fn os_date(state: *mut lua_State) -> c_int {
+unsafe fn os_date(state: *mut lua_State) -> c_int {
     let mut slen = 0usize;
     let s = { luaL_optlstring(state, 1, b"%c\0".as_ptr().cast(), &mut slen) };
     let mut format = unsafe { slice::from_raw_parts(s.cast::<u8>(), slen) };
@@ -341,7 +353,7 @@ unsafe  fn os_date(state: *mut lua_State) -> c_int {
     };
 
     if stm.is_null() {
-        return unsafe  {
+        return unsafe {
             lua_pushlstring(
                 state,
                 ERR_DATE_NOT_REPRESENTABLE.as_ptr().cast(),
@@ -383,7 +395,7 @@ unsafe  fn os_date(state: *mut lua_State) -> c_int {
         cc[1..1 + spec_len].copy_from_slice(&remaining[..spec_len]);
 
         let mut buff = [0_u8; SIZETIMEFMT];
-        let reslen = unsafe  {
+        let reslen = unsafe {
             strftime(
                 buff.as_mut_ptr().cast(),
                 SIZETIMEFMT,
@@ -399,7 +411,7 @@ unsafe  fn os_date(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn os_time(state: *mut lua_State) -> c_int {
+unsafe fn os_time(state: *mut lua_State) -> c_int {
     let t = if unsafe { is_none_or_nil(state, 1) } {
         unsafe { time(ptr::null_mut()) }
     } else {
@@ -442,7 +454,7 @@ unsafe  fn os_time(state: *mut lua_State) -> c_int {
 
     let roundtrip = t as lua_Integer;
     if roundtrip as time_t != t || t == -1 {
-        return unsafe  {
+        return unsafe {
             lua_pushlstring(
                 state,
                 ERR_TIME_NOT_REPRESENTABLE.as_ptr().cast(),
@@ -455,7 +467,7 @@ unsafe  fn os_time(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn os_difftime(state: *mut lua_State) -> c_int {
+unsafe fn os_difftime(state: *mut lua_State) -> c_int {
     let t1 = match unsafe { l_checktime(state, 1) } {
         Ok(v) => v,
         Err(code) => return code,
@@ -468,7 +480,7 @@ unsafe  fn os_difftime(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn os_setlocale(state: *mut lua_State) -> c_int {
+unsafe fn os_setlocale(state: *mut lua_State) -> c_int {
     const CATEGORIES: [c_int; 6] = [0, 1, 2, 3, 4, 5];
     const CAT_NAMES: [&[u8]; 6] = [
         CAT_ALL,
@@ -502,7 +514,7 @@ unsafe  fn os_setlocale(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn os_exit(state: *mut lua_State) -> c_int {
+unsafe fn os_exit(state: *mut lua_State) -> c_int {
     let status = if unsafe { is_boolean(state, 1) } {
         if unsafe { lua_toboolean(state, 1) } != 0 {
             EXIT_SUCCESS_CODE
@@ -519,7 +531,7 @@ unsafe  fn os_exit(state: *mut lua_State) -> c_int {
     exit(status);
 }
 
-pub(crate) unsafe  fn luaopen_os(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_os(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &SYSLIB) };
     1
 }

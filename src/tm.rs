@@ -15,18 +15,55 @@ struct SyncCharPtr(*const c_char);
 
 unsafe impl Sync for SyncCharPtr {}
 
-#[inline] unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) { unsafe { crate::gc::luaC_fix(s, o) } }
-#[inline] unsafe fn luaC_step(s: *mut lua_State) { unsafe { crate::gc::luaC_step(s) } }
-#[inline] unsafe fn luaD_call(s: *mut lua_State, f: StkId, n: c_int) { unsafe { crate::do_rs::luaD_call(s, f, n) } }
-#[inline] unsafe fn luaD_callnoyield(s: *mut lua_State, f: StkId, n: c_int) { unsafe { crate::do_rs::luaD_callnoyield(s, f, n) } }
-#[inline] unsafe fn luaD_growstack(s: *mut lua_State, n: c_int, r: c_int) -> c_int { unsafe { crate::do_rs::luaD_growstack(s, n, r) } }
-#[inline] unsafe fn luaG_tointerror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_tointerror(s, p1, p2) } }
-#[inline] unsafe fn luaG_opinterror(s: *mut lua_State, p1: *const TValue, p2: *const TValue, m: *const c_char) -> ! { unsafe { crate::debug::luaG_opinterror(s, p1, p2, m) } }
-#[inline] unsafe fn luaG_concaterror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_concaterror(s, p1, p2) } }
-#[inline] unsafe fn luaG_ordererror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! { unsafe { crate::debug::luaG_ordererror(s, p1, p2) } }
-/// 单字符串版本，避免变参
-#[inline] unsafe fn luaG_runerror(s: *mut lua_State, msg: *const c_char) -> ! { unsafe { crate::debug::luaG_runerror1(s, msg) } }
-#[inline] unsafe fn luaV_tointegerns(o: *const TValue, p: *mut lua_Integer, m: c_int) -> c_int { unsafe { crate::vm_rs::luaV_tointegerns(o, p, m) } }
+#[inline]
+unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) {
+    unsafe { crate::gc::luaC_fix(s, o) }
+}
+#[inline]
+unsafe fn luaC_step(s: *mut lua_State) {
+    unsafe { crate::gc::luaC_step(s) }
+}
+#[inline]
+unsafe fn luaD_call(s: *mut lua_State, f: StkId, n: c_int) {
+    unsafe { crate::do_rs::luaD_call(s, f, n) }
+}
+#[inline]
+unsafe fn luaD_callnoyield(s: *mut lua_State, f: StkId, n: c_int) {
+    unsafe { crate::do_rs::luaD_callnoyield(s, f, n) }
+}
+#[inline]
+unsafe fn luaD_growstack(s: *mut lua_State, n: c_int, r: c_int) -> c_int {
+    unsafe { crate::do_rs::luaD_growstack(s, n, r) }
+}
+#[inline]
+unsafe fn luaG_tointerror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
+    unsafe { crate::debug::luaG_tointerror(s, p1, p2) }
+}
+#[inline]
+unsafe fn luaG_opinterror(
+    s: *mut lua_State,
+    p1: *const TValue,
+    p2: *const TValue,
+    m: *const c_char,
+) -> ! {
+    unsafe { crate::debug::luaG_opinterror(s, p1, p2, m) }
+}
+#[inline]
+unsafe fn luaG_concaterror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
+    unsafe { crate::debug::luaG_concaterror(s, p1, p2) }
+}
+#[inline]
+unsafe fn luaG_ordererror(s: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
+    unsafe { crate::debug::luaG_ordererror(s, p1, p2) }
+}
+#[inline]
+unsafe fn luaG_runerror(s: *mut lua_State, msg: &str) -> ! {
+    unsafe { crate::debug::luaG_runerror(s, msg) }
+}
+#[inline]
+unsafe fn luaV_tointegerns(o: *const TValue, p: *mut lua_Integer, m: c_int) -> c_int {
+    unsafe { crate::vm_rs::luaV_tointegerns(o, p, m) }
+}
 
 static UDATATYPE_NAME: &[u8] = b"userdata\0";
 static NO_VALUE: &[u8] = b"no value\0";
@@ -103,11 +140,7 @@ pub(crate) unsafe fn raw_luaT_init(state: *mut c_void) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_gettm(
-    events: *mut Table,
-    event: c_int,
-    ename: *mut TString,
-) -> *const TValue {
+pub unsafe fn luaT_gettm(events: *mut Table, event: c_int, ename: *mut TString) -> *const TValue {
     let tm = unsafe { raw_luaH_Hgetshortstr(events.cast(), ename.cast()).cast::<TValue>() };
     if unsafe { ttisnil(tm) } {
         unsafe { (*events).flags |= (1u8) << event };
@@ -118,7 +151,7 @@ pub unsafe  fn luaT_gettm(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_gettmbyobj(
+pub unsafe fn luaT_gettmbyobj(
     state: *mut lua_State,
     o: *const TValue,
     event: c_int,
@@ -146,7 +179,7 @@ pub(crate) unsafe fn luaT_objtypename(state: *mut lua_State, o: *const TValue) -
         mt = unsafe { (*uvalue(o)).metatable };
     }
     if !mt.is_null() {
-        let name = unsafe{
+        let name = unsafe {
             raw_luaH_Hgetshortstr(
                 mt.cast(),
                 raw_luaS_new(state.cast(), c"__name".as_ptr()).cast(),
@@ -161,7 +194,7 @@ pub(crate) unsafe fn luaT_objtypename(state: *mut lua_State, o: *const TValue) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_callTM(
+pub unsafe fn luaT_callTM(
     state: *mut lua_State,
     f: *const TValue,
     p1: *const TValue,
@@ -184,7 +217,7 @@ pub unsafe  fn luaT_callTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_callTMres(
+pub unsafe fn luaT_callTMres(
     state: *mut lua_State,
     f: *const TValue,
     p1: *const TValue,
@@ -254,7 +287,7 @@ pub unsafe fn luaT_trybinTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_tryconcatTM(state: *mut lua_State) {
+pub unsafe fn luaT_tryconcatTM(state: *mut lua_State) {
     let p1 = unsafe { (*state).top.p.sub(2) };
     if unsafe { callbinTM(state, s2v(p1), s2v(p1.add(1)), p1, TM_CONCAT) } < 0 {
         unsafe { luaG_concaterror(state, s2v(p1), s2v(p1.add(1))) };
@@ -262,7 +295,7 @@ pub unsafe  fn luaT_tryconcatTM(state: *mut lua_State) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_trybinassocTM(
+pub unsafe fn luaT_trybinassocTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -278,7 +311,7 @@ pub unsafe  fn luaT_trybinassocTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_trybiniTM(
+pub unsafe fn luaT_trybiniTM(
     state: *mut lua_State,
     p1: *const TValue,
     i2: lua_Integer,
@@ -295,7 +328,7 @@ pub unsafe  fn luaT_trybiniTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_callorderTM(
+pub unsafe fn luaT_callorderTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
@@ -310,7 +343,7 @@ pub unsafe  fn luaT_callorderTM(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_callorderiTM(
+pub unsafe fn luaT_callorderiTM(
     state: *mut lua_State,
     mut p1: *const TValue,
     v2: c_int,
@@ -404,11 +437,7 @@ unsafe fn buildhiddenargs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_adjustvarargs(
-    state: *mut lua_State,
-    ci: *mut CallInfo,
-    p: *const Proto,
-) {
+pub unsafe fn luaT_adjustvarargs(state: *mut lua_State, ci: *mut CallInfo, p: *const Proto) {
     let totalargs = unsafe { (*state).top.p.offset_from((*ci).func.p) as c_int - 1 };
     let nfixparams = unsafe { (*p).numparams as c_int };
     let nextra = totalargs - nfixparams;
@@ -428,7 +457,7 @@ pub unsafe  fn luaT_adjustvarargs(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue) {
+pub unsafe fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue) {
     let nextra = unsafe { (*ci).u.l.nextraargs };
     let mut n = 0;
     if unsafe { luaV_tointegerns(rc, ptr::addr_of_mut!(n), LUA_FLOORN2I) } != 0 {
@@ -464,66 +493,65 @@ unsafe fn getnumargs(state: *mut lua_State, ci: *mut CallInfo, h: *mut Table) ->
         } != LUA_VNUMINT
             || unsafe { ivalue(ptr::addr_of!(res)) as u64 > (c_int::MAX as u64 / 2) }
         {
-            unsafe { luaG_runerror(state, c"vararg table has no proper 'n'".as_ptr()) };
+            unsafe { luaG_runerror(state, "vararg table has no proper 'n'") };
         }
         unsafe { ivalue(ptr::addr_of!(res)) as c_int }
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaT_getvarargs(
+pub unsafe fn luaT_getvarargs(
     state: *mut lua_State,
     ci: *mut CallInfo,
     mut where_: StkId,
     mut wanted: c_int,
     vatab: c_int,
-) { unsafe {
-    let h = if vatab < 0 {
-        ptr::null_mut()
-    } else {
-        hvalue(s2v((*ci).func.p.add((vatab + 1) as usize)))
-    };
-    let nargs = getnumargs(state, ci, h);
-    let touse;
-    if wanted < 0 {
-        touse = nargs;
-        wanted = nargs;
-        checkstackp(state, nargs, &mut where_);
-        (*state).top.p = where_.add(nargs as usize);
-    } else {
-        touse = if nargs > wanted { wanted } else { nargs };
-    }
-    let mut i = 0;
-    if h.is_null() {
-        while i < touse {
+) {
+    unsafe {
+        let h = if vatab < 0 {
+            ptr::null_mut()
+        } else {
+            hvalue(s2v((*ci).func.p.add((vatab + 1) as usize)))
+        };
+        let nargs = getnumargs(state, ci, h);
+        let touse;
+        if wanted < 0 {
+            touse = nargs;
+            wanted = nargs;
+            checkstackp(state, nargs, &mut where_);
+            (*state).top.p = where_.add(nargs as usize);
+        } else {
+            touse = if nargs > wanted { wanted } else { nargs };
+        }
+        let mut i = 0;
+        if h.is_null() {
+            while i < touse {
                 setobjs2s(
                     state,
                     where_.add(i as usize),
                     (*ci).func.p.sub(nargs as usize).add(i as usize),
-                )
-            ;
-            i += 1;
-        }
-    } else {
-        while i < touse {
-            let tag =
-                raw_luaH_getint(
+                );
+                i += 1;
+            }
+        } else {
+            while i < touse {
+                let tag = raw_luaH_getint(
                     h.cast(),
                     (i + 1) as lua_Integer,
                     s2v(where_.add(i as usize)).cast(),
-                )
-            ;
-            if tagisempty(tag) {
-                setnilvalue(s2v(where_.add(i as usize)));
+                );
+                if tagisempty(tag) {
+                    setnilvalue(s2v(where_.add(i as usize)));
+                }
+                i += 1;
             }
+        }
+        while i < wanted {
+            setnilvalue(s2v(where_.add(i as usize)));
             i += 1;
         }
     }
-    while i < wanted {
-        setnilvalue(s2v(where_.add(i as usize)));
-        i += 1;
-    }
-}}
+}
 
 #[cfg(test)]
 mod tests {

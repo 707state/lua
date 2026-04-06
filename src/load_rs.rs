@@ -1,9 +1,9 @@
+use crate::api::*;
 use crate::aux_rs::*;
 use crate::lua_module::luaL_Reg;
 use crate::lua_module::*;
 use crate::luaffi::*;
 use crate::runtime::*;
-use crate::api::*;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use std::env;
@@ -57,7 +57,7 @@ static LL_FUNCS: [luaL_Reg; 2] = [
 ];
 
 #[cfg(unix)]
-unsafe extern  "C"  {
+unsafe extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
@@ -146,12 +146,7 @@ unsafe fn checkclib(state: *mut lua_State, path: &CStr) -> *mut c_void {
     plib
 }
 
-unsafe  fn freelib(
-    ud: *mut c_void,
-    _ptr: *mut c_void,
-    _osize: usize,
-    _nsize: usize,
-) -> *mut c_void {
+unsafe fn freelib(ud: *mut c_void, _ptr: *mut c_void, _osize: usize, _nsize: usize) -> *mut c_void {
     unsafe { lsys_unloadlib(ud) };
     ptr::null_mut()
 }
@@ -201,7 +196,7 @@ unsafe fn lookforfunc(state: *mut lua_State, path: &CStr, sym: &CStr) -> c_int {
     }
 }
 
-unsafe  fn ll_loadlib(state: *mut lua_State) -> c_int {
+unsafe fn ll_loadlib(state: *mut lua_State) -> c_int {
     let mut path = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -310,7 +305,7 @@ unsafe fn searchpath(
     None
 }
 
-unsafe  fn ll_searchpath(state: *mut lua_State) -> c_int {
+unsafe fn ll_searchpath(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -356,8 +351,7 @@ unsafe fn findfile(
         let _ = unsafe {
             luaL_error(
                 state,
-                c"'package.%s' must be a string".as_ptr(),
-                pname.as_ptr(),
+                &format!("'package.{}' must be a string", pname.to_string_lossy()),
             )
         };
     }
@@ -383,22 +377,22 @@ unsafe fn checkload(state: *mut lua_State, stat: bool, filename: &CStr) -> c_int
         unsafe { lua_pushstring(state, filename.as_ptr()) };
         2
     } else {
-        let modname = unsafe { tostring_ptr(state, 1) };
-        let errmsg = unsafe { tostring_ptr(state, -1) };
+        let modname_s =
+            unsafe { std::ffi::CStr::from_ptr(tostring_ptr(state, 1)) }.to_string_lossy();
+        let errmsg_s =
+            unsafe { std::ffi::CStr::from_ptr(tostring_ptr(state, -1)) }.to_string_lossy();
+        let file_s = filename.to_string_lossy();
         let _ = unsafe {
             luaL_error(
                 state,
-                c"error loading module '%s' from file '%s':\n\t%s".as_ptr(),
-                modname,
-                filename.as_ptr(),
-                errmsg,
+                &format!("error loading module '{modname_s}' from file '{file_s}':\n\t{errmsg_s}"),
             )
         };
         0
     }
 }
 
-unsafe  fn searcher_lua(state: *mut lua_State) -> c_int {
+unsafe fn searcher_lua(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -429,7 +423,7 @@ unsafe fn loadfunc(state: *mut lua_State, filename: &CStr, modname: &str) -> c_i
     unsafe { lookforfunc(state, filename, &openfunc) }
 }
 
-unsafe  fn searcher_c(state: *mut lua_State) -> c_int {
+unsafe fn searcher_c(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -440,7 +434,7 @@ unsafe  fn searcher_c(state: *mut lua_State) -> c_int {
     unsafe { checkload(state, loadfunc(state, &filename, &name) == 0, &filename) }
 }
 
-unsafe  fn searcher_croot(state: *mut lua_State) -> c_int {
+unsafe fn searcher_croot(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) }
         .to_string_lossy()
         .into_owned();
@@ -468,7 +462,7 @@ unsafe  fn searcher_croot(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn searcher_preload(state: *mut lua_State) -> c_int {
+unsafe fn searcher_preload(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) };
     unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
     if unsafe { lua_getfield(state, -1, name.as_ptr()) } == LUA_TNIL.into() {
@@ -498,14 +492,8 @@ unsafe fn findloader(state: *mut lua_State, name: &CStr) {
         if unsafe { lua_geti(state, 3, i) } == LUA_TNIL.into() {
             unsafe { lua_pop(state, 1) };
             let msg = parts.join("\n\t");
-            let _ = unsafe {
-                luaL_error(
-                    state,
-                    c"module '%s' not found:%s".as_ptr(),
-                    name.as_ptr(),
-                    CString::new(format!("\n\t{msg}")).unwrap().as_ptr(),
-                )
-            };
+            let name_s = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_string_lossy();
+            let _ = unsafe { luaL_error(state, &format!("module '{name_s}' not found:\n\t{msg}")) };
         }
         unsafe { lua_pushstring(state, name.as_ptr()) };
         unsafe { lua_call(state, 1, 2) };
@@ -524,7 +512,7 @@ unsafe fn findloader(state: *mut lua_State, name: &CStr) {
     }
 }
 
-unsafe  fn ll_require(state: *mut lua_State) -> c_int {
+unsafe fn ll_require(state: *mut lua_State) -> c_int {
     let name = unsafe { checkstring(state, 1) };
     unsafe { crate::lua_module::lua_settop(state, 1) };
     unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
@@ -570,7 +558,7 @@ unsafe fn createsearcherstable(state: *mut lua_State) {
     unsafe { lua_setfield(state, -2, FIELD_SEARCHERS.as_ptr().cast()) };
 }
 
-pub(crate) unsafe  fn luaopen_package(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_package(state: *mut lua_State) -> c_int {
     luaL_getsubtable(state, LUA_REGISTRYINDEX, CLIBS.as_ptr().cast());
     unsafe { lua_pop(state, 1) };
     unsafe { create_library_with_nrec(state, &PK_FUNCS, 7) };
@@ -633,11 +621,7 @@ unsafe fn lsys_sym(state: *mut lua_State, lib: *mut c_void, sym: &CStr) -> LuaCF
         }
         None
     } else {
-        Some(unsafe {
-            core::mem::transmute::<*mut c_void, unsafe  fn(*mut lua_State) -> c_int>(
-                f,
-            )
-        })
+        Some(unsafe { core::mem::transmute::<*mut c_void, unsafe fn(*mut lua_State) -> c_int>(f) })
     }
 }
 

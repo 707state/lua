@@ -116,44 +116,34 @@ fn dump_integer(state: &mut DumpState, value: lua_Integer) {
     dump_varint(state, encoded);
 }
 
-unsafe fn dump_string(state: &mut DumpState, string: *mut TString) { unsafe {
-    if string.is_null() {
-        dump_varint(state, 0);
-        dump_varint(state, 0);
-        return;
-    }
+unsafe fn dump_string(state: &mut DumpState, string: *mut TString) {
+    unsafe {
+        if string.is_null() {
+            dump_varint(state, 0);
+            dump_varint(state, 0);
+            return;
+        }
 
-    let mut idx = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
-    let tag =
-        raw_luaH_getstr(
+        let mut idx = TValue::new_nil();
+        let tag = raw_luaH_getstr(
             state.h.cast(),
             string.cast(),
             (&mut idx as *mut TValue).cast(),
-        )
-    ;
-    if !tagisempty(tag) {
-        dump_varint(state, 0);
-        dump_varint(state, ivalue(&idx) as lua_Unsigned);
-        return;
-    }
+        );
+        if !tagisempty(tag) {
+            dump_varint(state, 0);
+            dump_varint(state, ivalue(&idx) as lua_Unsigned);
+            return;
+        }
 
-    let size = str_len(string);
-    let data = str_data(string);
-    dump_size(state, size + 1);
-    dump_block(state, data.cast(), size + 1);
+        let size = str_len(string);
+        let data = str_data(string);
+        dump_size(state, size + 1);
+        dump_block(state, data.cast(), size + 1);
 
-    state.nstr += 1;
-    let mut key = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
-    let mut value = TValue {
-        value_: Value { ub: 0 },
-        tt_: 0,
-    };
+        state.nstr += 1;
+        let mut key = TValue::new_nil();
+        let mut value = TValue::new_nil();
         setsvalue(&mut key, string);
         setivalue(&mut value, state.nstr as lua_Integer);
         raw_luaH_set(
@@ -162,7 +152,8 @@ unsafe fn dump_string(state: &mut DumpState, string: *mut TString) { unsafe {
             (&mut key as *mut TValue).cast(),
             (&mut value as *mut TValue).cast(),
         );
-}}
+    }
+}
 
 unsafe fn dump_code(state: &mut DumpState, proto: *const Proto) {
     let sizecode = unsafe { (*proto).sizecode };

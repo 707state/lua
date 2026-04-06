@@ -1,9 +1,9 @@
 use crate::api::*;
 use crate::aux_rs::{luaL_checktype, luaL_typeerror, luaL_where};
 use crate::do_rs::*;
-use crate::runtime::*;
 use crate::lua_module::*;
 use crate::luaffi::*;
+use crate::runtime::*;
 use core::ffi::c_int;
 use core::ptr;
 
@@ -79,7 +79,7 @@ unsafe fn auxresume(state: *mut lua_State, co: *mut lua_State, narg: c_int) -> c
     }
 }
 
-unsafe  fn lua_b_coresume(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_coresume(state: *mut lua_State) -> c_int {
     let co = unsafe { getco(state) };
     let r = unsafe { auxresume(state, co, lua_gettop(state) - 1) };
     if r < 0 {
@@ -93,7 +93,7 @@ unsafe  fn lua_b_coresume(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
     let co = unsafe { lua_tothread(state, lua_upvalueindex(1)) };
     let r = unsafe { auxresume(state, co, lua_gettop(state)) };
     if r < 0 {
@@ -112,7 +112,7 @@ unsafe  fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
     r
 }
 
-unsafe  fn lua_b_cocreate(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_cocreate(state: *mut lua_State) -> c_int {
     luaL_checktype(state, 1, LUA_TFUNCTION.into());
     let new_state = unsafe { crate::state::lua_newthread(state) };
     unsafe { lua_pushvalue(state, 1) };
@@ -120,13 +120,13 @@ unsafe  fn lua_b_cocreate(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_cowrap(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_cowrap(state: *mut lua_State) -> c_int {
     unsafe { lua_b_cocreate(state) };
     unsafe { lua_pushcclosure(state, Some(lua_b_auxwrap), 1) };
     1
 }
 
-unsafe  fn lua_b_yield(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_yield(state: *mut lua_State) -> c_int {
     unsafe { lua_yieldk(state, lua_gettop(state), 0, None) }
 }
 
@@ -151,7 +151,7 @@ unsafe fn auxstatus(state: *mut lua_State, co: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn lua_b_costatus(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_costatus(state: *mut lua_State) -> c_int {
     let co = unsafe { getco(state) };
     let status = unsafe { auxstatus(state, co) } as usize;
     unsafe { lua_pushstring(state, STATNAME[status].as_ptr().cast()) };
@@ -167,19 +167,19 @@ unsafe fn getoptco(state: *mut lua_State) -> *mut lua_State {
     }
 }
 
-unsafe  fn lua_b_yieldable(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_yieldable(state: *mut lua_State) -> c_int {
     let co = unsafe { getoptco(state) };
     unsafe { lua_pushboolean(state, lua_isyieldable(co)) };
     1
 }
 
-unsafe  fn lua_b_corunning(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_corunning(state: *mut lua_State) -> c_int {
     let ismain = unsafe { lua_pushthread(state) };
     unsafe { lua_pushboolean(state, ismain) };
     2
 }
 
-unsafe  fn lua_b_close(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_close(state: *mut lua_State) -> c_int {
     let co = unsafe { getoptco(state) };
     let status = unsafe { auxstatus(state, co) };
     match status {
@@ -207,7 +207,7 @@ unsafe  fn lua_b_close(state: *mut lua_State) -> c_int {
     }
 }
 
-pub(crate) unsafe  fn luaopen_coroutine(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_coroutine(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &CO_FUNCS) };
     1
 }

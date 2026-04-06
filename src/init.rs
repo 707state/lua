@@ -132,7 +132,12 @@ mod tests {
             );
 
             let status = lua_pcall(state, 0, 0, 0);
-            assert_eq!(status, LUA_OK.into(), "chunk failed: {}", lua_error_string(state));
+            assert_eq!(
+                status,
+                LUA_OK.into(),
+                "chunk failed: {}",
+                lua_error_string(state)
+            );
         })();
 
         unsafe { lua_close(state) };

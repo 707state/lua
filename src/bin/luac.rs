@@ -1,6 +1,6 @@
 use lua_rs::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_loadfilex, luaL_newstate};
 use lua_rs::luaffi::*;
-use lua_rs::{link_anchor, lua_module::lua_State, luavm};
+use lua_rs::{lua_module::lua_State, luavm};
 use std::env;
 use std::ffi::{CStr, CString, c_void};
 use std::fs::File;
@@ -15,7 +15,6 @@ const PROGNAME: &str = "luac";
 const OUTPUT: &str = "luac.out";
 
 fn main() -> std::process::ExitCode {
-    let _ = link_anchor as fn();
     match Luac::new(env::args().collect()).and_then(|mut luac| luac.run()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(message) => {
@@ -265,7 +264,7 @@ struct DumpWriter {
     error: Option<String>,
 }
 
-unsafe  fn write_chunk(
+unsafe fn write_chunk(
     _state: *mut lua_State,
     pointer: *const c_void,
     size: usize,

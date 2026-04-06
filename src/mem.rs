@@ -48,7 +48,7 @@ unsafe fn tryagain(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_growaux_(
+pub unsafe fn luaM_growaux_(
     state: *mut lua_State,
     block: *mut c_void,
     nelems: c_int,
@@ -63,7 +63,8 @@ pub unsafe  fn luaM_growaux_(
     }
     if size >= limit / 2 {
         if size >= limit {
-            unsafe { luaG_runerror(state, c"too many %s (limit is %d)".as_ptr(), what, limit) };
+            let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
+            unsafe { luaG_runerror(state, &format!("too many {what_s} (limit is {limit})")) };
         }
         size = limit;
     } else {
@@ -99,23 +100,19 @@ pub unsafe fn luaM_shrinkvector_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_toobig(state: *mut lua_State) -> ! {
-    unsafe { luaG_runerror(state, c"memory allocation error: block too big".as_ptr()) }
+pub unsafe fn luaM_toobig(state: *mut lua_State) -> ! {
+    unsafe { luaG_runerror(state, "memory allocation error: block too big") }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_free_(
-    state: *mut lua_State,
-    block: *mut c_void,
-    osize: usize,
-) {
+pub unsafe fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize) {
     let g = unsafe { global_state(state) };
     unsafe { callfrealloc(g, block, osize, 0) };
     unsafe { (*g).gcdebt += osize as l_mem };
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_realloc_(
+pub unsafe fn luaM_realloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -134,7 +131,7 @@ pub unsafe  fn luaM_realloc_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_saferealloc_(
+pub unsafe fn luaM_saferealloc_(
     state: *mut lua_State,
     block: *mut c_void,
     osize: usize,
@@ -148,11 +145,7 @@ pub unsafe  fn luaM_saferealloc_(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaM_malloc_(
-    state: *mut lua_State,
-    size: usize,
-    tag: c_int,
-) -> *mut c_void {
+pub unsafe fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void {
     if size == 0 {
         return core::ptr::null_mut();
     }
@@ -171,7 +164,11 @@ pub unsafe  fn luaM_malloc_(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::LUAL_NUMSIZES, state::lua_close};
+    use crate::{
+        aux_rs::{luaL_checkversion_, luaL_newstate},
+        luaffi::LUAL_NUMSIZES,
+        state::lua_close,
+    };
 
     #[test]
     fn malloc_realloc_free_update_gcdebt() {

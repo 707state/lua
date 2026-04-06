@@ -1,4 +1,4 @@
-#![feature(c_variadic, portable_simd)]
+#![feature(portable_simd)]
 
 pub mod api;
 pub mod aux_rs;
@@ -43,7 +43,6 @@ pub mod zio;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use lua_module::link_anchor;
 pub use runtime::CallInfo;
 
 #[cfg(test)]

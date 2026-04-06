@@ -17,10 +17,7 @@ struct LoadBuffer {
 }
 
 #[inline]
-unsafe fn lua_atpanic(
-    state: *mut lua_State,
-    panicf: Option<unsafe  fn(*mut lua_State) -> c_int>,
-) {
+unsafe fn lua_atpanic(state: *mut lua_State, panicf: Option<unsafe fn(*mut lua_State) -> c_int>) {
     unsafe { crate::api::lua_atpanic(state as _, core::mem::transmute(panicf)) };
 }
 #[inline]
@@ -440,13 +437,14 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
 }
 
 pub fn luaL_typeerror(state: *mut lua_State, arg: c_int, tname: *const c_char) -> c_int {
-    let typearg = if unsafe { luaL_getmetafield(state, arg, c"__name".as_ptr()) } == LUA_TSTRING.into() {
-        cstr_lossy(unsafe { tostring_ptr(state, -1) })
-    } else if unsafe { lua_type(state, arg) } == LUA_TLIGHTUSERDATA.into() {
-        "light userdata".to_string()
-    } else {
-        unsafe { type_name(state, arg) }
-    };
+    let typearg =
+        if unsafe { luaL_getmetafield(state, arg, c"__name".as_ptr()) } == LUA_TSTRING.into() {
+            cstr_lossy(unsafe { tostring_ptr(state, -1) })
+        } else if unsafe { lua_type(state, arg) } == LUA_TLIGHTUSERDATA.into() {
+            "light userdata".to_string()
+        } else {
+            unsafe { type_name(state, arg) }
+        };
     let msg = format!("{} expected, got {}", cstr_lossy(tname), typearg);
     unsafe { luaL_argerror(state, arg, CString::new(msg).unwrap().as_ptr()) }
 }
@@ -699,11 +697,7 @@ pub fn luaL_optinteger(state: *mut lua_State, arg: c_int, def: lua_Integer) -> l
     }
 }
 
-unsafe  fn get_s(
-    _state: *mut lua_State,
-    ud: *mut c_void,
-    size: *mut usize,
-) -> *const c_char {
+unsafe fn get_s(_state: *mut lua_State, ud: *mut c_void, size: *mut usize) -> *const c_char {
     let load = unsafe { &mut *(ud as *mut LoadBuffer) };
     if load.offset >= load.bytes.len() {
         return ptr::null();
@@ -953,7 +947,7 @@ pub fn luaL_getsubtable(state: *mut lua_State, idx: c_int, fname: *const c_char)
 pub fn luaL_requiref(
     state: *mut lua_State,
     modname: *const c_char,
-    openf: Option<unsafe  fn(*mut lua_State) -> c_int>,
+    openf: Option<unsafe fn(*mut lua_State) -> c_int>,
     glb: c_int,
 ) {
     unsafe { luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
@@ -984,9 +978,7 @@ unsafe fn lua_l_alloc(
     const ALIGN: usize = 8;
     if nsize == 0 {
         if !ptr.is_null() && osize > 0 {
-            let layout = unsafe {
-                std::alloc::Layout::from_size_align_unchecked(osize, ALIGN)
-            };
+            let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(osize, ALIGN) };
             unsafe { std::alloc::dealloc(ptr.cast::<u8>(), layout) };
         }
         ptr::null_mut()
@@ -999,14 +991,13 @@ unsafe fn lua_l_alloc(
         unsafe { std::alloc::alloc(layout).cast::<c_void>() }
     } else {
         // realloc：osize 是 Lua 传来的旧块大小
-        let old_layout = unsafe {
-            std::alloc::Layout::from_size_align_unchecked(osize.max(1), ALIGN)
-        };
+        let old_layout =
+            unsafe { std::alloc::Layout::from_size_align_unchecked(osize.max(1), ALIGN) };
         unsafe { std::alloc::realloc(ptr.cast::<u8>(), old_layout, nsize).cast::<c_void>() }
     }
 }
 
-unsafe  fn panicf(state: *mut lua_State) -> c_int {
+unsafe fn panicf(state: *mut lua_State) -> c_int {
     let msg = if unsafe { lua_type(state, -1) } == LUA_TSTRING.into() {
         cstr_lossy(unsafe { tostring_ptr(state, -1) })
     } else {
@@ -1020,7 +1011,7 @@ unsafe  fn panicf(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe  fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     if tocont == 0 && !message.is_null() {
         let msg = unsafe { cstr(message) }.to_bytes();
         if msg == b"@on" {
@@ -1029,7 +1020,7 @@ unsafe  fn warnfoff(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     }
 }
 
-unsafe  fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let _ = write!(std::io::stderr(), "{}", cstr_lossy(message));
     if tocont != 0 {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfcont), ud) };
@@ -1039,7 +1030,7 @@ unsafe  fn warnfcont(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     }
 }
 
-unsafe  fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
+unsafe fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
     let msg = cstr_lossy(message);
     if tocont == 0 && msg == "@off" {
         unsafe { lua_setwarnf(ud.cast(), Some(warnfoff), ud) };
@@ -1062,6 +1053,8 @@ pub fn luaL_makeseed(_state: *mut lua_State) -> c_uint {
 }
 
 pub fn luaL_newstate() -> *mut lua_State {
+    // 确保 Lua 错误 panic 不会打印 "panicked at ..." 噪声
+    crate::do_rs::install_lua_panic_hook();
     let state = unsafe {
         lua_newstate(
             Some(lua_l_alloc),

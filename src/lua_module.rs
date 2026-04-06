@@ -1,15 +1,16 @@
+use crate::runtime::luaO_pushstr;
 use core::ffi::{c_char, c_int};
 use core::ptr;
 use std::ffi::CStr;
 
 pub(crate) use crate::api::*;
-use crate::{aux_rs::luaL_where, luaffi::LuaCFunction};
 pub(crate) use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
 use crate::luaffi::LUAL_NUMSIZES;
 pub use crate::runtime::{
-    lua_CFunction, lua_Integer, lua_Number, lua_State, lua_Unsigned,
-    LUA_REGISTRYINDEX, LUA_VERSION_NUM,
+    LUA_REGISTRYINDEX, LUA_VERSION_NUM, lua_CFunction, lua_Integer, lua_Number, lua_State,
+    lua_Unsigned,
 };
+use crate::{aux_rs::luaL_where, luaffi::LuaCFunction};
 
 #[repr(C)]
 pub(crate) struct luaL_Reg {
@@ -19,23 +20,16 @@ pub(crate) struct luaL_Reg {
 
 unsafe impl Sync for luaL_Reg {}
 
-
-#[inline]
-pub fn link_anchor() {}
-
-
-pub(crate) unsafe extern "C" fn luaL_error(
-    state: *mut lua_State,
-    fmt: *const c_char,
-    argp: ...
-) -> c_int {
+/// 将已格式化好的错误消息作为 Lua 错误抛出（替代 C 风格变参的 luaL_error）。
+/// 调用方使用 `format!()` 完成格式化后传入 `&str`。
+pub(crate) unsafe fn luaL_error(state: *mut lua_State, msg: &str) -> c_int {
     luaL_where(state, 1);
-    unsafe { lua_pushvfstring(state, fmt, argp) };
+    unsafe { luaO_pushstr(state, msg) };
     unsafe { lua_concat(state, 2) };
     unsafe { lua_error(state) }
 }
 
-/// 非变参版本的 luaL_error，接受预格式化的字符串（消除变参调用）
+/// 接受 `*const c_char` 的旧版接口，用于尚未迁移到 &str 的 C 指针调用。
 pub(crate) unsafe fn luaL_error_str(state: *mut lua_State, msg: *const c_char) -> c_int {
     luaL_where(state, 1);
     unsafe { lua_pushstring(state, msg) };
@@ -90,14 +84,23 @@ pub(crate) unsafe fn create_library(state: *mut lua_State, regs: &[luaL_Reg]) {
 }
 
 #[inline]
-pub(crate) unsafe fn create_library_with_nrec(state: *mut lua_State, regs: &[luaL_Reg], nrec: c_int) {
+pub(crate) unsafe fn create_library_with_nrec(
+    state: *mut lua_State,
+    regs: &[luaL_Reg],
+    nrec: c_int,
+) {
     unsafe { checkversion(state) };
     unsafe { lua_createtable(state, 0, nrec) };
     luaL_setfuncs(state, regs.as_ptr(), 0);
 }
 
 #[inline]
-pub(crate) unsafe fn argcheck(state: *mut lua_State, condition: bool, arg: c_int, message: &'static [u8]) {
+pub(crate) unsafe fn argcheck(
+    state: *mut lua_State,
+    condition: bool,
+    arg: c_int,
+    message: &'static [u8],
+) {
     if !condition {
         let _ = luaL_argerror(state, arg, message.as_ptr().cast());
     }
@@ -122,16 +125,14 @@ mod tests {
     use crate::api::*;
     use crate::aux_rs::{luaL_checkversion_, luaL_loadbufferx, luaL_newstate};
     use crate::init::luaL_openselectedlibs;
-    use crate::lua_module::luaL_error;
     use crate::luaffi::{LUAL_NUMSIZES, lua_pcall};
     use crate::runtime::{LUA_OK, LUA_VERSION_NUM};
     use crate::state::lua_close;
     use core::ffi::{c_char, c_int};
     use std::ptr;
 
-
     unsafe fn boom(state: *mut lua_State) -> c_int {
-        luaL_error(state, c"broken %s %d".as_ptr(), c"item".as_ptr(), 7)
+        crate::lua_module::luaL_error(state, "broken item 7")
     }
 
     fn error_string(state: *mut lua_State) -> String {

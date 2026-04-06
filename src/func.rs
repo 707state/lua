@@ -52,14 +52,7 @@ unsafe fn savestack(state: *mut lua_State, pt: StkId) -> isize {
 
 #[inline]
 unsafe fn restorestack(state: *mut lua_State, n: isize) -> StkId {
-    unsafe {
-        (*state)
-            .stack
-            .p
-            .cast::<u8>()
-            .offset(n)
-            .cast::<StackValue>()
-    }
+    unsafe { (*state).stack.p.cast::<u8>().offset(n).cast::<StackValue>() }
 }
 
 #[inline]
@@ -129,11 +122,11 @@ unsafe fn checkclosemth(state: *mut lua_State, level: StkId) {
         if vname.is_null() {
             vname = c"?".as_ptr();
         }
+        let vname_s = unsafe { std::ffi::CStr::from_ptr(vname) }.to_string_lossy();
         unsafe {
             luaG_runerror(
                 state,
-                c"variable '%s' got a non-closable value".as_ptr(),
-                vname,
+                &format!("variable '{vname_s}' got a non-closable value"),
             )
         };
     }
@@ -174,10 +167,7 @@ pub(crate) unsafe fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int) -> 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_newLclosure(
-    state: *mut lua_State,
-    mut nupvals: c_int,
-) -> *mut LClosure {
+pub unsafe fn luaF_newLclosure(state: *mut lua_State, mut nupvals: c_int) -> *mut LClosure {
     let o = unsafe { luaC_newobj(state, LUA_VLCL, size_lclosure(nupvals)) };
     let c = o.cast::<LClosure>();
     unsafe {
@@ -193,7 +183,7 @@ pub unsafe  fn luaF_newLclosure(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_initupvals(state: *mut lua_State, cl: *mut LClosure) {
+pub unsafe fn luaF_initupvals(state: *mut lua_State, cl: *mut LClosure) {
     let nup = unsafe { (*cl).nupvalues as usize };
     let upvals = unsafe { (*cl).upvals.as_mut_ptr() };
     for i in 0..nup {
@@ -231,7 +221,7 @@ unsafe fn newupval(state: *mut lua_State, level: StkId, prev: *mut *mut UpVal) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_findupval(state: *mut lua_State, level: StkId) -> *mut UpVal {
+pub unsafe fn luaF_findupval(state: *mut lua_State, level: StkId) -> *mut UpVal {
     let mut pp = unsafe { ptr::addr_of_mut!((*state).openupval) };
     let mut p = unsafe { *pp };
     while !p.is_null() && unsafe { uplevel(p) >= level } {
@@ -262,7 +252,7 @@ pub(crate) unsafe fn luaF_newtbcupval(state: *mut lua_State, level: StkId) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_unlinkupval(uv: *mut UpVal) {
+pub unsafe fn luaF_unlinkupval(uv: *mut UpVal) {
     unsafe {
         *(*uv).u.open.previous = (*uv).u.open.next;
         if !(*uv).u.open.next.is_null() {
@@ -272,7 +262,7 @@ pub unsafe  fn luaF_unlinkupval(uv: *mut UpVal) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_closeupval(state: *mut lua_State, level: StkId) {
+pub unsafe fn luaF_closeupval(state: *mut lua_State, level: StkId) {
     let mut uv = unsafe { (*state).openupval };
     while !uv.is_null() && unsafe { uplevel(uv) >= level } {
         let slot = unsafe { ptr::addr_of_mut!((*uv).u.value) };
@@ -307,7 +297,7 @@ pub(crate) unsafe fn luaF_close(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
+pub unsafe fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
     let o = unsafe { luaC_newobj(state, LUA_VPROTO, size_of::<Proto>()) };
     let f = o.cast::<Proto>();
     unsafe {
@@ -336,7 +326,7 @@ pub unsafe  fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaF_protosize(p: *mut Proto) -> usize {
+pub unsafe fn luaF_protosize(p: *mut Proto) -> usize {
     let mut sz = size_of::<Proto>()
         + unsafe { (*p).sizep.max(0) as usize } * size_of::<*mut Proto>()
         + unsafe { (*p).sizek.max(0) as usize } * size_of::<TValue>()
@@ -430,7 +420,11 @@ pub unsafe fn luaF_getlocalname(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::LUAL_NUMSIZES, state::lua_close};
+    use crate::{
+        aux_rs::{luaL_checkversion_, luaL_newstate},
+        luaffi::LUAL_NUMSIZES,
+        state::lua_close,
+    };
 
     #[test]
     fn new_closures_and_proto_are_initialized() {

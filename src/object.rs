@@ -86,7 +86,7 @@ fn numarith(state: *mut lua_State, op: c_int, v1: lua_Number, v2: lua_Number) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_ceillog2(mut x: u32) -> u8 {
+pub unsafe fn luaO_ceillog2(mut x: u32) -> u8 {
     if x <= 1 {
         0
     } else {
@@ -96,7 +96,7 @@ pub unsafe  fn luaO_ceillog2(mut x: u32) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_codeparam(mut p: u32) -> u8 {
+pub unsafe fn luaO_codeparam(mut p: u32) -> u8 {
     if p >= ((0x1fu64) << (0xf - 7 - 1)) as u32 * 100 {
         0xff
     } else {
@@ -111,7 +111,7 @@ pub unsafe  fn luaO_codeparam(mut p: u32) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_applyparam(p: u8, x: isize) -> isize {
+pub unsafe fn luaO_applyparam(p: u8, x: isize) -> isize {
     let mut m = (p & 0x0f) as isize;
     let mut e = (p >> 4) as isize;
     if e > 0 {
@@ -138,7 +138,7 @@ pub unsafe  fn luaO_applyparam(p: u8, x: isize) -> isize {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_rawarith(
+pub unsafe fn luaO_rawarith(
     state: *mut lua_State,
     op: c_int,
     p1: *const TValue,
@@ -187,7 +187,7 @@ pub unsafe  fn luaO_rawarith(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_arith(
+pub unsafe fn luaO_arith(
     state: *mut lua_State,
     op: c_int,
     p1: *const TValue,
@@ -200,7 +200,7 @@ pub unsafe  fn luaO_arith(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_hexavalue(c: c_int) -> u8 {
+pub unsafe fn luaO_hexavalue(c: c_int) -> u8 {
     let byte = c as u8;
     if byte.is_ascii_digit() {
         byte - b'0'
@@ -318,7 +318,7 @@ fn str2int(s: &CStr, result: &mut lua_Integer) -> Option<usize> {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
+pub unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
     let cstr = unsafe { CStr::from_ptr(s) };
     let mut i = 0;
     let mut n = 0.0;
@@ -334,7 +334,7 @@ pub unsafe  fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
+pub unsafe fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
     let mut n = 1usize;
     if x < 0x80 {
         unsafe { *buff.add(UTF8BUFFSZ - 1) = x as c_char };
@@ -391,10 +391,18 @@ pub(crate) fn rust_g_format(n: f64, sig_digits: usize) -> String {
         return "-nan".to_string();
     }
     if n.is_infinite() {
-        return if n.is_sign_negative() { "-inf".to_string() } else { "inf".to_string() };
+        return if n.is_sign_negative() {
+            "-inf".to_string()
+        } else {
+            "inf".to_string()
+        };
     }
     if n == 0.0 {
-        return if n.is_sign_negative() { "-0".to_string() } else { "0".to_string() };
+        return if n.is_sign_negative() {
+            "-0".to_string()
+        } else {
+            "0".to_string()
+        };
     }
 
     // Use Rust's {:e} to get the exponent reliably
@@ -446,7 +454,7 @@ pub(crate) fn rust_g_format(n: f64, sig_digits: usize) -> String {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
+pub unsafe fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     let len = if unsafe { ttisinteger(obj) } {
         let n = unsafe { ivalue(obj) };
         let s = format!("{}", n);
@@ -463,7 +471,7 @@ pub unsafe  fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaO_tostring(state: *mut lua_State, obj: *mut TValue) {
+pub unsafe fn luaO_tostring(state: *mut lua_State, obj: *mut TValue) {
     let mut buff = [0 as c_char; LUA_N2SBUFFSZ];
     let len = unsafe { luaO_tostringbuff(obj, buff.as_mut_ptr()) } as usize;
     let string = unsafe { luaS_newlstr(state, buff.as_ptr(), len).cast::<TString>() };
@@ -480,7 +488,7 @@ pub unsafe fn initbuff(state: *mut lua_State, buff: *mut BuffFS) {
     }
 }
 
-unsafe  fn pushbuff(state: *mut lua_State, ud: *mut c_void) {
+unsafe fn pushbuff(state: *mut lua_State, ud: *mut c_void) {
     let buff = unsafe { &mut *ud.cast::<BuffFS>() };
     match buff.err {
         1 => unsafe { luaD_throw(state, LUA_ERRMEM) },
@@ -539,7 +547,7 @@ pub unsafe fn addstr2buff(buff: *mut BuffFS, str_ptr: *const c_char, slen: usize
             return;
         }
         let newsize = unsafe { (*buff).buffsize + slen };
-        let newb = unsafe  {
+        let newb = unsafe {
             if (*buff).b == (*buff).space.as_mut_ptr() {
                 luaM_realloc_((*buff).l, ptr::null_mut(), 0, newsize).cast::<c_char>()
             } else {
@@ -571,25 +579,17 @@ pub unsafe fn addnum2buff(buff: *mut BuffFS, num: *mut TValue) {
     unsafe { addstr2buff(buff, tmp.as_ptr(), len) };
 }
 
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaO_pushfstring(
-    state: *mut lua_State,
-    fmt: *const c_char,
-    argp: ...
-) -> *const c_char {
-    let msg = unsafe { luaO_pushvfstring(state, fmt, argp) };
-    if msg.is_null() {
-        unsafe { luaD_throw(state, LUA_ERRMEM) };
-    }
-    msg
+/// 将 Rust `&str` 推入 Lua 栈并返回指向内部字符串的指针（替代 C 风格变参的 luaO_pushfstring）。
+/// 调用方应先用 `format!()` 完成格式化，再调用此函数。
+pub unsafe fn luaO_pushstr(state: *mut lua_State, s: &str) -> *const c_char {
+    let ts = unsafe { luaS_newlstr(state, s.as_ptr().cast(), s.len()) }.cast::<TString>();
+    let top = unsafe { (*state).top.p };
+    unsafe { setsvalue(s2v(top), ts) };
+    unsafe { (*state).top.p = top.add(1) };
+    unsafe { getstr(ts) }
 }
 
-pub unsafe  fn luaO_chunkid(
-    out: *mut c_char,
-    source: *const c_char,
-    srclen: usize,
-) {
+pub unsafe fn luaO_chunkid(out: *mut c_char, source: *const c_char, srclen: usize) {
     let source = unsafe { CStr::from_ptr(source) }.to_bytes();
     let mut outp = out;
     let mut bufflen = LUA_IDSIZE;
@@ -669,8 +669,13 @@ pub unsafe  fn luaO_chunkid(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        api::lua_tolstring,
+        aux_rs::{luaL_checkversion_, luaL_newstate},
+        luaffi::LUAL_NUMSIZES,
+        state::lua_close,
+    };
     use core::mem::MaybeUninit;
-    use crate::{api::lua_tolstring, aux_rs::{luaL_checkversion_, luaL_newstate}, luaffi::LUAL_NUMSIZES, state::lua_close};
 
     fn get_top_string(state: *mut lua_State) -> String {
         unsafe {
@@ -731,17 +736,12 @@ mod tests {
         let state = { luaL_newstate() };
         assert!(!state.is_null());
 
-        let result = (|| unsafe  {
+        let result = (|| unsafe {
             luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
-            let _ = luaO_pushfstring(
-                state,
-                c"%s %d %I %f %U %%".as_ptr(),
-                c"item".as_ptr(),
-                7,
-                9_i64,
-                1.5_f64,
-                0x20ac_u64,
-            );
+            // 使用 Rust 格式化代替 C 变参格式化
+            let euro = char::from_u32(0x20ac_u32).unwrap();
+            let s = format!("item {} {} {} {} %", 7, 9_i64, 1.5_f64, euro);
+            let _ = luaO_pushstr(state, &s);
             let rendered = get_top_string(state);
             assert!(rendered.starts_with("item 7 9 1.5 "));
             assert!(rendered.ends_with(" %"));
@@ -763,22 +763,28 @@ mod tests {
             // Format a non-null pointer — should produce "0x..." hex address
             let dummy: u64 = 0xDEAD;
             let ptr = &dummy as *const u64 as *mut core::ffi::c_void;
-            let _ = luaO_pushfstring(state, c"ptr=%p".as_ptr(), ptr);
+            let _ = luaO_pushstr(state, &format!("ptr={ptr:p}"));
             let rendered = get_top_string(state);
-            assert!(rendered.starts_with("ptr=0x"),
-                "expected 'ptr=0x...', got: {rendered}");
+            assert!(
+                rendered.starts_with("ptr=0x"),
+                "expected 'ptr=0x...', got: {rendered}"
+            );
             // The hex address should contain hex digits after "0x"
             let hex_part = &rendered["ptr=0x".len()..];
             assert!(!hex_part.is_empty(), "hex address should not be empty");
-            assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()),
-                "expected hex digits, got: {hex_part}");
+            assert!(
+                hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+                "expected hex digits, got: {hex_part}"
+            );
 
             // Format a null pointer
             let null_ptr: *mut core::ffi::c_void = core::ptr::null_mut();
-            let _ = luaO_pushfstring(state, c"null=%p".as_ptr(), null_ptr);
+            let _ = luaO_pushstr(state, &format!("null={null_ptr:p}"));
             let rendered_null = get_top_string(state);
-            assert!(rendered_null.starts_with("null=0x"),
-                "expected 'null=0x...', got: {rendered_null}");
+            assert!(
+                rendered_null.starts_with("null=0x"),
+                "expected 'null=0x...', got: {rendered_null}"
+            );
         })();
 
         unsafe { lua_close(state) };
@@ -794,25 +800,33 @@ mod tests {
             let mut val = MaybeUninit::<TValue>::uninit();
             setivalue(val.as_mut_ptr(), 0);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
             assert_eq!(s, "0");
 
             // Positive
             setivalue(val.as_mut_ptr(), 12345);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
             assert_eq!(s, "12345");
 
             // Negative
             setivalue(val.as_mut_ptr(), -9876);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
             assert_eq!(s, "-9876");
 
             // Large
             setivalue(val.as_mut_ptr(), 9007199254740992);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
             assert_eq!(s, "9007199254740992");
         }
     }
@@ -826,29 +840,58 @@ mod tests {
             let mut val = MaybeUninit::<TValue>::uninit();
             setfltvalue(val.as_mut_ptr(), 3.14);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
             assert_eq!(s, "3.14");
 
             // Float that looks like integer should have ".0"
             setfltvalue(val.as_mut_ptr(), 100.0);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
-            assert!(s.contains('.'), "100.0 should contain decimal point, got: {s}");
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
+            assert!(
+                s.contains('.'),
+                "100.0 should contain decimal point, got: {s}"
+            );
 
             // Zero float
             setfltvalue(val.as_mut_ptr(), 0.0);
             let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-            let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
-            assert!(s.contains('.'), "0.0 should contain decimal point, got: {s}");
+            let s =
+                core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len))
+                    .unwrap();
+            assert!(
+                s.contains('.'),
+                "0.0 should contain decimal point, got: {s}"
+            );
 
             // Round-trip fidelity: the string should parse back to the same value
-            let test_values = [0.1, 0.2, 1.0/3.0, std::f64::consts::PI, 1e-10, 1e10, 1e100];
+            let test_values = [
+                0.1,
+                0.2,
+                1.0 / 3.0,
+                std::f64::consts::PI,
+                1e-10,
+                1e10,
+                1e100,
+            ];
             for &n in &test_values {
                 setfltvalue(val.as_mut_ptr(), n);
                 let len = luaO_tostringbuff(val.as_ptr(), buff.as_mut_ptr()) as usize;
-                let s = core::str::from_utf8(core::slice::from_raw_parts(buff.as_ptr().cast::<u8>(), len)).unwrap();
-                let back: f64 = s.parse().unwrap_or_else(|e| panic!("failed to parse '{s}': {e}"));
-                assert_eq!(back, n, "round-trip failed for {n}: tostring => '{s}', parse => {back}");
+                let s = core::str::from_utf8(core::slice::from_raw_parts(
+                    buff.as_ptr().cast::<u8>(),
+                    len,
+                ))
+                .unwrap();
+                let back: f64 = s
+                    .parse()
+                    .unwrap_or_else(|e| panic!("failed to parse '{s}': {e}"));
+                assert_eq!(
+                    back, n,
+                    "round-trip failed for {n}: tostring => '{s}', parse => {back}"
+                );
             }
         }
     }

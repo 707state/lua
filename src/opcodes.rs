@@ -145,10 +145,10 @@ pub(crate) fn luaP_isOT(i: Instruction) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaP_isIT(i: Instruction) -> c_int {
+pub unsafe fn luaP_isIT(i: Instruction) -> c_int {
     let op = get_opcode(i);
     if op == OP_SETLIST as usize {
-        c_int::from(test_it_mode(op) && get_arg_vb(i) == 0)  
+        c_int::from(test_it_mode(op) && get_arg_vb(i) == 0)
     } else {
         c_int::from(test_it_mode(op) && get_arg_b(i) == 0)
     }

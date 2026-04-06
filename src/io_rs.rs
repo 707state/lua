@@ -4,7 +4,10 @@ use crate::aux_rs::{
     luaL_checkudata, luaL_execresult, luaL_fileresult, luaL_newmetatable, luaL_optinteger,
     luaL_optlstring, luaL_setfuncs, luaL_setmetatable, luaL_testudata,
 };
-use crate::lua_module::{create_library, lua_pop, lua_replace_local, lua_upvalueindex, luaL_Reg, luaL_error, luaL_error_str, push_fail};
+use crate::lua_module::{
+    create_library, lua_pop, lua_replace_local, lua_upvalueindex, luaL_Reg, luaL_error,
+    luaL_error_str, push_fail,
+};
 use crate::luaffi::LuaCFunction;
 use crate::runtime::*;
 use core::ffi::{c_char, c_int, c_long, c_void};
@@ -141,9 +144,11 @@ static METAMETH: [luaL_Reg; 5] = [
     },
 ];
 
-
 // localeconv：使用 luaffi 的 Rust 实现
-#[inline] fn localeconv() -> *mut LConv { crate::luaffi::localeconv() }
+#[inline]
+fn localeconv() -> *mut LConv {
+    crate::luaffi::localeconv()
+}
 
 // C 文件 I/O（底层 C FILE*，无 Rust std 等价，保留 extern C）
 unsafe extern "C" {
@@ -240,7 +245,7 @@ unsafe fn push_dynamic_error(state: *mut lua_State, message: &str) -> c_int {
     }
 }
 
-unsafe  fn io_type(state: *mut lua_State) -> c_int {
+unsafe fn io_type(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     let p = luaL_testudata(state, 1, LUA_FILEHANDLE.as_ptr().cast()) as *mut luaL_Stream;
     if p.is_null() {
@@ -253,12 +258,12 @@ unsafe  fn io_type(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn f_tostring(state: *mut lua_State) -> c_int {
+unsafe fn f_tostring(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     if unsafe { isclosed(p) } {
         unsafe { push_literal(state, STR_FILE_CLOSED) };
     } else {
-        unsafe { lua_pushfstring(state, c"file (%p)".as_ptr(), (*p).f) };
+        unsafe { lua_pushfstring_rs(state, &format!("file ({:p})", (*p).f)) };
     }
     1
 }
@@ -288,26 +293,26 @@ unsafe fn newfile(state: *mut lua_State) -> *mut luaL_Stream {
     p
 }
 
-unsafe  fn aux_close(state: *mut lua_State) -> c_int {
+unsafe fn aux_close(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     let cf = unsafe { (*p).closef };
     unsafe { (*p).closef = None };
     unsafe { cf.expect("open file has close callback")(state) }
 }
 
-unsafe  fn f_close(state: *mut lua_State) -> c_int {
+unsafe fn f_close(state: *mut lua_State) -> c_int {
     unsafe { tofile(state) };
     unsafe { aux_close(state) }
 }
 
-unsafe  fn io_close(state: *mut lua_State) -> c_int {
+unsafe fn io_close(state: *mut lua_State) -> c_int {
     if unsafe { is_none(state, 1) } {
         unsafe { lua_getfield(state, LUA_REGISTRYINDEX, IO_OUTPUT.as_ptr().cast()) };
     }
     unsafe { f_close(state) }
 }
 
-unsafe  fn f_gc(state: *mut lua_State) -> c_int {
+unsafe fn f_gc(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     if !unsafe { isclosed(p) } && !unsafe { (*p).f.is_null() } {
         let _ = unsafe { aux_close(state) };
@@ -315,7 +320,7 @@ unsafe  fn f_gc(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe  fn io_fclose(state: *mut lua_State) -> c_int {
+unsafe fn io_fclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     reset_errno();
     unsafe { luaL_fileresult(state, (fclose((*p).f) == 0) as c_int, ptr::null()) }
@@ -343,14 +348,9 @@ unsafe fn opencheck(state: *mut lua_State, fname: *const c_char, mode: *const c_
     let p = unsafe { newfile(state) };
     unsafe { (*p).f = fopen(fname, mode) };
     if unsafe { (*p).f.is_null() } {
-        unsafe {
-            luaL_error(
-                state,
-                c"cannot open file '%s' (%s)".as_ptr(),
-                fname,
-                strerror(),
-            )
-        };
+        let fname_s = unsafe { std::ffi::CStr::from_ptr(fname) }.to_string_lossy();
+        let err_s = unsafe { std::ffi::CStr::from_ptr(strerror()) }.to_string_lossy();
+        unsafe { luaL_error(state, &format!("cannot open file '{fname_s}' ({err_s})")) };
     }
 }
 
@@ -371,13 +371,12 @@ fn strerror() -> *const c_char {
     buf.as_ptr().cast()
 }
 
-unsafe  fn io_open(state: *mut lua_State) -> c_int {
+unsafe fn io_open(state: *mut lua_State) -> c_int {
     let filename = unsafe { checkstring(state, 1) };
     let mode = unsafe { optstring(state, 2, c"r".to_bytes_with_nul()) };
     let mode_bytes = unsafe { CStr::from_ptr(mode) }.to_bytes();
     if !check_mode(mode_bytes) {
-        let _ =
-            crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
+        let _ = crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
     }
     let p = unsafe { newfile(state) };
     reset_errno();
@@ -389,19 +388,18 @@ unsafe  fn io_open(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn io_pclose(state: *mut lua_State) -> c_int {
+unsafe fn io_pclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     reset_errno();
     unsafe { luaL_execresult(state, pclose((*p).f)) }
 }
 
-unsafe  fn io_popen(state: *mut lua_State) -> c_int {
+unsafe fn io_popen(state: *mut lua_State) -> c_int {
     let filename = unsafe { checkstring(state, 1) };
     let mode = unsafe { optstring(state, 2, c"r".to_bytes_with_nul()) };
     let mode_bytes = unsafe { CStr::from_ptr(mode) }.to_bytes();
     if !check_modep(mode_bytes) {
-        let _ =
-            crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
+        let _ = crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
     }
     let p = unsafe { newprefile(state) };
     reset_errno();
@@ -414,7 +412,7 @@ unsafe  fn io_popen(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn io_tmpfile(state: *mut lua_State) -> c_int {
+unsafe fn io_tmpfile(state: *mut lua_State) -> c_int {
     let p = unsafe { newfile(state) };
     reset_errno();
     unsafe { (*p).f = tmpfile() };
@@ -451,24 +449,22 @@ unsafe fn g_iofile(state: *mut lua_State, f: &'static [u8], mode: &'static [u8])
     1
 }
 
-unsafe  fn io_input(state: *mut lua_State) -> c_int {
+unsafe fn io_input(state: *mut lua_State) -> c_int {
     unsafe { g_iofile(state, IO_INPUT, c"r".to_bytes_with_nul()) }
 }
 
-unsafe  fn io_output(state: *mut lua_State) -> c_int {
+unsafe fn io_output(state: *mut lua_State) -> c_int {
     unsafe { g_iofile(state, IO_OUTPUT, c"w".to_bytes_with_nul()) }
 }
 
 unsafe fn aux_lines(state: *mut lua_State, toclose: c_int) {
     let n = unsafe { lua_gettop(state) } - 1;
     if n > MAXARGLINE {
-        let _ =
-            crate::lua_module::luaL_argerror(
-                state,
-                MAXARGLINE + 2,
-                ERR_TOO_MANY_ARGUMENTS.as_ptr().cast(),
-            )
-        ;
+        let _ = crate::lua_module::luaL_argerror(
+            state,
+            MAXARGLINE + 2,
+            ERR_TOO_MANY_ARGUMENTS.as_ptr().cast(),
+        );
     }
     unsafe { lua_pushvalue(state, 1) };
     unsafe { lua_pushinteger(state, n as lua_Integer) };
@@ -477,13 +473,13 @@ unsafe fn aux_lines(state: *mut lua_State, toclose: c_int) {
     unsafe { lua_pushcclosure(state, Some(io_readline), 3 + n) };
 }
 
-unsafe  fn f_lines(state: *mut lua_State) -> c_int {
+unsafe fn f_lines(state: *mut lua_State) -> c_int {
     unsafe { tofile(state) };
     unsafe { aux_lines(state, 0) };
     1
 }
 
-unsafe  fn io_lines(state: *mut lua_State) -> c_int {
+unsafe fn io_lines(state: *mut lua_State) -> c_int {
     let toclose;
     if unsafe { is_none(state, 1) } {
         unsafe { lua_pushnil(state) };
@@ -688,13 +684,11 @@ unsafe fn g_read(state: *mut lua_State, f: *mut File, first: c_int) -> c_int {
                         1
                     }
                     _ => {
-                        return
-                            crate::lua_module::luaL_argerror(
-                                state,
-                                n,
-                                ERR_INVALID_FORMAT.as_ptr().cast(),
-                            )
-                        ;
+                        return crate::lua_module::luaL_argerror(
+                            state,
+                            n,
+                            ERR_INVALID_FORMAT.as_ptr().cast(),
+                        );
                     }
                 };
             }
@@ -712,15 +706,15 @@ unsafe fn g_read(state: *mut lua_State, f: *mut File, first: c_int) -> c_int {
     n - first
 }
 
-unsafe  fn io_read(state: *mut lua_State) -> c_int {
+unsafe fn io_read(state: *mut lua_State) -> c_int {
     unsafe { g_read(state, getiofile(state, IO_INPUT), 1) }
 }
 
-unsafe  fn f_read(state: *mut lua_State) -> c_int {
+unsafe fn f_read(state: *mut lua_State) -> c_int {
     unsafe { g_read(state, tofile(state), 2) }
 }
 
-unsafe  fn io_readline(state: *mut lua_State) -> c_int {
+unsafe fn io_readline(state: *mut lua_State) -> c_int {
     let p = unsafe { lua_touserdata(state, lua_upvalueindex(1)) as *mut luaL_Stream };
     let mut isnum = 0;
     let mut n = unsafe { lua_tointegerx(state, lua_upvalueindex(2), &mut isnum) as c_int };
@@ -737,13 +731,9 @@ unsafe  fn io_readline(state: *mut lua_State) -> c_int {
         n
     } else {
         if n > 1 {
-            return unsafe {
-                luaL_error(
-                    state,
-                    c"%s".as_ptr(),
-                    lua_tolstring(state, -n + 1, ptr::null_mut()),
-                )
-            };
+            let msg_ptr = unsafe { lua_tolstring(state, -n + 1, ptr::null_mut()) };
+            let msg_s = unsafe { std::ffi::CStr::from_ptr(msg_ptr) }.to_string_lossy();
+            return unsafe { luaL_error(state, &msg_s) };
         }
         if unsafe { lua_toboolean(state, lua_upvalueindex(3)) } != 0 {
             unsafe { lua_settop(state, 0) };
@@ -785,17 +775,17 @@ unsafe fn g_write(state: *mut lua_State, f: *mut File, mut arg: c_int) -> c_int 
     1
 }
 
-unsafe  fn io_write(state: *mut lua_State) -> c_int {
+unsafe fn io_write(state: *mut lua_State) -> c_int {
     unsafe { g_write(state, getiofile(state, IO_OUTPUT), 1) }
 }
 
-unsafe  fn f_write(state: *mut lua_State) -> c_int {
+unsafe fn f_write(state: *mut lua_State) -> c_int {
     let f = unsafe { tofile(state) };
     unsafe { lua_pushvalue(state, 1) };
     unsafe { g_write(state, f, 2) }
 }
 
-unsafe  fn f_seek(state: *mut lua_State) -> c_int {
+unsafe fn f_seek(state: *mut lua_State) -> c_int {
     let mode_names = [
         c"set".as_ptr(),
         c"cur".as_ptr(),
@@ -808,8 +798,7 @@ unsafe  fn f_seek(state: *mut lua_State) -> c_int {
     let p3 = luaL_optinteger(state, 3, 0);
     let offset = p3 as c_long;
     if offset as lua_Integer != p3 {
-        let _ =
-            crate::lua_module::luaL_argerror(state, 3, ERR_BAD_SEEK_INT.as_ptr().cast());
+        let _ = crate::lua_module::luaL_argerror(state, 3, ERR_BAD_SEEK_INT.as_ptr().cast());
     }
     reset_errno();
     if unsafe { fseeko(f, offset, modes[op as usize]) } != 0 {
@@ -820,7 +809,7 @@ unsafe  fn f_seek(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn f_setvbuf(state: *mut lua_State) -> c_int {
+unsafe fn f_setvbuf(state: *mut lua_State) -> c_int {
     let mode_names = [
         c"no".as_ptr(),
         c"full".as_ptr(),
@@ -846,11 +835,11 @@ unsafe fn aux_flush(state: *mut lua_State, f: *mut File) -> c_int {
     unsafe { luaL_fileresult(state, (fflush(f) == 0) as c_int, ptr::null()) }
 }
 
-unsafe  fn f_flush(state: *mut lua_State) -> c_int {
+unsafe fn f_flush(state: *mut lua_State) -> c_int {
     unsafe { aux_flush(state, tofile(state)) }
 }
 
-unsafe  fn io_flush(state: *mut lua_State) -> c_int {
+unsafe fn io_flush(state: *mut lua_State) -> c_int {
     unsafe { aux_flush(state, getiofile(state, IO_OUTPUT)) }
 }
 
@@ -863,7 +852,7 @@ unsafe fn createmeta(state: *mut lua_State) {
     unsafe { lua_pop(state, 1) };
 }
 
-unsafe  fn io_noclose(state: *mut lua_State) -> c_int {
+unsafe fn io_noclose(state: *mut lua_State) -> c_int {
     let p = unsafe { tolstream(state) };
     unsafe { (*p).closef = Some(io_noclose) };
     unsafe { push_fail(state) };
@@ -889,7 +878,7 @@ unsafe fn createstdfile(
     unsafe { lua_setfield(state, -2, fname.as_ptr().cast()) };
 }
 
-pub(crate) unsafe  fn luaopen_io(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_io(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &IOLIB) };
     unsafe { createmeta(state) };
     let stdin_file = unsafe { fdopen(0, c"r".as_ptr()) };

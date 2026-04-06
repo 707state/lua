@@ -118,7 +118,7 @@ unsafe fn getbaseline(f: *const Proto, pc: c_int, basepc: *mut c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_getfuncline(f: *const Proto, pc: c_int) -> c_int {
+pub unsafe fn luaG_getfuncline(f: *const Proto, pc: c_int) -> c_int {
     let f = unsafe { pdebug(f) };
     if unsafe { (*f).lineinfo.is_null() } {
         -1
@@ -147,12 +147,7 @@ unsafe fn settraps(mut ci: *mut CallInfo) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_sethook(
-    L: *mut lua_State,
-    mut func: lua_Hook,
-    mut mask: c_int,
-    count: c_int,
-) {
+pub unsafe fn lua_sethook(L: *mut lua_State, mut func: lua_Hook, mut mask: c_int, count: c_int) {
     if func.is_none() || mask == 0 {
         mask = 0;
         func = None;
@@ -168,23 +163,19 @@ pub unsafe  fn lua_sethook(
     }
 }
 
-pub unsafe  fn lua_gethook(L: *mut lua_State) -> lua_Hook {
+pub unsafe fn lua_gethook(L: *mut lua_State) -> lua_Hook {
     unsafe { (*L).hook }
 }
 
-pub unsafe  fn lua_gethookmask(L: *mut lua_State) -> c_int {
+pub unsafe fn lua_gethookmask(L: *mut lua_State) -> c_int {
     unsafe { (*L).hookmask }
 }
 
-pub unsafe  fn lua_gethookcount(L: *mut lua_State) -> c_int {
+pub unsafe fn lua_gethookcount(L: *mut lua_State) -> c_int {
     unsafe { (*L).basehookcount }
 }
 
-pub unsafe  fn lua_getstack(
-    L: *mut lua_State,
-    mut level: c_int,
-    ar: *mut lua_Debug,
-) -> c_int {
+pub unsafe fn lua_getstack(L: *mut lua_State, mut level: c_int, ar: *mut lua_Debug) -> c_int {
     unsafe {
         if level < 0 {
             return 0;
@@ -225,7 +216,7 @@ unsafe fn findvararg(ci: *mut CallInfo, n: c_int, pos: *mut StkId) -> *const c_c
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_findlocal(
+pub unsafe fn luaG_findlocal(
     L: *mut lua_State,
     ci: *mut CallInfo,
     n: c_int,
@@ -262,11 +253,7 @@ pub unsafe  fn luaG_findlocal(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_getlocal(
-    L: *mut lua_State,
-    ar: *const lua_Debug,
-    n: c_int,
-) -> *const c_char {
+pub unsafe fn lua_getlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) -> *const c_char {
     let name;
     if ar.is_null() {
         if !unsafe { isLfunction(s2v((*L).top.p.sub(1))) } {
@@ -288,11 +275,7 @@ pub unsafe  fn lua_getlocal(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_setlocal(
-    L: *mut lua_State,
-    ar: *const lua_Debug,
-    n: c_int,
-) -> *const c_char {
+pub unsafe fn lua_setlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) -> *const c_char {
     let mut pos = ptr::null_mut();
     let name = unsafe { luaG_findlocal(L, ar_ref(ar).i_ci, n, &mut pos) };
     if !name.is_null() {
@@ -355,10 +338,7 @@ unsafe fn collectvalidlines(L: *mut lua_State, f: *mut Closure) {
         }
         if unsafe { !(*p).lineinfo.is_null() } {
             let mut i;
-            let mut v = TValue {
-                value_: Value { ub: 0 },
-                tt_: 0,
-            };
+            let mut v = TValue::new_nil();
             unsafe { setbtvalue(&mut v) };
             if unsafe { (*p).flag & PF_VAHID == 0 } {
                 i = 0;
@@ -455,11 +435,7 @@ unsafe fn auxgetinfo(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn lua_getinfo(
-    L: *mut lua_State,
-    mut what: *const c_char,
-    ar: *mut lua_Debug,
-) -> c_int {
+pub unsafe fn lua_getinfo(L: *mut lua_State, mut what: *const c_char, ar: *mut lua_Debug) -> c_int {
     let ar = unsafe { ar_mut(ar) };
     let (ci, func) = if unsafe { *what } == b'>' as c_char {
         let func = unsafe { s2v((*L).top.p.sub(1)) };
@@ -757,7 +733,9 @@ unsafe fn formatvarinfo(
     if kind.is_null() {
         STR_EMPTY.as_ptr().cast()
     } else {
-        unsafe { crate::object::luaO_pushfstring(L, c" (%s '%s')".as_ptr(), kind, name) }
+        let kind_s = unsafe { std::ffi::CStr::from_ptr(kind) }.to_string_lossy();
+        let name_s = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy();
+        unsafe { luaO_pushstr(L, &format!(" ({kind_s} '{name_s}')")) }
     }
 }
 
@@ -785,20 +763,19 @@ unsafe fn typeerror(
     extra: *const c_char,
 ) -> ! {
     let t = unsafe { luaT_objtypename(L, o) };
-    unsafe { luaG_runerror(L, c"attempt to %s a %s value%s".as_ptr(), op, t, extra) }
+    let op_s = unsafe { std::ffi::CStr::from_ptr(op) }.to_string_lossy();
+    let t_s = unsafe { std::ffi::CStr::from_ptr(t) }.to_string_lossy();
+    let extra_s = unsafe { std::ffi::CStr::from_ptr(extra) }.to_string_lossy();
+    unsafe { luaG_runerror(L, &format!("attempt to {op_s} a {t_s} value{extra_s}")) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_typeerror(
-    L: *mut lua_State,
-    o: *const TValue,
-    op: *const c_char,
-) -> ! {
+pub unsafe fn luaG_typeerror(L: *mut lua_State, o: *const TValue, op: *const c_char) -> ! {
     unsafe { typeerror(L, o, op, varinfo(L, o)) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
+pub unsafe fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
     let ci = unsafe { (*L).ci };
     let mut name = ptr::null();
     let kind = unsafe { funcnamefromcall(L, ci, &mut name) };
@@ -811,27 +788,19 @@ pub unsafe  fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_forerror(
-    L: *mut lua_State,
-    o: *const TValue,
-    what: *const c_char,
-) -> ! {
+pub unsafe fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_char) -> ! {
+    let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
+    let t_s = unsafe { std::ffi::CStr::from_ptr(luaT_objtypename(L, o)) }.to_string_lossy();
     unsafe {
         luaG_runerror(
             L,
-            c"bad 'for' %s (number expected, got %s)".as_ptr(),
-            what,
-            luaT_objtypename(L, o),
+            &format!("bad 'for' {what_s} (number expected, got {t_s})"),
         )
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_concaterror(
-    L: *mut lua_State,
-    mut p1: *const TValue,
-    p2: *const TValue,
-) -> ! {
+pub unsafe fn luaG_concaterror(L: *mut lua_State, mut p1: *const TValue, p2: *const TValue) -> ! {
     if unsafe { ttisstring(p1) || cvt2str(p1) } {
         p1 = p2;
     }
@@ -839,7 +808,7 @@ pub unsafe  fn luaG_concaterror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_opinterror(
+pub unsafe fn luaG_opinterror(
     L: *mut lua_State,
     p1: *const TValue,
     mut p2: *const TValue,
@@ -852,67 +821,60 @@ pub unsafe  fn luaG_opinterror(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_tointerror(
-    L: *mut lua_State,
-    p1: *const TValue,
-    mut p2: *const TValue,
-) -> ! {
+pub unsafe fn luaG_tointerror(L: *mut lua_State, p1: *const TValue, mut p2: *const TValue) -> ! {
     let mut temp = 0;
     if unsafe { crate::vm_rs::luaV_tointegerns(p1, &mut temp, LUA_FLOORN2I_FLOOR) } == 0 {
         p2 = p1;
     }
-    unsafe {
-        luaG_runerror(
-            L,
-            c"number%s has no integer representation".as_ptr(),
-            varinfo(L, p2),
-        )
-    }
+    let vi = unsafe { std::ffi::CStr::from_ptr(varinfo(L, p2)) }.to_string_lossy();
+    unsafe { luaG_runerror(L, &format!("number{vi} has no integer representation")) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_ordererror(
-    L: *mut lua_State,
-    p1: *const TValue,
-    p2: *const TValue,
-) -> ! {
+pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
     let t1 = unsafe { luaT_objtypename(L, p1) };
     let t2 = unsafe { luaT_objtypename(L, p2) };
     if unsafe { strcmp(t1, t2) == 0 } {
-        unsafe { luaG_runerror(L, c"attempt to compare two %s values".as_ptr(), t1) }
+        let t1_s = unsafe { std::ffi::CStr::from_ptr(t1) }.to_string_lossy();
+        unsafe { luaG_runerror(L, &format!("attempt to compare two {t1_s} values")) }
     } else {
-        unsafe { luaG_runerror(L, c"attempt to compare %s with %s".as_ptr(), t1, t2) }
+        let t1_s = unsafe { std::ffi::CStr::from_ptr(t1) }.to_string_lossy();
+        let t2_s = unsafe { std::ffi::CStr::from_ptr(t2) }.to_string_lossy();
+        unsafe { luaG_runerror(L, &format!("attempt to compare {t1_s} with {t2_s}")) }
     }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! {
+pub unsafe fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! {
     let mut globalname = STR_QUESTION.as_ptr().cast();
     if k > 0 {
         let _ = unsafe { kname(pdebug((*cl).p), k - 1, &mut globalname) };
     }
-    unsafe { luaG_runerror(L, c"global '%s' already defined".as_ptr(), globalname) }
+    let gn_s = unsafe { std::ffi::CStr::from_ptr(globalname) }.to_string_lossy();
+    unsafe { luaG_runerror(L, &format!("global '{gn_s}' already defined")) }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_addinfo(
+pub unsafe fn luaG_addinfo(
     L: *mut lua_State,
     msg: *const c_char,
     src: *mut TString,
     line: c_int,
 ) -> *const c_char {
+    let msg_s = unsafe { std::ffi::CStr::from_ptr(msg) }.to_string_lossy();
     if src.is_null() {
-        unsafe { crate::object::luaO_pushfstring(L, c"?:?: %s".as_ptr(), msg) }
+        unsafe { luaO_pushstr(L, &format!("?:?: {msg_s}")) }
     } else {
         let mut buff = [0 as c_char; 60];
         let mut idlen = 0;
         let id = unsafe { getlstr(src, &mut idlen) };
         unsafe { crate::object::luaO_chunkid(buff.as_mut_ptr(), id, idlen) };
-        unsafe { crate::object::luaO_pushfstring(L, c"%s:%d: %s".as_ptr(), buff.as_ptr(), line, msg) }
+        let chunk_s = unsafe { std::ffi::CStr::from_ptr(buff.as_ptr()) }.to_string_lossy();
+        unsafe { luaO_pushstr(L, &format!("{chunk_s}:{line}: {msg_s}")) }
     }
 }
 
-pub unsafe  fn luaG_errormsg(L: *mut lua_State) -> ! {
+pub unsafe fn luaG_errormsg(L: *mut lua_State) -> ! {
     if unsafe { (*L).errfunc != 0 } {
         let errfunc = unsafe { restorestack(L, (*L).errfunc) };
         unsafe {
@@ -929,46 +891,23 @@ pub unsafe  fn luaG_errormsg(L: *mut lua_State) -> ! {
     unsafe { luaD_throw(L, LUA_ERRRUN) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn luaG_runerror(
-    L: *mut lua_State,
-    fmt: *const c_char,
-    argp: ...
-) -> ! {
+/// 将已格式化好的错误消息推入 Lua 栈并触发运行时错误（替代 C 风格变参的 luaG_runerror）。
+/// 调用方使用 `format!()` 完成格式化后传入 `&str`。
+pub unsafe fn luaG_runerror(L: *mut lua_State, msg: &str) -> ! {
     let ci = unsafe { (*L).ci };
     unsafe { luaC_checkGC(L) };
-    let msg = unsafe { luaO_pushvfstring(L, fmt, argp) };
+    let pushed = unsafe { luaO_pushstr(L, msg) };
     if unsafe { isLua(ci) } {
         unsafe {
             luaG_addinfo(
                 L,
-                msg,
+                pushed,
                 (*pdebug((*ci_func(ci)).p)).source,
                 getcurrentline(ci),
             );
             setobjs2s(L, (*L).top.p.sub(2), (*L).top.p.sub(1));
             (*L).top.p = (*L).top.p.sub(1);
         }
-    }
-    unsafe { luaG_errormsg(L) }
-}
-
-/// 非变参版本的 luaG_runerror，供内部 Rust 代码使用（消息已格式化好）
-pub(crate) unsafe fn luaG_runerror1(L: *mut lua_State, msg: *const c_char) -> ! {
-    let ci = unsafe { (*L).ci };
-    unsafe { luaC_checkGC(L) };
-    if unsafe { isLua(ci) } {
-        unsafe {
-            luaG_addinfo(
-                L,
-                msg,
-                (*pdebug((*ci_func(ci)).p)).source,
-                getcurrentline(ci),
-            );
-        }
-    } else {
-        // 没有 Lua frame，直接 push 字符串
-        unsafe { crate::object::luaO_pushfstring(L, c"%s".as_ptr(), msg) };
     }
     unsafe { luaG_errormsg(L) }
 }
@@ -996,7 +935,7 @@ unsafe fn changedline(p: *const Proto, oldpc: c_int, newpc: c_int) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_tracecall(L: *mut lua_State) -> c_int {
+pub unsafe fn luaG_tracecall(L: *mut lua_State) -> c_int {
     let ci = unsafe { (*L).ci };
     let p = unsafe { pdebug((*ci_func(ci)).p) };
     unsafe { (*ci).u.l.trap = 1 };
@@ -1012,7 +951,7 @@ pub unsafe  fn luaG_tracecall(L: *mut lua_State) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int {
+pub unsafe fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int {
     let ci = unsafe { (*L).ci };
     let mask = unsafe { (*L).hookmask as u8 };
     let p = unsafe { pdebug((*ci_func(ci)).p) };

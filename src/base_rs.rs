@@ -133,7 +133,6 @@ unsafe fn optstring<'a>(
     }
 }
 
-
 #[inline]
 unsafe fn pushglobaltable(state: *mut lua_State) {
     let _ = unsafe { lua_geti(state, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS) };
@@ -234,7 +233,7 @@ fn b_str2int(s: &[u8], base: u32) -> Option<lua_Integer> {
     })
 }
 
-unsafe  fn lua_b_print(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_print(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     let mut out = io::stdout().lock();
     for i in 1..=n {
@@ -252,7 +251,7 @@ unsafe  fn lua_b_print(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe  fn lua_b_warn(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_warn(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     let _ = unsafe { checkstring(state, 1) };
     for i in 2..=n {
@@ -265,7 +264,7 @@ unsafe  fn lua_b_warn(state: *mut lua_State) -> c_int {
     0
 }
 
-unsafe  fn lua_b_tonumber(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_tonumber(state: *mut lua_State) -> c_int {
     if unsafe { isnoneornil(state, 2) } {
         if unsafe { lua_type(state, 1) } == LUA_TNUMBER.into() {
             unsafe { lua_settop(state, 1) };
@@ -293,7 +292,7 @@ unsafe  fn lua_b_tonumber(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_error(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_error(state: *mut lua_State) -> c_int {
     let level = luaL_optinteger(state, 2, 1) as c_int;
     unsafe { lua_settop(state, 1) };
     if unsafe { lua_type(state, 1) } == LUA_TSTRING.into() && level > 0 {
@@ -304,7 +303,7 @@ unsafe  fn lua_b_error(state: *mut lua_State) -> c_int {
     unsafe { lua_error(state) }
 }
 
-unsafe  fn lua_b_getmetatable(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_getmetatable(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     if unsafe { lua_getmetatable(state, 1) } == 0 {
         unsafe { lua_pushnil(state) };
@@ -314,7 +313,7 @@ unsafe  fn lua_b_getmetatable(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_setmetatable(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_setmetatable(state: *mut lua_State) -> c_int {
     let t = unsafe { lua_type(state, 2) };
     luaL_checktype(state, 1, LUA_TTABLE.into());
     unsafe {
@@ -326,21 +325,23 @@ unsafe  fn lua_b_setmetatable(state: *mut lua_State) -> c_int {
         )
     };
     if luaL_getmetafield(state, 1, META_METATABLE.as_ptr().cast()) != LUA_TNIL.into() {
-        return unsafe { luaL_error_str(state, ERR_CANNOT_CHANGE_PROTECTED_METATABLE.as_ptr().cast()) };
+        return unsafe {
+            luaL_error_str(state, ERR_CANNOT_CHANGE_PROTECTED_METATABLE.as_ptr().cast())
+        };
     }
     unsafe { lua_settop(state, 2) };
     let _ = unsafe { lua_setmetatable(state, 1) };
     1
 }
 
-unsafe  fn lua_b_rawequal(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_rawequal(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     luaL_checkany(state, 2);
     unsafe { lua_pushboolean(state, lua_rawequal(state, 1, 2)) };
     1
 }
 
-unsafe  fn lua_b_rawlen(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_rawlen(state: *mut lua_State) -> c_int {
     let t = unsafe { lua_type(state, 1) };
     unsafe {
         argexpected(
@@ -354,7 +355,7 @@ unsafe  fn lua_b_rawlen(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_rawget(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_rawget(state: *mut lua_State) -> c_int {
     luaL_checktype(state, 1, LUA_TTABLE.into());
     luaL_checkany(state, 2);
     unsafe { lua_settop(state, 2) };
@@ -362,7 +363,7 @@ unsafe  fn lua_b_rawget(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_rawset(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_rawset(state: *mut lua_State) -> c_int {
     luaL_checktype(state, 1, LUA_TTABLE.into());
     luaL_checkany(state, 2);
     luaL_checkany(state, 3);
@@ -389,7 +390,7 @@ unsafe fn pushmode(state: *mut lua_State, oldmode: c_int) -> c_int {
     1
 }
 
-unsafe  fn lua_b_collectgarbage(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_collectgarbage(state: *mut lua_State) -> c_int {
     let opts = [
         b"stop\0".as_slice(),
         b"restart\0".as_slice(),
@@ -426,7 +427,7 @@ unsafe  fn lua_b_collectgarbage(state: *mut lua_State) -> c_int {
         }
         LUA_GCSTEP => {
             let n = luaL_optinteger(state, 2, 0);
-            let res = unsafe { lua_gc(state, o, n as usize) };
+            let res = unsafe { lua_gc_step(state, n as usize) };
             if res == -1 {
                 unsafe { push_fail(state) };
             } else {
@@ -463,7 +464,9 @@ unsafe  fn lua_b_collectgarbage(state: *mut lua_State) -> c_int {
             ];
             let p = param_nums[unsafe { check_option(state, 2, None, &params) }];
             let value = luaL_optinteger(state, 3, -1);
-            unsafe { lua_pushinteger(state, lua_gc(state, o, p, value as c_int) as lua_Integer) };
+            unsafe {
+                lua_pushinteger(state, lua_gc_param(state, p, value as c_int) as lua_Integer)
+            };
             1
         }
         _ => {
@@ -478,7 +481,7 @@ unsafe  fn lua_b_collectgarbage(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn lua_b_type(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_type(state: *mut lua_State) -> c_int {
     let t = unsafe { lua_type(state, 1) };
     if t == LUA_TNONE {
         let _ = luaL_argerror(state, 1, ERR_VALUE_EXPECTED.as_ptr().cast());
@@ -487,7 +490,7 @@ unsafe  fn lua_b_type(state: *mut lua_State) -> c_int {
     1
 }
 
-unsafe  fn lua_b_next(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_next(state: *mut lua_State) -> c_int {
     luaL_checktype(state, 1, LUA_TTABLE.into());
     unsafe { lua_settop(state, 2) };
     if unsafe { lua_next(state, 1) } != 0 {
@@ -498,15 +501,11 @@ unsafe  fn lua_b_next(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn pairscont(
-    _state: *mut lua_State,
-    _status: c_int,
-    _k: LuaKContext,
-) -> c_int {
+unsafe fn pairscont(_state: *mut lua_State, _status: c_int, _k: LuaKContext) -> c_int {
     4
 }
 
-unsafe  fn lua_b_pairs(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_pairs(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     if luaL_getmetafield(state, 1, META_PAIRS.as_ptr().cast()) == LUA_TNIL.into() {
         unsafe { lua_pushcclosure(state, Some(lua_b_next), 0) };
@@ -520,7 +519,7 @@ unsafe  fn lua_b_pairs(state: *mut lua_State) -> c_int {
     4
 }
 
-unsafe  fn ipairsaux(state: *mut lua_State) -> c_int {
+unsafe fn ipairsaux(state: *mut lua_State) -> c_int {
     let i = luaL_checkinteger(state, 2).wrapping_add(1);
     unsafe { lua_pushinteger(state, i) };
     if unsafe { lua_geti(state, 1, i) } == LUA_TNIL.into() {
@@ -530,7 +529,7 @@ unsafe  fn ipairsaux(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn lua_b_ipairs(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_ipairs(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     unsafe { lua_pushcclosure(state, Some(ipairsaux), 0) };
     unsafe { lua_pushvalue(state, 1) };
@@ -562,21 +561,19 @@ unsafe fn get_mode<'a>(state: *mut lua_State, idx: c_int) -> &'a CStr {
     mode
 }
 
-unsafe  fn lua_b_loadfile(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_loadfile(state: *mut lua_State) -> c_int {
     let fname = unsafe { optstring(state, 1, ptr::null()) };
     let mode = unsafe { get_mode(state, 2) };
     let env = if unsafe { !isnone(state, 3) } { 3 } else { 0 };
-    let status =
-        luaL_loadfilex(
-            state,
-            fname.map_or(ptr::null(), |s| s.as_ptr()),
-            mode.as_ptr(),
-        )
-    ;
+    let status = luaL_loadfilex(
+        state,
+        fname.map_or(ptr::null(), |s| s.as_ptr()),
+        mode.as_ptr(),
+    );
     unsafe { load_aux(state, status, env) }
 }
 
-unsafe  fn generic_reader(
+unsafe fn generic_reader(
     state: *mut lua_State,
     _ud: *mut c_void,
     size: *mut usize,
@@ -597,7 +594,7 @@ unsafe  fn generic_reader(
     unsafe { lua_tolstring(state, RESERVEDSLOT, size) }
 }
 
-unsafe  fn lua_b_load(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_load(state: *mut lua_State) -> c_int {
     let mut len = 0usize;
     let s = unsafe { lua_tolstring(state, 1, &mut len) };
     let mode = unsafe { get_mode(state, 3) };
@@ -622,24 +619,18 @@ unsafe  fn lua_b_load(state: *mut lua_State) -> c_int {
     unsafe { load_aux(state, status, env) }
 }
 
-unsafe  fn dofilecont(
-    state: *mut lua_State,
-    _d1: c_int,
-    _d2: LuaKContext,
-) -> c_int {
+unsafe fn dofilecont(state: *mut lua_State, _d1: c_int, _d2: LuaKContext) -> c_int {
     unsafe { lua_gettop(state) - 1 }
 }
 
-unsafe  fn lua_b_dofile(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_dofile(state: *mut lua_State) -> c_int {
     let fname = unsafe { optstring(state, 1, ptr::null()) };
     unsafe { lua_settop(state, 1) };
-    if
-        luaL_loadfilex(
-            state,
-            fname.map_or(ptr::null(), |s| s.as_ptr()),
-            ptr::null(),
-        )
-     != LUA_OK.into()
+    if luaL_loadfilex(
+        state,
+        fname.map_or(ptr::null(), |s| s.as_ptr()),
+        ptr::null(),
+    ) != LUA_OK.into()
     {
         return unsafe { lua_error(state) };
     }
@@ -647,7 +638,7 @@ unsafe  fn lua_b_dofile(state: *mut lua_State) -> c_int {
     unsafe { dofilecont(state, 0, 0) }
 }
 
-unsafe  fn lua_b_assert(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_assert(state: *mut lua_State) -> c_int {
     if unsafe { lua_toboolean(state, 1) } != 0 {
         unsafe { lua_gettop(state) }
     } else {
@@ -659,7 +650,7 @@ unsafe  fn lua_b_assert(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn lua_b_select(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_select(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     if unsafe { lua_type(state, 1) } == LUA_TSTRING.into()
         && *unsafe { cstr(tostring_ptr(state, 1)) }
@@ -684,11 +675,7 @@ unsafe  fn lua_b_select(state: *mut lua_State) -> c_int {
     }
 }
 
-unsafe  fn finishpcall(
-    state: *mut lua_State,
-    status: c_int,
-    extra: LuaKContext,
-) -> c_int {
+unsafe fn finishpcall(state: *mut lua_State, status: c_int, extra: LuaKContext) -> c_int {
     if status != LUA_OK.into() && status != LUA_YIELD.into() {
         unsafe { lua_pushboolean(state, 0) };
         unsafe { lua_pushvalue(state, -2) };
@@ -698,7 +685,7 @@ unsafe  fn finishpcall(
     }
 }
 
-unsafe  fn lua_b_pcall(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_pcall(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     unsafe { lua_pushboolean(state, 1) };
     unsafe { lua_insert(state, 1) };
@@ -715,7 +702,7 @@ unsafe  fn lua_b_pcall(state: *mut lua_State) -> c_int {
     unsafe { finishpcall(state, status, 0) }
 }
 
-unsafe  fn lua_b_xpcall(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_xpcall(state: *mut lua_State) -> c_int {
     let n = unsafe { lua_gettop(state) };
     luaL_checktype(state, 2, LUA_TFUNCTION.into());
     unsafe { lua_pushboolean(state, 1) };
@@ -725,13 +712,13 @@ unsafe  fn lua_b_xpcall(state: *mut lua_State) -> c_int {
     unsafe { finishpcall(state, status, 2) }
 }
 
-unsafe  fn lua_b_tostring(state: *mut lua_State) -> c_int {
+unsafe fn lua_b_tostring(state: *mut lua_State) -> c_int {
     luaL_checkany(state, 1);
     let _ = luaL_tolstring(state, 1, ptr::null_mut());
     1
 }
 
-pub(crate) unsafe  fn luaopen_base(state: *mut lua_State) -> c_int {
+pub(crate) unsafe fn luaopen_base(state: *mut lua_State) -> c_int {
     unsafe { pushglobaltable(state) };
     luaL_setfuncs(state, BASE_FUNCS.as_ptr(), 0);
     unsafe { lua_pushvalue(state, -1) };
