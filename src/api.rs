@@ -151,7 +151,6 @@ pub unsafe fn lua_pushvalue(L: *mut lua_State, idx: c_int) {
     unsafe { api_incr_top(L) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_type(L: *mut lua_State, idx: c_int) -> c_int {
     let o = unsafe { index2value(L, idx) };
     if unsafe { isvalid(L, o) } {
@@ -213,7 +212,8 @@ pub unsafe fn lua_rawequal(L: *mut lua_State, index1: c_int, index2: c_int) -> c
 }
 
 pub unsafe fn lua_arith(L: *mut lua_State, op: c_int) {
-    if op != LUA_OPUNM && op != LUA_OPBNOT {
+    let op = LuaArithOp::from_c_int(op).expect("invalid arithmetic operation");
+    if !matches!(op, LuaArithOp::Unm | LuaArithOp::BNot) {
         unsafe { api_checkpop(L, 2) };
     } else {
         unsafe { api_checkpop(L, 1) };
@@ -238,10 +238,10 @@ pub unsafe fn lua_compare(L: *mut lua_State, index1: c_int, index2: c_int, op: c
     if !(unsafe { isvalid(L, o1) && isvalid(L, o2) }) {
         return 0;
     }
-    match op {
-        LUA_OPEQ => unsafe { luaV_equalobj(L, o1, o2) },
-        LUA_OPLT => unsafe { luaV_lessthan(L, o1, o2) },
-        LUA_OPLE => unsafe { luaV_lessequal(L, o1, o2) },
+    match LuaCompareOp::from_c_int(op) {
+        Some(LuaCompareOp::Eq) => unsafe { luaV_equalobj(L, o1, o2) },
+        Some(LuaCompareOp::Lt) => unsafe { luaV_lessthan(L, o1, o2) },
+        Some(LuaCompareOp::Le) => unsafe { luaV_lessequal(L, o1, o2) },
         _ => {
             unsafe { api_check(false, "invalid option") };
             0
@@ -278,7 +278,6 @@ pub unsafe fn lua_tonumberx(L: *mut lua_State, idx: c_int, pisnum: *mut c_int) -
     n
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_tointegerx(L: *mut lua_State, idx: c_int, pisnum: *mut c_int) -> lua_Integer {
     let mut i = 0;
     let isnum = unsafe { tointeger(index2value(L, idx), ptr::addr_of_mut!(i)) };
@@ -288,7 +287,6 @@ pub unsafe fn lua_tointegerx(L: *mut lua_State, idx: c_int, pisnum: *mut c_int) 
     i
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_toboolean(L: *mut lua_State, idx: c_int) -> c_int {
     (!unsafe { l_isfalse(index2value(L, idx)) }) as c_int
 }
@@ -491,7 +489,6 @@ pub unsafe fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int {
     novariant(tag) as c_int
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_char) -> c_int {
     unsafe { auxgetstr(L, index2value(L, idx), k) }
 }
@@ -721,7 +718,7 @@ pub unsafe fn lua_callk(
     unsafe { api_checkpop(L, nargs + 1) };
     unsafe {
         api_check(
-            (*L).status == LUA_OK,
+            (*L).status == LuaStatus::Ok,
             "cannot do calls on non-normal thread",
         )
     };
@@ -760,7 +757,7 @@ pub unsafe fn lua_pcallk(
     unsafe { api_checkpop(L, nargs + 1) };
     unsafe {
         api_check(
-            (*L).status == LUA_OK,
+            (*L).status == LuaStatus::Ok,
             "cannot do calls on non-normal thread",
         )
     };
@@ -862,7 +859,7 @@ pub unsafe fn lua_dump(
 }
 
 pub unsafe fn lua_status(L: *mut lua_State) -> c_int {
-    unsafe { APIstatus((*L).status) }
+    unsafe { APIstatus((*L).status.as_u8()) }
 }
 
 /// 执行无附加参数的 GC 操作（替代 C 风格变参的 lua_gc）。
@@ -873,24 +870,24 @@ pub unsafe fn lua_gc(L: *mut lua_State, what: c_int) -> c_int {
     if unsafe { (*g).gcstp & (GCSTPGC | GCSTPCLS) } != 0 {
         return -1;
     }
-    match what {
-        LUA_GCSTOP => {
+    match LuaGcWhat::from_c_int(what) {
+        Some(LuaGcWhat::Stop) => {
             unsafe { (*g).gcstp = GCSTPUSR };
             0
         }
-        LUA_GCRESTART => {
+        Some(LuaGcWhat::Restart) => {
             unsafe { luaE_setdebt(g, 0) };
             unsafe { (*g).gcstp = 0 };
             0
         }
-        LUA_GCCOLLECT => {
+        Some(LuaGcWhat::Collect) => {
             unsafe { luaC_fullgc(L, 0) };
             0
         }
-        LUA_GCCOUNT => unsafe { (gettotalbytes(g) >> 10) as c_int },
-        LUA_GCCOUNTB => unsafe { (gettotalbytes(g) & 0x3ff) as c_int },
-        LUA_GCISRUNNING => (unsafe { (*g).gcstp == 0 }) as c_int,
-        LUA_GCGEN => {
+        Some(LuaGcWhat::Count) => unsafe { (gettotalbytes(g) >> 10) as c_int },
+        Some(LuaGcWhat::CountB) => unsafe { (gettotalbytes(g) & 0x3ff) as c_int },
+        Some(LuaGcWhat::IsRunning) => (unsafe { (*g).gcstp == 0 }) as c_int,
+        Some(LuaGcWhat::Gen) => {
             let res = if unsafe { (*g).gckind == KGC_INC } {
                 LUA_GCINC
             } else {
@@ -899,7 +896,7 @@ pub unsafe fn lua_gc(L: *mut lua_State, what: c_int) -> c_int {
             unsafe { luaC_changemode(L, KGC_GENMINOR) };
             res
         }
-        LUA_GCINC => {
+        Some(LuaGcWhat::Inc) => {
             let res = if unsafe { (*g).gckind == KGC_INC } {
                 LUA_GCINC
             } else {
@@ -943,10 +940,11 @@ pub unsafe fn lua_gc_step(L: *mut lua_State, n: usize) -> c_int {
 /// 返回参数的当前值（修改前）。
 pub unsafe fn lua_gc_param(L: *mut lua_State, param: usize, value: c_int) -> c_int {
     let g = unsafe { G(L) };
-    unsafe { api_check(param < LUA_GCPN, "invalid GC parameter index") };
-    let res = unsafe { luaO_applyparam((*g).gcparams[param], 100) as c_int };
+    let param = LuaGcParam::from_usize(param).expect("invalid GC parameter index");
+    let index = param.as_usize();
+    let res = unsafe { luaO_applyparam((*g).gcparams[index], 100) as c_int };
     if value >= 0 {
-        unsafe { (*g).gcparams[param] = luaO_codeparam(value as u32) };
+        unsafe { (*g).gcparams[index] = luaO_codeparam(value as u32) };
     }
     res
 }

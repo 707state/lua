@@ -229,7 +229,6 @@ pub(crate) unsafe fn luaX_init(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_token2str(ls: *mut LexState, token: c_int) -> *const c_char {
     if token < FIRST_RESERVED {
         let c = (token as u8) as char;
@@ -261,7 +260,6 @@ unsafe fn txtToken(ls: *mut LexState, token: c_int) -> *const c_char {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_syntaxerror(ls: *mut LexState, msg: *const c_char) -> ! {
     unsafe { lexerror(ls, msg, (*ls).t.token) }
 }
@@ -290,7 +288,6 @@ unsafe fn anchorstr(ls: *mut LexState, ts: *mut TString) -> *mut TString {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_newstring(ls: *mut LexState, str_: *const c_char, len: usize) -> *mut TString {
     let ts = unsafe { raw_luaS_newlstr((*ls).L.cast(), str_, len).cast::<TString>() };
     unsafe { anchorstr(ls, ts) }
@@ -311,7 +308,6 @@ unsafe fn inclinenumber(ls: *mut LexState) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_setinput(
     state: *mut lua_State,
     ls: *mut LexState,
@@ -793,7 +789,6 @@ unsafe fn llex(ls: *mut LexState, seminfo: *mut SemInfo) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_next(ls: *mut LexState) {
     unsafe {
         (*ls).lastline = (*ls).linenumber;
@@ -806,7 +801,6 @@ pub unsafe fn luaX_next(ls: *mut LexState) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaX_lookahead(ls: *mut LexState) -> c_int {
     debug_assert_eq!(unsafe { (*ls).lookahead.token }, TK_EOS);
     unsafe {

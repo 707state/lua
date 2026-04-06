@@ -405,7 +405,7 @@ mod inner {
         unsafe {
             checkload(
                 state,
-                luaL_loadfilex(state, filename.as_ptr(), ptr::null()) == LUA_OK.into(),
+                luaL_loadfilex(state, filename.as_ptr(), ptr::null()) == LuaStatus::Ok.as_c_int(),
                 &filename,
             )
         }
@@ -467,7 +467,7 @@ mod inner {
     unsafe fn searcher_preload(state: *mut lua_State) -> c_int {
         let name = unsafe { checkstring(state, 1) };
         unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast()) };
-        if unsafe { lua_getfield(state, -1, name.as_ptr()) } == LUA_TNIL.into() {
+        if unsafe { lua_getfield(state, -1, name.as_ptr()) } == LuaType::Nil.as_c_int() {
             let msg = format!("no field package.preload['{}']", name.to_string_lossy());
             unsafe { lua_pushlstring(state, msg.as_ptr().cast(), msg.len()) };
             1
@@ -484,14 +484,14 @@ mod inner {
                 crate::lua_module::lua_upvalueindex(1),
                 FIELD_SEARCHERS.as_ptr().cast(),
             )
-        } != LUA_TTABLE.into()
+        } != LuaType::Table.as_c_int()
         {
             let _ = unsafe { luaL_error_str(state, c"'package.searchers' must be a table".as_ptr()) };
         }
         let mut parts = Vec::<String>::new();
         let mut i = 1i64;
         loop {
-            if unsafe { lua_geti(state, 3, i) } == LUA_TNIL.into() {
+            if unsafe { lua_geti(state, 3, i) } == LuaType::Nil.as_c_int() {
                 unsafe { lua_pop(state, 1) };
                 let msg = parts.join("\n\t");
                 let name_s = unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_string_lossy();
@@ -499,7 +499,7 @@ mod inner {
             }
             unsafe { lua_pushstring(state, name.as_ptr()) };
             unsafe { lua_call(state, 1, 2) };
-            if unsafe { lua_type(state, -2) } == LUA_TFUNCTION as c_int {
+            if unsafe { lua_type(state, -2) } == LuaType::Function.as_c_int() {
                 return;
             } else if unsafe { lua_isstring(state, -2) } != 0 {
                 let msg = unsafe { cstr(tostring_ptr(state, -2)) }
@@ -528,12 +528,12 @@ mod inner {
         unsafe { lua_pushvalue(state, 1) };
         unsafe { lua_pushvalue(state, -3) };
         unsafe { lua_call(state, 2, 1) };
-        if unsafe { lua_type(state, -1) } != LUA_TNIL.into() {
+        if unsafe { lua_type(state, -1) } != LuaType::Nil.as_c_int() {
             unsafe { lua_setfield(state, 2, name.as_ptr()) };
         } else {
             unsafe { lua_pop(state, 1) };
         }
-        if unsafe { lua_getfield(state, 2, name.as_ptr()) } == LUA_TNIL.into() {
+        if unsafe { lua_getfield(state, 2, name.as_ptr()) } == LuaType::Nil.as_c_int() {
             unsafe { lua_pushboolean(state, 1) };
             unsafe { lua_copy(state, -1, -2) };
             unsafe { lua_setfield(state, 2, name.as_ptr()) };

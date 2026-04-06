@@ -732,7 +732,6 @@ unsafe fn clearNewSlice(t: *mut Table, mut oldasize: u32, newasize: u32) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_resize(state: *mut lua_State, t: *mut Table, newasize: u32, nhsize: u32) {
     let mut newt = Table {
         next: ptr::null_mut(),
@@ -778,7 +777,6 @@ pub unsafe fn luaH_resize(state: *mut lua_State, t: *mut Table, newasize: u32, n
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_resizearray(state: *mut lua_State, t: *mut Table, nasize: u32) {
     let nsize = unsafe { allocsizenode(t) };
     unsafe { luaH_resize(state, t, nasize, nsize) };
@@ -808,7 +806,6 @@ unsafe fn rehash(state: *mut lua_State, t: *mut Table, ek: *const TValue) {
     unsafe { luaH_resize(state, t, asize, nsize) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_new(state: *mut lua_State) -> *mut Table {
     let o = unsafe { luaC_newobj(state, LUA_VTABLE, size_of::<Table>()) };
     let t = o.cast::<Table>();
@@ -822,7 +819,6 @@ pub unsafe fn luaH_new(state: *mut lua_State) -> *mut Table {
     t
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_size(t: *mut Table) -> usize {
     let mut sz = size_of::<Table>() + concretesize(unsafe { (*t).asize });
     if !unsafe { isdummy(t) } {
@@ -831,7 +827,6 @@ pub unsafe fn luaH_size(t: *mut Table) -> usize {
     sz
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_free(state: *mut lua_State, t: *mut Table) {
     unsafe {
         freehash(state, t);
@@ -947,7 +942,6 @@ unsafe fn finishnodeget(val: *const TValue, res: *mut TValue) -> u8 {
     unsafe { ttypetag(val) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> u8 {
     unsafe {
         let k = ikeyinarray(t, key);
@@ -963,7 +957,6 @@ pub unsafe fn luaH_getint(t: *mut Table, key: lua_Integer, res: *mut TValue) -> 
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_Hgetshortstr(t: *mut Table, key: *mut TString) -> *const TValue {
     let mut n = unsafe { hashstr(t, key) };
     loop {
@@ -978,7 +971,6 @@ pub unsafe fn luaH_Hgetshortstr(t: *mut Table, key: *mut TString) -> *const TVal
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_getshortstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> u8 {
     unsafe { finishnodeget(luaH_Hgetshortstr(t, key), res) }
 }
@@ -997,12 +989,10 @@ unsafe fn Hgetstr(t: *mut Table, key: *mut TString) -> *const TValue {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_getstr(t: *mut Table, key: *mut TString, res: *mut TValue) -> u8 {
     unsafe { finishnodeget(Hgetstr(t, key), res) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_get(t: *mut Table, key: *const TValue, res: *mut TValue) -> u8 {
     let slot = match unsafe { ttypetag(key) } {
         LUA_VSHRSTR => unsafe { luaH_Hgetshortstr(t, tsvalue(key)) },
@@ -1047,7 +1037,6 @@ unsafe fn rawfinishnodeset(slot: *const TValue, val: *mut TValue) -> bool {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_psetint(t: *mut Table, key: lua_Integer, val: *mut TValue) -> c_int {
     debug_assert_eq!(unsafe { ikeyinarray(t, key) }, 0);
     unsafe { finishnodeset(t, getintfromhash(t, key), val) }
@@ -1080,7 +1069,6 @@ unsafe fn invalidateTMcache(t: *mut Table) {
     unsafe { (*t).flags &= !MASKFLAGS };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_psetshortstr(t: *mut Table, key: *mut TString, val: *mut TValue) -> c_int {
     let slot = unsafe { luaH_Hgetshortstr(t, key) };
     if !unsafe { ttisnil(slot) } {
@@ -1108,7 +1096,6 @@ pub unsafe fn luaH_psetshortstr(t: *mut Table, key: *mut TString, val: *mut TVal
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_psetstr(t: *mut Table, key: *mut TString, val: *mut TValue) -> c_int {
     if unsafe { strisshr(key) } {
         unsafe { luaH_psetshortstr(t, key, val) }
@@ -1117,7 +1104,6 @@ pub unsafe fn luaH_psetstr(t: *mut Table, key: *mut TString, val: *mut TValue) -
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_pset(t: *mut Table, key: *const TValue, val: *mut TValue) -> c_int {
     match unsafe { ttypetag(key) } {
         LUA_VSHRSTR => unsafe { luaH_psetshortstr(t, tsvalue(key), val) },
@@ -1135,7 +1121,6 @@ pub unsafe fn luaH_pset(t: *mut Table, key: *const TValue, val: *mut TValue) -> 
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_finishset(
     state: *mut lua_State,
     t: *mut Table,
@@ -1177,7 +1162,6 @@ pub unsafe fn luaH_finishset(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_set(
     state: *mut lua_State,
     t: *mut Table,
@@ -1190,7 +1174,6 @@ pub unsafe fn luaH_set(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_setint(
     state: *mut lua_State,
     t: *mut Table,
@@ -1267,7 +1250,6 @@ unsafe fn newhint(t: *mut Table, hint: u32) -> lua_Unsigned {
     hint as lua_Unsigned
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_getn(state: *mut lua_State, t: *mut Table) -> lua_Unsigned {
     let asize = unsafe { (*t).asize };
     if asize > 0 {
@@ -1310,7 +1292,6 @@ pub unsafe fn luaH_getn(state: *mut lua_State, t: *mut Table) -> lua_Unsigned {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaH_next(state: *mut lua_State, t: *mut Table, key: StkId) -> c_int {
     unsafe {
         let asize = (*t).asize;
@@ -1843,7 +1824,6 @@ unsafe fn getn(state: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaopen_table(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &TAB_FUNCS) };
     1

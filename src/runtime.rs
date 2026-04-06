@@ -52,11 +52,11 @@ pub enum LuaStatus {
 
 impl LuaStatus {
     #[inline]
-    pub fn as_u8(self) -> u8 {
+    pub const fn as_u8(self) -> u8 {
         self as u8
     }
     #[inline]
-    pub fn as_c_int(self) -> c_int {
+    pub const fn as_c_int(self) -> c_int {
         self as c_int
     }
     /// Convert a raw `TStatus` byte back to `LuaStatus`, or `None` if unknown.
@@ -75,12 +75,12 @@ impl LuaStatus {
 }
 
 // Backward-compatible const aliases (type stays as TStatus = u8)
-pub const LUA_OK: TStatus = LuaStatus::Ok as u8;
-pub(crate) const LUA_YIELD: TStatus = LuaStatus::Yield as u8;
-pub(crate) const LUA_ERRRUN: TStatus = LuaStatus::ErrRun as u8;
-pub const LUA_ERRSYNTAX: TStatus = LuaStatus::ErrSyntax as u8;
-pub(crate) const LUA_ERRMEM: TStatus = LuaStatus::ErrMem as u8;
-pub(crate) const LUA_ERRERR: TStatus = LuaStatus::ErrErr as u8;
+pub const LUA_OK: TStatus = LuaStatus::Ok.as_u8();
+pub(crate) const LUA_YIELD: TStatus = LuaStatus::Yield.as_u8();
+pub(crate) const LUA_ERRRUN: TStatus = LuaStatus::ErrRun.as_u8();
+pub const LUA_ERRSYNTAX: TStatus = LuaStatus::ErrSyntax.as_u8();
+pub(crate) const LUA_ERRMEM: TStatus = LuaStatus::ErrMem.as_u8();
+pub(crate) const LUA_ERRERR: TStatus = LuaStatus::ErrErr.as_u8();
 
 // ============================================================
 // LuaType — base type tags (lower 4 bits of tt_)
@@ -106,30 +106,48 @@ pub(crate) enum LuaType {
 
 impl LuaType {
     #[inline]
-    pub(crate) fn as_u8(self) -> u8 {
+    pub(crate) const fn as_u8(self) -> u8 {
         self as i8 as u8
     }
     #[inline]
-    pub(crate) fn as_c_int(self) -> c_int {
+    pub(crate) const fn as_c_int(self) -> c_int {
         self as c_int
+    }
+    #[inline]
+    pub(crate) const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Nil),
+            1 => Some(Self::Boolean),
+            2 => Some(Self::LightUserData),
+            3 => Some(Self::Number),
+            4 => Some(Self::String),
+            5 => Some(Self::Table),
+            6 => Some(Self::Function),
+            7 => Some(Self::UserData),
+            8 => Some(Self::Thread),
+            9 => Some(Self::UpVal),
+            10 => Some(Self::Proto),
+            11 => Some(Self::DeadKey),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const LUA_TNONE: c_int = LuaType::None as c_int;
-pub const LUA_TNIL: u8 = LuaType::Nil as i8 as u8;
-pub(crate) const LUA_TBOOLEAN: u8 = LuaType::Boolean as i8 as u8;
-pub(crate) const LUA_TLIGHTUSERDATA: u8 = LuaType::LightUserData as i8 as u8;
-pub(crate) const LUA_TNUMBER: u8 = LuaType::Number as i8 as u8;
-pub const LUA_TSTRING: u8 = LuaType::String as i8 as u8;
-pub const LUA_TTABLE: u8 = LuaType::Table as i8 as u8;
-pub(crate) const LUA_TFUNCTION: u8 = LuaType::Function as i8 as u8;
-pub(crate) const LUA_TUSERDATA: u8 = LuaType::UserData as i8 as u8;
-pub(crate) const LUA_TTHREAD: u8 = LuaType::Thread as i8 as u8;
+pub(crate) const LUA_TNONE: c_int = LuaType::None.as_c_int();
+pub const LUA_TNIL: u8 = LuaType::Nil.as_u8();
+pub(crate) const LUA_TBOOLEAN: u8 = LuaType::Boolean.as_u8();
+pub(crate) const LUA_TLIGHTUSERDATA: u8 = LuaType::LightUserData.as_u8();
+pub(crate) const LUA_TNUMBER: u8 = LuaType::Number.as_u8();
+pub const LUA_TSTRING: u8 = LuaType::String.as_u8();
+pub const LUA_TTABLE: u8 = LuaType::Table.as_u8();
+pub(crate) const LUA_TFUNCTION: u8 = LuaType::Function.as_u8();
+pub(crate) const LUA_TUSERDATA: u8 = LuaType::UserData.as_u8();
+pub(crate) const LUA_TTHREAD: u8 = LuaType::Thread.as_u8();
 pub(crate) const LUA_NUMTYPES: c_int = 9;
-pub(crate) const LUA_TUPVAL: u8 = LuaType::UpVal as i8 as u8;
-pub(crate) const LUA_TPROTO: u8 = LuaType::Proto as i8 as u8;
-pub(crate) const LUA_TDEADKEY: u8 = LuaType::DeadKey as i8 as u8;
+pub(crate) const LUA_TUPVAL: u8 = LuaType::UpVal.as_u8();
+pub(crate) const LUA_TPROTO: u8 = LuaType::Proto.as_u8();
+pub(crate) const LUA_TDEADKEY: u8 = LuaType::DeadKey.as_u8();
 
 pub(crate) const BIT_ISCOLLECTABLE: u8 = 1 << 6;
 
@@ -167,30 +185,54 @@ pub(crate) enum LuaVariant {
 
 impl LuaVariant {
     #[inline]
-    pub(crate) fn as_u8(self) -> u8 {
+    pub(crate) const fn as_u8(self) -> u8 {
         self as u8
+    }
+    #[inline]
+    pub(crate) const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0x00 => Some(Self::Nil),
+            0x01 => Some(Self::False),
+            0x11 => Some(Self::True),
+            0x02 => Some(Self::LightUserData),
+            0x03 => Some(Self::NumInt),
+            0x13 => Some(Self::NumFlt),
+            0x04 => Some(Self::ShrStr),
+            0x14 => Some(Self::LngStr),
+            0x07 => Some(Self::UserData),
+            0x08 => Some(Self::Thread),
+            0x0A => Some(Self::Proto),
+            0x09 => Some(Self::UpVal),
+            0x06 => Some(Self::LuaClosure),
+            0x16 => Some(Self::LightCF),
+            0x26 => Some(Self::CClosure),
+            0x05 => Some(Self::Table),
+            0x10 => Some(Self::Empty),
+            0x20 => Some(Self::AbstKey),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const LUA_VNIL: u8 = LuaVariant::Nil as u8;
-pub(crate) const LUA_VFALSE: u8 = LuaVariant::False as u8;
-pub(crate) const LUA_VTRUE: u8 = LuaVariant::True as u8;
-pub(crate) const LUA_VLIGHTUSERDATA: u8 = LuaVariant::LightUserData as u8;
-pub(crate) const LUA_VNUMINT: u8 = LuaVariant::NumInt as u8;
-pub(crate) const LUA_VNUMFLT: u8 = LuaVariant::NumFlt as u8;
-pub(crate) const LUA_VSHRSTR: u8 = LuaVariant::ShrStr as u8;
-pub(crate) const LUA_VLNGSTR: u8 = LuaVariant::LngStr as u8;
-pub(crate) const LUA_VUSERDATA: u8 = LuaVariant::UserData as u8;
-pub(crate) const LUA_VTHREAD: u8 = LuaVariant::Thread as u8;
-pub(crate) const LUA_VPROTO: u8 = LuaVariant::Proto as u8;
-pub(crate) const LUA_VUPVAL: u8 = LuaVariant::UpVal as u8;
-pub(crate) const LUA_VLCL: u8 = LuaVariant::LuaClosure as u8;
-pub(crate) const LUA_VLCF: u8 = LuaVariant::LightCF as u8;
-pub(crate) const LUA_VCCL: u8 = LuaVariant::CClosure as u8;
-pub(crate) const LUA_VTABLE: u8 = LuaVariant::Table as u8;
-pub(crate) const LUA_VEMPTY: u8 = LuaVariant::Empty as u8;
-pub(crate) const LUA_VABSTKEY: u8 = LuaVariant::AbstKey as u8;
+pub(crate) const LUA_VNIL: u8 = LuaVariant::Nil.as_u8();
+pub(crate) const LUA_VFALSE: u8 = LuaVariant::False.as_u8();
+pub(crate) const LUA_VTRUE: u8 = LuaVariant::True.as_u8();
+pub(crate) const LUA_VLIGHTUSERDATA: u8 = LuaVariant::LightUserData.as_u8();
+pub(crate) const LUA_VNUMINT: u8 = LuaVariant::NumInt.as_u8();
+pub(crate) const LUA_VNUMFLT: u8 = LuaVariant::NumFlt.as_u8();
+pub(crate) const LUA_VSHRSTR: u8 = LuaVariant::ShrStr.as_u8();
+pub(crate) const LUA_VLNGSTR: u8 = LuaVariant::LngStr.as_u8();
+pub(crate) const LUA_VUSERDATA: u8 = LuaVariant::UserData.as_u8();
+pub(crate) const LUA_VTHREAD: u8 = LuaVariant::Thread.as_u8();
+pub(crate) const LUA_VPROTO: u8 = LuaVariant::Proto.as_u8();
+pub(crate) const LUA_VUPVAL: u8 = LuaVariant::UpVal.as_u8();
+pub(crate) const LUA_VLCL: u8 = LuaVariant::LuaClosure.as_u8();
+pub(crate) const LUA_VLCF: u8 = LuaVariant::LightCF.as_u8();
+pub(crate) const LUA_VCCL: u8 = LuaVariant::CClosure.as_u8();
+pub(crate) const LUA_VTABLE: u8 = LuaVariant::Table.as_u8();
+pub(crate) const LUA_VEMPTY: u8 = LuaVariant::Empty.as_u8();
+pub(crate) const LUA_VABSTKEY: u8 = LuaVariant::AbstKey.as_u8();
 
 pub(crate) const WHITE0BIT: u8 = 3;
 pub(crate) const WHITE1BIT: u8 = 4;
@@ -221,26 +263,46 @@ pub(crate) enum LuaArithOp {
 
 impl LuaArithOp {
     #[inline]
-    pub(crate) fn as_c_int(self) -> c_int {
+    pub(crate) const fn as_c_int(self) -> c_int {
         self as c_int
+    }
+    #[inline]
+    pub(crate) const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Add),
+            1 => Some(Self::Sub),
+            2 => Some(Self::Mul),
+            3 => Some(Self::Mod),
+            4 => Some(Self::Pow),
+            5 => Some(Self::Div),
+            6 => Some(Self::IDiv),
+            7 => Some(Self::BAnd),
+            8 => Some(Self::BOr),
+            9 => Some(Self::BXor),
+            10 => Some(Self::Shl),
+            11 => Some(Self::Shr),
+            12 => Some(Self::Unm),
+            13 => Some(Self::BNot),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const LUA_OPADD: c_int = LuaArithOp::Add as c_int;
-pub(crate) const LUA_OPSUB: c_int = LuaArithOp::Sub as c_int;
-pub(crate) const LUA_OPMUL: c_int = LuaArithOp::Mul as c_int;
-pub(crate) const LUA_OPMOD: c_int = LuaArithOp::Mod as c_int;
-pub(crate) const LUA_OPPOW: c_int = LuaArithOp::Pow as c_int;
-pub(crate) const LUA_OPDIV: c_int = LuaArithOp::Div as c_int;
-pub(crate) const LUA_OPIDIV: c_int = LuaArithOp::IDiv as c_int;
-pub(crate) const LUA_OPBAND: c_int = LuaArithOp::BAnd as c_int;
-pub(crate) const LUA_OPBOR: c_int = LuaArithOp::BOr as c_int;
-pub(crate) const LUA_OPBXOR: c_int = LuaArithOp::BXor as c_int;
-pub(crate) const LUA_OPSHL: c_int = LuaArithOp::Shl as c_int;
-pub(crate) const LUA_OPSHR: c_int = LuaArithOp::Shr as c_int;
-pub(crate) const LUA_OPUNM: c_int = LuaArithOp::Unm as c_int;
-pub(crate) const LUA_OPBNOT: c_int = LuaArithOp::BNot as c_int;
+pub(crate) const LUA_OPADD: c_int = LuaArithOp::Add.as_c_int();
+pub(crate) const LUA_OPSUB: c_int = LuaArithOp::Sub.as_c_int();
+pub(crate) const LUA_OPMUL: c_int = LuaArithOp::Mul.as_c_int();
+pub(crate) const LUA_OPMOD: c_int = LuaArithOp::Mod.as_c_int();
+pub(crate) const LUA_OPPOW: c_int = LuaArithOp::Pow.as_c_int();
+pub(crate) const LUA_OPDIV: c_int = LuaArithOp::Div.as_c_int();
+pub(crate) const LUA_OPIDIV: c_int = LuaArithOp::IDiv.as_c_int();
+pub(crate) const LUA_OPBAND: c_int = LuaArithOp::BAnd.as_c_int();
+pub(crate) const LUA_OPBOR: c_int = LuaArithOp::BOr.as_c_int();
+pub(crate) const LUA_OPBXOR: c_int = LuaArithOp::BXor.as_c_int();
+pub(crate) const LUA_OPSHL: c_int = LuaArithOp::Shl.as_c_int();
+pub(crate) const LUA_OPSHR: c_int = LuaArithOp::Shr.as_c_int();
+pub(crate) const LUA_OPUNM: c_int = LuaArithOp::Unm.as_c_int();
+pub(crate) const LUA_OPBNOT: c_int = LuaArithOp::BNot.as_c_int();
 
 // ============================================================
 // TagMethod — metamethod indices (index into lt->mt array)
@@ -278,42 +340,74 @@ pub(crate) enum TagMethod {
 
 impl TagMethod {
     #[inline]
-    pub(crate) fn as_c_int(self) -> c_int {
+    pub(crate) const fn as_c_int(self) -> c_int {
         self as c_int
     }
     #[inline]
-    pub(crate) fn as_usize(self) -> usize {
+    pub(crate) const fn as_usize(self) -> usize {
         self as usize
+    }
+    #[inline]
+    pub(crate) const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Index),
+            1 => Some(Self::NewIndex),
+            2 => Some(Self::Gc),
+            3 => Some(Self::Mode),
+            4 => Some(Self::Len),
+            5 => Some(Self::Eq),
+            6 => Some(Self::Add),
+            7 => Some(Self::Sub),
+            8 => Some(Self::Mul),
+            9 => Some(Self::Mod),
+            10 => Some(Self::Pow),
+            11 => Some(Self::Div),
+            12 => Some(Self::IDiv),
+            13 => Some(Self::Band),
+            14 => Some(Self::Bor),
+            15 => Some(Self::Bxor),
+            16 => Some(Self::Shl),
+            17 => Some(Self::Shr),
+            18 => Some(Self::Unm),
+            19 => Some(Self::Bnot),
+            20 => Some(Self::Lt),
+            21 => Some(Self::Le),
+            22 => Some(Self::Concat),
+            23 => Some(Self::Call),
+            24 => Some(Self::Close),
+            25 => Some(Self::N),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const TM_INDEX: c_int = TagMethod::Index as c_int;
-pub(crate) const TM_NEWINDEX: c_int = TagMethod::NewIndex as c_int;
-pub(crate) const TM_GC: c_int = TagMethod::Gc as c_int;
-pub(crate) const TM_MODE: c_int = TagMethod::Mode as c_int;
-pub(crate) const TM_LEN: c_int = TagMethod::Len as c_int;
-pub(crate) const TM_EQ: c_int = TagMethod::Eq as c_int;
-pub(crate) const TM_ADD: c_int = TagMethod::Add as c_int;
-pub(crate) const TM_SUB: c_int = TagMethod::Sub as c_int;
-pub(crate) const TM_MUL: c_int = TagMethod::Mul as c_int;
-pub(crate) const TM_MOD: c_int = TagMethod::Mod as c_int;
-pub(crate) const TM_POW: c_int = TagMethod::Pow as c_int;
-pub(crate) const TM_DIV: c_int = TagMethod::Div as c_int;
-pub(crate) const TM_IDIV: c_int = TagMethod::IDiv as c_int;
-pub(crate) const TM_BAND: c_int = TagMethod::Band as c_int;
-pub(crate) const TM_BOR: c_int = TagMethod::Bor as c_int;
-pub(crate) const TM_BXOR: c_int = TagMethod::Bxor as c_int;
-pub(crate) const TM_SHL: c_int = TagMethod::Shl as c_int;
-pub(crate) const TM_SHR: c_int = TagMethod::Shr as c_int;
-pub(crate) const TM_UNM: c_int = TagMethod::Unm as c_int;
-pub(crate) const TM_BNOT: c_int = TagMethod::Bnot as c_int;
-pub(crate) const TM_LT: c_int = TagMethod::Lt as c_int;
-pub(crate) const TM_LE: c_int = TagMethod::Le as c_int;
-pub(crate) const TM_CONCAT: c_int = TagMethod::Concat as c_int;
-pub(crate) const TM_CALL: c_int = TagMethod::Call as c_int;
-pub(crate) const TM_CLOSE: c_int = TagMethod::Close as c_int;
-pub(crate) const TM_N: c_int = TagMethod::N as c_int;
+pub(crate) const TM_INDEX: c_int = TagMethod::Index.as_c_int();
+pub(crate) const TM_NEWINDEX: c_int = TagMethod::NewIndex.as_c_int();
+pub(crate) const TM_GC: c_int = TagMethod::Gc.as_c_int();
+pub(crate) const TM_MODE: c_int = TagMethod::Mode.as_c_int();
+pub(crate) const TM_LEN: c_int = TagMethod::Len.as_c_int();
+pub(crate) const TM_EQ: c_int = TagMethod::Eq.as_c_int();
+pub(crate) const TM_ADD: c_int = TagMethod::Add.as_c_int();
+pub(crate) const TM_SUB: c_int = TagMethod::Sub.as_c_int();
+pub(crate) const TM_MUL: c_int = TagMethod::Mul.as_c_int();
+pub(crate) const TM_MOD: c_int = TagMethod::Mod.as_c_int();
+pub(crate) const TM_POW: c_int = TagMethod::Pow.as_c_int();
+pub(crate) const TM_DIV: c_int = TagMethod::Div.as_c_int();
+pub(crate) const TM_IDIV: c_int = TagMethod::IDiv.as_c_int();
+pub(crate) const TM_BAND: c_int = TagMethod::Band.as_c_int();
+pub(crate) const TM_BOR: c_int = TagMethod::Bor.as_c_int();
+pub(crate) const TM_BXOR: c_int = TagMethod::Bxor.as_c_int();
+pub(crate) const TM_SHL: c_int = TagMethod::Shl.as_c_int();
+pub(crate) const TM_SHR: c_int = TagMethod::Shr.as_c_int();
+pub(crate) const TM_UNM: c_int = TagMethod::Unm.as_c_int();
+pub(crate) const TM_BNOT: c_int = TagMethod::Bnot.as_c_int();
+pub(crate) const TM_LT: c_int = TagMethod::Lt.as_c_int();
+pub(crate) const TM_LE: c_int = TagMethod::Le.as_c_int();
+pub(crate) const TM_CONCAT: c_int = TagMethod::Concat.as_c_int();
+pub(crate) const TM_CALL: c_int = TagMethod::Call.as_c_int();
+pub(crate) const TM_CLOSE: c_int = TagMethod::Close.as_c_int();
+pub(crate) const TM_N: c_int = TagMethod::N.as_c_int();
 pub(crate) const PF_VATAB: u8 = 2;
 pub(crate) const PF_FIXED: u8 = 4;
 pub(crate) const LUA_FLOORN2I: c_int = 0;
@@ -339,15 +433,24 @@ pub(crate) enum LuaCompareOp {
 
 impl LuaCompareOp {
     #[inline]
-    pub(crate) fn as_c_int(self) -> c_int {
+    pub(crate) const fn as_c_int(self) -> c_int {
         self as c_int
+    }
+    #[inline]
+    pub(crate) const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Eq),
+            1 => Some(Self::Lt),
+            2 => Some(Self::Le),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const LUA_OPEQ: c_int = LuaCompareOp::Eq as c_int;
-pub(crate) const LUA_OPLT: c_int = LuaCompareOp::Lt as c_int;
-pub(crate) const LUA_OPLE: c_int = LuaCompareOp::Le as c_int;
+pub(crate) const LUA_OPEQ: c_int = LuaCompareOp::Eq.as_c_int();
+pub(crate) const LUA_OPLT: c_int = LuaCompareOp::Lt.as_c_int();
+pub(crate) const LUA_OPLE: c_int = LuaCompareOp::Le.as_c_int();
 
 pub(crate) const LUA_TOTALTYPES: usize = LUA_TPROTO as usize + 2;
 pub const LUA_MINSTACK: usize = 20;
@@ -385,22 +488,38 @@ pub enum LuaGcWhat {
 
 impl LuaGcWhat {
     #[inline]
-    pub fn as_c_int(self) -> c_int {
+    pub const fn as_c_int(self) -> c_int {
         self as c_int
+    }
+    #[inline]
+    pub const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Stop),
+            1 => Some(Self::Restart),
+            2 => Some(Self::Collect),
+            3 => Some(Self::Count),
+            4 => Some(Self::CountB),
+            5 => Some(Self::Step),
+            6 => Some(Self::IsRunning),
+            7 => Some(Self::Gen),
+            8 => Some(Self::Inc),
+            9 => Some(Self::Param),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub const LUA_GCSTOP: c_int = LuaGcWhat::Stop as c_int;
-pub const LUA_GCRESTART: c_int = LuaGcWhat::Restart as c_int;
-pub(crate) const LUA_GCCOLLECT: c_int = LuaGcWhat::Collect as c_int;
-pub(crate) const LUA_GCCOUNT: c_int = LuaGcWhat::Count as c_int;
-pub(crate) const LUA_GCCOUNTB: c_int = LuaGcWhat::CountB as c_int;
-pub(crate) const LUA_GCSTEP: c_int = LuaGcWhat::Step as c_int;
-pub(crate) const LUA_GCISRUNNING: c_int = LuaGcWhat::IsRunning as c_int;
-pub const LUA_GCGEN: c_int = LuaGcWhat::Gen as c_int;
-pub(crate) const LUA_GCINC: c_int = LuaGcWhat::Inc as c_int;
-pub(crate) const LUA_GCPARAM: c_int = LuaGcWhat::Param as c_int;
+pub const LUA_GCSTOP: c_int = LuaGcWhat::Stop.as_c_int();
+pub const LUA_GCRESTART: c_int = LuaGcWhat::Restart.as_c_int();
+pub(crate) const LUA_GCCOLLECT: c_int = LuaGcWhat::Collect.as_c_int();
+pub(crate) const LUA_GCCOUNT: c_int = LuaGcWhat::Count.as_c_int();
+pub(crate) const LUA_GCCOUNTB: c_int = LuaGcWhat::CountB.as_c_int();
+pub(crate) const LUA_GCSTEP: c_int = LuaGcWhat::Step.as_c_int();
+pub(crate) const LUA_GCISRUNNING: c_int = LuaGcWhat::IsRunning.as_c_int();
+pub const LUA_GCGEN: c_int = LuaGcWhat::Gen.as_c_int();
+pub(crate) const LUA_GCINC: c_int = LuaGcWhat::Inc.as_c_int();
+pub(crate) const LUA_GCPARAM: c_int = LuaGcWhat::Param.as_c_int();
 
 pub(crate) const LUA_GCPN: usize = 6;
 pub(crate) const KGC_GENMINOR: c_int = 1;
@@ -424,18 +543,30 @@ pub(crate) enum LuaGcParam {
 
 impl LuaGcParam {
     #[inline]
-    pub(crate) fn as_usize(self) -> usize {
+    pub(crate) const fn as_usize(self) -> usize {
         self as usize
+    }
+    #[inline]
+    pub(crate) const fn from_usize(v: usize) -> Option<Self> {
+        match v {
+            0 => Some(Self::MinorMul),
+            1 => Some(Self::MajorMinor),
+            2 => Some(Self::MinorMajor),
+            3 => Some(Self::Pause),
+            4 => Some(Self::StepMul),
+            5 => Some(Self::StepSize),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const LUA_GCPMINORMUL: usize = LuaGcParam::MinorMul as usize;
-pub(crate) const LUA_GCPMAJORMINOR: usize = LuaGcParam::MajorMinor as usize;
-pub(crate) const LUA_GCPMINORMAJOR: usize = LuaGcParam::MinorMajor as usize;
-pub(crate) const LUA_GCPPAUSE: usize = LuaGcParam::Pause as usize;
-pub(crate) const LUA_GCPSTEPMUL: usize = LuaGcParam::StepMul as usize;
-pub(crate) const LUA_GCPSTEPSIZE: usize = LuaGcParam::StepSize as usize;
+pub(crate) const LUA_GCPMINORMUL: usize = LuaGcParam::MinorMul.as_usize();
+pub(crate) const LUA_GCPMAJORMINOR: usize = LuaGcParam::MajorMinor.as_usize();
+pub(crate) const LUA_GCPMINORMAJOR: usize = LuaGcParam::MinorMajor.as_usize();
+pub(crate) const LUA_GCPPAUSE: usize = LuaGcParam::Pause.as_usize();
+pub(crate) const LUA_GCPSTEPMUL: usize = LuaGcParam::StepMul.as_usize();
+pub(crate) const LUA_GCPSTEPSIZE: usize = LuaGcParam::StepSize.as_usize();
 
 pub(crate) const LUAI_MAXCCALLS: u32 = 200;
 
@@ -463,16 +594,26 @@ pub(crate) enum HResult {
 
 impl HResult {
     #[inline]
-    pub(crate) fn as_c_int(self) -> c_int {
+    pub(crate) const fn as_c_int(self) -> c_int {
         self as c_int
+    }
+    #[inline]
+    pub(crate) const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Ok),
+            1 => Some(Self::NotFound),
+            2 => Some(Self::NoTable),
+            3 => Some(Self::FirstNode),
+            _ => None,
+        }
     }
 }
 
 // Backward-compatible const aliases
-pub(crate) const HOK: c_int = HResult::Ok as c_int;
-pub(crate) const HNOTFOUND: c_int = HResult::NotFound as c_int;
-pub(crate) const HNOTATABLE: c_int = HResult::NoTable as c_int;
-pub(crate) const HFIRSTNODE: c_int = HResult::FirstNode as c_int;
+pub(crate) const HOK: c_int = HResult::Ok.as_c_int();
+pub(crate) const HNOTFOUND: c_int = HResult::NotFound.as_c_int();
+pub(crate) const HNOTATABLE: c_int = HResult::NoTable.as_c_int();
+pub(crate) const HFIRSTNODE: c_int = HResult::FirstNode.as_c_int();
 pub(crate) const MASKFLAGS: u8 = !(!0u8 << (TM_EQ as u32 + 1));
 
 pub(crate) const MAXUPVAL: c_int = 255;
@@ -1415,7 +1556,7 @@ pub struct lua_State {
     pub(crate) tt: u8,
     pub(crate) marked: u8,
     pub(crate) allowhook: u8,
-    pub(crate) status: TStatus,
+    pub(crate) status: LuaStatus,
     pub(crate) top: StkIdRel,
     pub(crate) l_G: *mut GlobalState,
     pub(crate) ci: *mut CallInfo,
@@ -1676,7 +1817,7 @@ pub(crate) unsafe fn luaF_newtbcupval(L: *mut lua_State, level: StkId) {
 #[inline]
 pub(crate) unsafe fn luaO_arith(
     L: *mut lua_State,
-    op: c_int,
+    op: LuaArithOp,
     p1: *const TValue,
     p2: *const TValue,
     res: StkId,
@@ -2694,6 +2835,97 @@ impl Opcode {
     #[inline]
     pub(crate) fn as_usize(self) -> usize {
         self as usize
+    }
+    #[inline]
+    pub(crate) const fn from_c_int(v: c_int) -> Option<Self> {
+        match v {
+            0 => Some(Self::Move),
+            1 => Some(Self::LoadI),
+            2 => Some(Self::LoadF),
+            3 => Some(Self::LoadK),
+            4 => Some(Self::LoadKx),
+            5 => Some(Self::LoadFalse),
+            6 => Some(Self::LFalseSkip),
+            7 => Some(Self::LoadTrue),
+            8 => Some(Self::LoadNil),
+            9 => Some(Self::GetUpval),
+            10 => Some(Self::SetUpval),
+            11 => Some(Self::GetTabUp),
+            12 => Some(Self::GetTable),
+            13 => Some(Self::GetI),
+            14 => Some(Self::GetField),
+            15 => Some(Self::SetTabUp),
+            16 => Some(Self::SetTable),
+            17 => Some(Self::SetI),
+            18 => Some(Self::SetField),
+            19 => Some(Self::NewTable),
+            20 => Some(Self::Self_),
+            21 => Some(Self::AddI),
+            22 => Some(Self::AddK),
+            23 => Some(Self::SubK),
+            24 => Some(Self::MulK),
+            25 => Some(Self::ModK),
+            26 => Some(Self::PowK),
+            27 => Some(Self::DivK),
+            28 => Some(Self::IDivK),
+            29 => Some(Self::BAndK),
+            30 => Some(Self::BOrK),
+            31 => Some(Self::BXorK),
+            32 => Some(Self::ShlI),
+            33 => Some(Self::ShrI),
+            34 => Some(Self::Add),
+            35 => Some(Self::Sub),
+            36 => Some(Self::Mul),
+            37 => Some(Self::Mod),
+            38 => Some(Self::Pow),
+            39 => Some(Self::Div),
+            40 => Some(Self::IDiv),
+            41 => Some(Self::BAnd),
+            42 => Some(Self::BOr),
+            43 => Some(Self::BXor),
+            44 => Some(Self::Shl),
+            45 => Some(Self::Shr),
+            46 => Some(Self::MMBin),
+            47 => Some(Self::MMBinI),
+            48 => Some(Self::MMBinK),
+            49 => Some(Self::Unm),
+            50 => Some(Self::BNot),
+            51 => Some(Self::Not),
+            52 => Some(Self::Len),
+            53 => Some(Self::Concat),
+            54 => Some(Self::Close),
+            55 => Some(Self::Tbc),
+            56 => Some(Self::Jmp),
+            57 => Some(Self::Eq),
+            58 => Some(Self::Lt),
+            59 => Some(Self::Le),
+            60 => Some(Self::EqK),
+            61 => Some(Self::EqI),
+            62 => Some(Self::LtI),
+            63 => Some(Self::LeI),
+            64 => Some(Self::GtI),
+            65 => Some(Self::GeI),
+            66 => Some(Self::Test),
+            67 => Some(Self::TestSet),
+            68 => Some(Self::Call),
+            69 => Some(Self::TailCall),
+            70 => Some(Self::Return),
+            71 => Some(Self::Return0),
+            72 => Some(Self::Return1),
+            73 => Some(Self::ForLoop),
+            74 => Some(Self::ForPrep),
+            75 => Some(Self::TForPrep),
+            76 => Some(Self::TForCall),
+            77 => Some(Self::TForLoop),
+            78 => Some(Self::SetList),
+            79 => Some(Self::Closure),
+            80 => Some(Self::VarArg),
+            81 => Some(Self::GetVarg),
+            82 => Some(Self::ErrNNil),
+            83 => Some(Self::VarArgPrep),
+            84 => Some(Self::ExtraArg),
+            _ => None,
+        }
     }
 }
 

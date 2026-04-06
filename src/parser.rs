@@ -214,7 +214,6 @@ unsafe fn errorlimit(fs: *mut FuncState, limit: c_int, what: *const c_char) -> !
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaY_checklimit(fs: *mut FuncState, v: c_int, l: c_int, what: *const c_char) {
     unsafe {
         if v > l {
@@ -385,7 +384,6 @@ unsafe fn reglevel(fs: *mut FuncState, mut nvar: c_int) -> lu_byte {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaY_nvarstack(fs: *mut FuncState) -> lu_byte {
     unsafe { reglevel(fs, (*fs).nactvar as c_int) }
 }
@@ -2402,7 +2400,6 @@ unsafe fn mainfunc(ls: *mut LexState, fs: *mut FuncState) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaY_parser(
     L: *mut lua_State,
     z: *mut ZIO,

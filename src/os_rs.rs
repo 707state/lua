@@ -5,7 +5,6 @@
 //!
 //! # 与标准 Lua 的语义差异
 //!
-//! * `os.setlocale` 不再支持（Rust 标准库无 locale 概念），始终返回 nil
 //! * `os.date` 格式化通过 Rust 手动实现，不依赖 `strftime`
 //! * `os.clock` 使用进程 CPU 时间近似值（`std::time::Instant` 自进程启动）
 //! * `os.tmpname` 使用 `std::env::temp_dir()` + 随机后缀
@@ -13,8 +12,8 @@
 use crate::aux_rs::{luaL_checkinteger, luaL_checktype, luaL_optinteger, luaL_optlstring};
 use crate::lua_module::{
     LuaFnList, lua_Integer, lua_Number, lua_State, lua_createtable, lua_error, lua_pop,
-    lua_pushboolean, lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_pushstring,
-    lua_setfield, lua_settop, luaL_argerror, register_lib,
+    lua_pushboolean, lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_setfield, lua_settop,
+    register_lib,
 };
 use crate::runtime::*;
 use core::ffi::c_int;
@@ -34,10 +33,6 @@ pub(crate) static SYSLIB: LuaFnList = &[
     ("getenv", os_getenv as unsafe fn(*mut lua_State) -> c_int),
     ("remove", os_remove as unsafe fn(*mut lua_State) -> c_int),
     ("rename", os_rename as unsafe fn(*mut lua_State) -> c_int),
-    (
-        "setlocale",
-        os_setlocale as unsafe fn(*mut lua_State) -> c_int,
-    ),
     ("time", os_time as unsafe fn(*mut lua_State) -> c_int),
     ("tmpname", os_tmpname as unsafe fn(*mut lua_State) -> c_int),
 ];
@@ -67,7 +62,7 @@ unsafe fn check_time_secs(state: *mut lua_State, arg: c_int) -> Result<i64, c_in
 
 /// 从 Lua 时间表（year/month/day/hour/min/sec/isdst）构建 SystemTime
 unsafe fn table_to_time(state: *mut lua_State) -> Result<i64, c_int> {
-    use crate::api::{lua_getfield, lua_toboolean, lua_tointegerx, lua_type};
+    use crate::api::{lua_getfield, lua_tointegerx};
 
     let get_int = |key: &str, default: Option<i64>, state: *mut lua_State| -> Result<i64, c_int> {
         let mut key_buf = key.to_string();
@@ -339,7 +334,7 @@ unsafe fn os_date(state: *mut lua_State) -> c_int {
     let fmt_bytes = unsafe { core::slice::from_raw_parts(fmt_ptr.cast::<u8>(), fmt_len) };
 
     // 读取时间参数（arg 2）
-    let mut isnum = 0i32;
+    let isnum = 0i32;
     let has_t2 = unsafe { crate::api::lua_type(state, 2) } > LUA_TNIL.into();
     let secs: i64 = if has_t2 {
         luaL_checkinteger(state, 2)
@@ -530,12 +525,6 @@ unsafe fn os_rename(state: *mut lua_State) -> c_int {
             3
         }
     }
-}
-
-unsafe fn os_setlocale(state: *mut lua_State) -> c_int {
-    // Rust 标准库不支持 locale；始终返回 nil（不可设置）
-    unsafe { crate::api::lua_pushnil(state) };
-    1
 }
 
 unsafe fn os_time(state: *mut lua_State) -> c_int {

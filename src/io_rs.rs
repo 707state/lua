@@ -15,7 +15,7 @@ use crate::lua_module::{
 };
 use crate::luaffi::LuaCFunction;
 use crate::runtime::*;
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_char, c_int};
 use core::{mem, ptr};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 
@@ -440,17 +440,17 @@ unsafe fn push_literal(state: *mut lua_State, s: &'static [u8]) {
 
 #[inline]
 unsafe fn is_none(state: *mut lua_State, idx: c_int) -> bool {
-    unsafe { lua_type(state, idx) == LUA_TNONE }
+    unsafe { lua_type(state, idx) == LuaType::None.as_c_int() }
 }
 
 #[inline]
 unsafe fn is_nil(state: *mut lua_State, idx: c_int) -> bool {
-    unsafe { lua_type(state, idx) == LUA_TNIL.into() }
+    unsafe { lua_type(state, idx) == LuaType::Nil.as_c_int() }
 }
 
 #[inline]
 unsafe fn is_none_or_nil(state: *mut lua_State, idx: c_int) -> bool {
-    unsafe { lua_type(state, idx) <= LUA_TNIL.into() }
+    unsafe { lua_type(state, idx) <= LuaType::Nil.as_c_int() }
 }
 
 #[inline]
@@ -863,7 +863,7 @@ unsafe fn g_read(state: *mut lua_State, stream: *mut RustStream, first: c_int) -
         n = first;
         let mut left = nargs;
         while left > 0 && success != 0 {
-            if unsafe { lua_type(state, n) } == LUA_TNUMBER as c_int {
+            if unsafe { lua_type(state, n) } == LuaType::Number.as_c_int() {
                 let l = luaL_checkinteger(state, n) as usize;
                 if l == 0 {
                     // 测试 EOF

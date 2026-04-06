@@ -109,7 +109,7 @@ unsafe fn reset_ci(state: *mut lua_State) {
         (*ci).top.p = (*ci).func.p.add(1 + LUA_MINSTACK);
         (*ci).u.c.k = None;
         (*ci).callstatus = CIST_C;
-        (*state).status = LUA_OK;
+        (*state).status = LuaStatus::Ok;
         (*state).errfunc = 0;
     }
 }
@@ -163,7 +163,7 @@ unsafe fn freestack(state: *mut lua_State) {
 unsafe fn init_registry(state: *mut lua_State, g: *mut GlobalState) {
     let mut aux = TValue {
         value_: Value { ub: 0 },
-        tt_: LUA_VNIL,
+        tt_: LuaVariant::Nil.as_u8(),
     };
     let registry = unsafe { raw_luaH_new(state.cast()).cast::<Table>() };
     unsafe { sethvalue(ptr::addr_of_mut!((*g).l_registry), registry) };
@@ -217,7 +217,7 @@ unsafe fn preinit_thread(state: *mut lua_State, g: *mut GlobalState) {
         (*state).allowhook = 1;
         resethookcount(state);
         (*state).openupval = ptr::null_mut();
-        (*state).status = LUA_OK;
+        (*state).status = LuaStatus::Ok;
         (*state).errfunc = 0;
         (*state).oldpc = 0;
         (*state).base_ci.previous = ptr::null_mut();
@@ -244,7 +244,6 @@ unsafe fn close_state(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
     let tb = unsafe { gettotalbytes(g) };
     if debt > MAX_LMEM - tb {
@@ -256,7 +255,6 @@ pub unsafe fn luaE_setdebt(g: *mut GlobalState, mut debt: l_mem) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
     let ci = unsafe { new_callinfo(state) };
     unsafe {
@@ -269,7 +267,6 @@ pub unsafe fn luaE_extendCI(state: *mut lua_State) -> *mut CallInfo {
     ci
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_shrinkCI(state: *mut lua_State) {
     let mut ci = unsafe { (*(*state).ci).next };
     if ci.is_null() {
@@ -296,7 +293,6 @@ pub unsafe fn luaE_shrinkCI(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_checkcstack(state: *mut lua_State) {
     let calls = unsafe { get_ccalls(state) };
     if calls == LUAI_MAXCCALLS {
@@ -306,7 +302,6 @@ pub unsafe fn luaE_checkcstack(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_incCstack(state: *mut lua_State) {
     unsafe { (*state).nCcalls += 1 };
     if unsafe { get_ccalls(state) } >= LUAI_MAXCCALLS {
@@ -314,7 +309,6 @@ pub unsafe fn luaE_incCstack(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_threadsize(state: *mut lua_State) -> usize {
     let mut sz =
         size_of::<LX>() + (unsafe { (*state).nci.max(0) as usize } * size_of::<CallInfo>());
@@ -329,7 +323,14 @@ pub unsafe fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
     if unsafe { (*g).gcdebt <= 0 } {
         unsafe { luaC_step(state) };
     }
-    let o = unsafe { luaC_newobjdt(state, LUA_TTHREAD, size_of::<LX>(), offset_of!(LX, l)) };
+    let o = unsafe {
+        luaC_newobjdt(
+            state,
+            LuaType::Thread.as_u8(),
+            size_of::<LX>(),
+            offset_of!(LX, l),
+        )
+    };
     let thread = o.cast::<lua_State>();
     unsafe { setthvalue2s(state, (*state).top.p, thread) };
     unsafe { api_incr_top(state) };
@@ -351,7 +352,6 @@ pub unsafe fn lua_newthread(state: *mut lua_State) -> *mut lua_State {
     thread
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
     let l = unsafe { thread.cast::<u8>().sub(offset_of!(LX, l)).cast::<LX>() };
     unsafe { luaF_closeupval(thread, (*thread).stack.p) };
@@ -359,14 +359,13 @@ pub unsafe fn luaE_freethread(state: *mut lua_State, thread: *mut lua_State) {
     unsafe { luaM_free_(state, l.cast(), size_of::<LX>()) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_resetthread(state: *mut lua_State, mut status: TStatus) -> TStatus {
     unsafe { reset_ci(state) };
-    if status == LUA_YIELD {
-        status = LUA_OK;
+    if status == LuaStatus::Yield.as_u8() {
+        status = LuaStatus::Ok.as_u8();
     }
     status = unsafe { luaD_closeprotected(state, 1, status) };
-    if status != LUA_OK {
+    if status != LuaStatus::Ok.as_u8() {
         unsafe { luaD_seterrorobj(state, status, (*state).stack.p.add(1)) };
     } else {
         unsafe { (*state).top.p = (*state).stack.p.add(1) };
@@ -385,14 +384,13 @@ pub(crate) unsafe fn lua_closethread(state: *mut lua_State, from: *mut lua_State
     unsafe {
         (*state).nCcalls = if from.is_null() { 0 } else { get_ccalls(from) };
     }
-    let status = unsafe { luaE_resetthread(state, (*state).status) };
+    let status = unsafe { luaE_resetthread(state, (*state).status.as_u8()) };
     if state == from {
         unsafe { luaD_throwbaselevel(state, status) };
     }
     status as c_int
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua_State {
     let Some(frealloc) = f else {
         return ptr::null_mut();
@@ -401,7 +399,7 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
         frealloc(
             ud,
             ptr::null_mut(),
-            LUA_TTHREAD as usize,
+            LuaType::Thread.as_u8() as usize,
             size_of::<GlobalState>(),
         )
     }
@@ -411,7 +409,7 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
     }
     let state = unsafe { ptr::addr_of_mut!((*g).mainth.l) };
     unsafe {
-        (*state).tt = LUA_VTHREAD;
+        (*state).tt = LuaVariant::Thread.as_u8();
         (*g).currentwhite = 1 << WHITE0BIT;
         (*state).marked = lua_c_white(g);
         preinit_thread(state, g);
@@ -454,12 +452,16 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
         (*g).gcmarked = 0;
         (*g).gcdebt = 0;
         setivalue(ptr::addr_of_mut!((*g).nilvalue), 0);
-        (*g).gcparams[LUA_GCPPAUSE] = luaO_codeparam(LUAI_GCPAUSE as u32);
-        (*g).gcparams[LUA_GCPSTEPMUL] = luaO_codeparam(LUAI_GCMUL as u32);
-        (*g).gcparams[LUA_GCPSTEPSIZE] = luaO_codeparam((200 * size_of::<Table>()) as c_int as u32);
-        (*g).gcparams[LUA_GCPMINORMUL] = luaO_codeparam(LUAI_GENMINORMUL as u32);
-        (*g).gcparams[LUA_GCPMINORMAJOR] = luaO_codeparam(LUAI_MINORMAJOR as u32);
-        (*g).gcparams[LUA_GCPMAJORMINOR] = luaO_codeparam(LUAI_MAJORMINOR as u32);
+        (*g).gcparams[LuaGcParam::Pause.as_usize()] = luaO_codeparam(LUAI_GCPAUSE as u32);
+        (*g).gcparams[LuaGcParam::StepMul.as_usize()] = luaO_codeparam(LUAI_GCMUL as u32);
+        (*g).gcparams[LuaGcParam::StepSize.as_usize()] =
+            luaO_codeparam((200 * size_of::<Table>()) as c_int as u32);
+        (*g).gcparams[LuaGcParam::MinorMul.as_usize()] =
+            luaO_codeparam(LUAI_GENMINORMUL as u32);
+        (*g).gcparams[LuaGcParam::MinorMajor.as_usize()] =
+            luaO_codeparam(LUAI_MINORMAJOR as u32);
+        (*g).gcparams[LuaGcParam::MajorMinor.as_usize()] =
+            luaO_codeparam(LUAI_MAJORMINOR as u32);
         for mt in &mut (*g).mt {
             *mt = ptr::null_mut();
         }
@@ -472,7 +474,9 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
             *name = ptr::null_mut();
         }
     }
-    if unsafe { luaD_rawrunprotected(state, Some(f_luaopen), ptr::null_mut()) } != LUA_OK {
+    if unsafe { luaD_rawrunprotected(state, Some(f_luaopen), ptr::null_mut()) }
+        != LuaStatus::Ok.as_u8()
+    {
         unsafe { close_state(state) };
         ptr::null_mut()
     } else {
@@ -480,7 +484,6 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_close(state: *mut lua_State) {
     let main = unsafe { mainthread(G(state)) };
     unsafe { close_state(main) };
@@ -493,7 +496,6 @@ pub(crate) unsafe fn luaE_warning(state: *mut lua_State, msg: *const c_char, toc
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaE_warnerror(state: *mut lua_State, where_: *const c_char) {
     let errobj = unsafe { s2v((*state).top.p.sub(1)) };
     let msg = if unsafe { ((*errobj).tt_ & 0x0f) == 4 } {
@@ -543,7 +545,7 @@ mod tests {
             assert_eq!((*state).top.p, main_top.add(1));
 
             let status = lua_closethread(thread, state);
-            assert_eq!(status, LUA_OK as c_int);
+            assert_eq!(status, LuaStatus::Ok.as_c_int());
         })();
 
         unsafe { lua_close(state.cast()) };

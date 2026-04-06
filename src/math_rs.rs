@@ -1048,7 +1048,7 @@ unsafe fn math_min(state: *mut lua_State) -> c_int {
 
     let mut min_index = 1;
     for index in 2..=count {
-        if unsafe { lua_compare(state, index, min_index, LUA_OPLT) } != 0 {
+        if unsafe { lua_compare(state, index, min_index, LuaCompareOp::Lt.as_c_int()) } != 0 {
             min_index = index;
         }
     }
@@ -1065,7 +1065,7 @@ unsafe fn math_max(state: *mut lua_State) -> c_int {
 
     let mut max_index = 1;
     for index in 2..=count {
-        if unsafe { lua_compare(state, max_index, index, LUA_OPLT) } != 0 {
+        if unsafe { lua_compare(state, max_index, index, LuaCompareOp::Lt.as_c_int()) } != 0 {
             max_index = index;
         }
     }
@@ -1075,7 +1075,7 @@ unsafe fn math_max(state: *mut lua_State) -> c_int {
 }
 
 unsafe fn math_type(state: *mut lua_State) -> c_int {
-    if unsafe { lua_type(state, 1) } == LUA_TNUMBER as c_int {
+    if unsafe { lua_type(state, 1) } == LuaType::Number.as_c_int() {
         let result = if unsafe { lua_isinteger(state, 1) } != 0 {
             STR_INTEGER
         } else {

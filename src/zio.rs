@@ -44,7 +44,6 @@ fn checkbuffer(z: &mut ZIO) -> bool {
     true
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaZ_fill(z: *mut ZIO) -> c_int {
     let z = ZIO::as_mut(z);
     let Some(reader) = z.reader else {
@@ -76,7 +75,6 @@ pub(crate) unsafe fn luaZ_init(
     z.p = ptr::null();
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaZ_initbuffer(_state: *mut lua_State, buffer: *mut Mbuffer) {
     let buffer = Mbuffer::as_mut(buffer);
     buffer.buffer = ptr::null_mut();
@@ -94,7 +92,6 @@ pub(crate) unsafe fn luaZ_resizebuffer(state: *mut lua_State, buffer: *mut Mbuff
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaZ_freebuffer(state: *mut lua_State, buffer: *mut Mbuffer) {
     unsafe { luaZ_resizebuffer(state, buffer, 0) };
 }

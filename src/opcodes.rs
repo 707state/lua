@@ -6,7 +6,6 @@ const fn opmode(mm: u8, ot: u8, it: u8, t: u8, a: u8, m: u8) -> u8 {
     (mm << 7) | (ot << 6) | (it << 5) | (t << 4) | (a << 3) | m
 }
 
-#[unsafe(no_mangle)]
 pub static luaP_opmodes: [u8; NUM_OPCODES] = [
     opmode(0, 0, 0, 0, 1, 0),
     opmode(0, 0, 0, 0, 1, 3),
@@ -144,7 +143,6 @@ pub(crate) fn luaP_isOT(i: Instruction) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaP_isIT(i: Instruction) -> c_int {
     let op = get_opcode(i);
     if op == OP_SETLIST as usize {

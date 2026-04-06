@@ -98,7 +98,7 @@ fn tagisfalse(tag: u8) -> bool {
 }
 
 pub(crate) unsafe fn luaT_init(state: *mut lua_State) {
-    static EVENT_NAMES: [&[u8]; TM_N as usize] = [
+    static EVENT_NAMES: [&[u8]; TagMethod::N.as_usize()] = [
         b"__index\0",
         b"__newindex\0",
         b"__gc\0",
@@ -139,22 +139,24 @@ pub(crate) unsafe fn raw_luaT_init(state: *mut c_void) {
     unsafe { luaT_init(state.cast()) };
 }
 
-#[unsafe(no_mangle)]
-pub unsafe fn luaT_gettm(events: *mut Table, event: c_int, ename: *mut TString) -> *const TValue {
+pub unsafe fn luaT_gettm(
+    events: *mut Table,
+    event: TagMethod,
+    ename: *mut TString,
+) -> *const TValue {
     let tm = unsafe { raw_luaH_Hgetshortstr(events.cast(), ename.cast()).cast::<TValue>() };
     if unsafe { ttisnil(tm) } {
-        unsafe { (*events).flags |= (1u8) << event };
+        unsafe { (*events).flags |= (1u8) << event.as_c_int() };
         ptr::null()
     } else {
         tm
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_gettmbyobj(
     state: *mut lua_State,
     o: *const TValue,
-    event: c_int,
+    event: TagMethod,
 ) -> *const TValue {
     let mt = match unsafe { ttype(o) } {
         LUA_TTABLE => unsafe { (*hvalue(o)).metatable },
@@ -165,7 +167,7 @@ pub unsafe fn luaT_gettmbyobj(
         unsafe { ptr::addr_of!((*G(state)).nilvalue) }
     } else {
         unsafe {
-            raw_luaH_Hgetshortstr(mt.cast(), (&(*G(state)).tmname)[event as usize].cast())
+            raw_luaH_Hgetshortstr(mt.cast(), (&(*G(state)).tmname)[event.as_usize()].cast())
                 .cast::<TValue>()
         }
     }
@@ -193,7 +195,6 @@ pub(crate) unsafe fn luaT_objtypename(state: *mut lua_State, o: *const TValue) -
     luaT_typenames_[unsafe { ttype(o) as usize + 1 }].0
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_callTM(
     state: *mut lua_State,
     f: *const TValue,
@@ -216,7 +217,6 @@ pub unsafe fn luaT_callTM(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_callTMres(
     state: *mut lua_State,
     f: *const TValue,
@@ -250,7 +250,7 @@ unsafe fn callbinTM(
     p1: *const TValue,
     p2: *const TValue,
     res: StkId,
-    event: c_int,
+    event: TagMethod,
 ) -> c_int {
     let mut tm = unsafe { luaT_gettmbyobj(state, p1, event) };
     if unsafe { ttisnil(tm) } {
@@ -268,11 +268,16 @@ pub unsafe fn luaT_trybinTM(
     p1: *const TValue,
     p2: *const TValue,
     res: StkId,
-    event: c_int,
+    event: TagMethod,
 ) {
     if unsafe { callbinTM(state, p1, p2, res, event) } < 0 {
         match event {
-            TM_BAND | TM_BOR | TM_BXOR | TM_SHL | TM_SHR | TM_BNOT => {
+            TagMethod::Band
+            | TagMethod::Bor
+            | TagMethod::Bxor
+            | TagMethod::Shl
+            | TagMethod::Shr
+            | TagMethod::Bnot => {
                 if unsafe { ttisnumber(p1) && ttisnumber(p2) } {
                     unsafe { luaG_tointerror(state, p1, p2) };
                 } else {
@@ -286,22 +291,20 @@ pub unsafe fn luaT_trybinTM(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_tryconcatTM(state: *mut lua_State) {
     let p1 = unsafe { (*state).top.p.sub(2) };
-    if unsafe { callbinTM(state, s2v(p1), s2v(p1.add(1)), p1, TM_CONCAT) } < 0 {
+    if unsafe { callbinTM(state, s2v(p1), s2v(p1.add(1)), p1, TagMethod::Concat) } < 0 {
         unsafe { luaG_concaterror(state, s2v(p1), s2v(p1.add(1))) };
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_trybinassocTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
     flip: c_int,
     res: StkId,
-    event: c_int,
+    event: TagMethod,
 ) {
     if flip != 0 {
         unsafe { luaT_trybinTM(state, p2, p1, res, event) };
@@ -310,14 +313,13 @@ pub unsafe fn luaT_trybinassocTM(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_trybiniTM(
     state: *mut lua_State,
     p1: *const TValue,
     i2: lua_Integer,
     flip: c_int,
     res: StkId,
-    event: c_int,
+    event: TagMethod,
 ) {
     let mut aux = TValue {
         value_: Value { i: 0 },
@@ -327,12 +329,11 @@ pub unsafe fn luaT_trybiniTM(
     unsafe { luaT_trybinassocTM(state, p1, ptr::addr_of!(aux), flip, res, event) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_callorderTM(
     state: *mut lua_State,
     p1: *const TValue,
     p2: *const TValue,
-    event: c_int,
+    event: TagMethod,
 ) -> c_int {
     let tag = unsafe { callbinTM(state, p1, p2, (*state).top.p, event) };
     if tag >= 0 {
@@ -342,14 +343,13 @@ pub unsafe fn luaT_callorderTM(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_callorderiTM(
     state: *mut lua_State,
     mut p1: *const TValue,
     v2: c_int,
     flip: c_int,
     isfloat: c_int,
-    event: c_int,
+    event: TagMethod,
 ) -> c_int {
     let mut aux = TValue {
         value_: Value { i: 0 },
@@ -436,7 +436,6 @@ unsafe fn buildhiddenargs(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_adjustvarargs(state: *mut lua_State, ci: *mut CallInfo, p: *const Proto) {
     let totalargs = unsafe { (*state).top.p.offset_from((*ci).func.p) as c_int - 1 };
     let nfixparams = unsafe { (*p).numparams as c_int };
@@ -456,7 +455,6 @@ pub unsafe fn luaT_adjustvarargs(state: *mut lua_State, ci: *mut CallInfo, p: *c
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_getvararg(ci: *mut CallInfo, ra: StkId, rc: *mut TValue) {
     let nextra = unsafe { (*ci).u.l.nextraargs };
     let mut n = 0;
@@ -499,7 +497,6 @@ unsafe fn getnumargs(state: *mut lua_State, ci: *mut CallInfo, h: *mut Table) ->
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaT_getvarargs(
     state: *mut lua_State,
     ci: *mut CallInfo,

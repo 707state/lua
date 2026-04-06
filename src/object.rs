@@ -85,7 +85,6 @@ fn numarith(state: *mut lua_State, op: c_int, v1: lua_Number, v2: lua_Number) ->
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_ceillog2(mut x: u32) -> u8 {
     if x <= 1 {
         0
@@ -95,7 +94,6 @@ pub unsafe fn luaO_ceillog2(mut x: u32) -> u8 {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_codeparam(mut p: u32) -> u8 {
     if p >= ((0x1fu64) << (0xf - 7 - 1)) as u32 * 100 {
         0xff
@@ -110,7 +108,6 @@ pub unsafe fn luaO_codeparam(mut p: u32) -> u8 {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_applyparam(p: u8, x: isize) -> isize {
     let mut m = (p & 0x0f) as isize;
     let mut e = (p >> 4) as isize;
@@ -137,7 +134,6 @@ pub unsafe fn luaO_applyparam(p: u8, x: isize) -> isize {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_rawarith(
     state: *mut lua_State,
     op: c_int,
@@ -186,20 +182,20 @@ pub unsafe fn luaO_rawarith(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_arith(
     state: *mut lua_State,
-    op: c_int,
+    op: LuaArithOp,
     p1: *const TValue,
     p2: *const TValue,
     res: StkId,
 ) {
-    if unsafe { luaO_rawarith(state, op, p1, p2, s2v(res)) } == 0 {
-        unsafe { luaT_trybinTM(state, p1, p2, res, (op - LUA_OPADD) + TM_ADD) };
+    if unsafe { luaO_rawarith(state, op.as_c_int(), p1, p2, s2v(res)) } == 0 {
+        let event = TagMethod::from_c_int((op.as_c_int() - LUA_OPADD) + TM_ADD)
+            .expect("arithmetic op must map to arithmetic tag method");
+        unsafe { luaT_trybinTM(state, p1, p2, res, event) };
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_hexavalue(c: c_int) -> u8 {
     let byte = c as u8;
     if byte.is_ascii_digit() {
@@ -317,7 +313,6 @@ fn str2int(s: &CStr, result: &mut lua_Integer) -> Option<usize> {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
     let cstr = unsafe { CStr::from_ptr(s) };
     let mut i = 0;
@@ -333,7 +328,6 @@ pub unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_utf8esc(buff: *mut c_char, mut x: u32) -> c_int {
     let mut n = 1usize;
     if x < 0x80 {
@@ -453,7 +447,6 @@ pub(crate) fn rust_g_format(n: f64, sig_digits: usize) -> String {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     let len = if unsafe { ttisinteger(obj) } {
         let n = unsafe { ivalue(obj) };
@@ -470,7 +463,6 @@ pub unsafe fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
     len as u32
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaO_tostring(state: *mut lua_State, obj: *mut TValue) {
     let mut buff = [0 as c_char; LUA_N2SBUFFSZ];
     let len = unsafe { luaO_tostringbuff(obj, buff.as_mut_ptr()) } as usize;

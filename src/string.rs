@@ -192,7 +192,7 @@ unsafe fn point2uint(p: *const c_char) -> u32 {
 }
 
 unsafe fn luaM_error(state: *mut lua_State) -> ! {
-    unsafe { luaD_throw(state, LUA_ERRMEM) }
+    unsafe { luaD_throw(state, LuaStatus::ErrMem.as_u8()) }
 }
 
 unsafe fn luaM_reallocvector_tstring(
@@ -216,7 +216,6 @@ unsafe fn luaM_newvector_tstring(state: *mut lua_State, n: c_int) -> *mut *mut T
     unsafe { luaM_malloc_(state, n.max(0) as usize * size_of::<*mut TString>(), 0).cast() }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_eqstr(a: *mut TString, b: *mut TString) -> c_int {
     let len1 = unsafe { tsslen(a) };
     let len2 = unsafe { tsslen(b) };
@@ -235,7 +234,6 @@ unsafe fn luaS_hash(str_: *const c_char, mut l: usize, seed: u32) -> u32 {
     h
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_hashlongstr(ts: *mut TString) -> u32 {
     if unsafe { (*ts).extra } == 0 {
         let len = unsafe { (*ts).u.lnglen };
@@ -267,7 +265,6 @@ unsafe fn tablerehash(vect: *mut *mut TString, osize: c_int, nsize: c_int) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_resize(state: *mut lua_State, nsize: c_int) {
     let tb = unsafe { ptr::addr_of_mut!((*G(state)).strt) };
     let osize = unsafe { (*tb).size };
@@ -290,7 +287,6 @@ pub unsafe fn luaS_resize(state: *mut lua_State, nsize: c_int) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_clearcache(g: *mut GlobalState) {
     for i in 0..STRCACHE_N {
         for j in 0..STRCACHE_M {
@@ -322,7 +318,6 @@ pub(crate) unsafe fn luaS_init(state: *mut lua_State) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_sizelngstr(len: usize, kind: c_int) -> usize {
     match kind as i8 {
         LSTRREG => offset_of!(TString, falloc) + len + 1,
@@ -341,7 +336,6 @@ unsafe fn createstrobj(state: *mut lua_State, totalsize: usize, tag: u8, h: u32)
     ts
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_createlngstrobj(state: *mut lua_State, l: usize) -> *mut TString {
     let totalsize = unsafe { luaS_sizelngstr(l, LSTRREG as c_int) };
     let ts = unsafe { createstrobj(state, totalsize, LUA_VLNGSTR, (*G(state)).seed) };
@@ -354,7 +348,6 @@ pub unsafe fn luaS_createlngstrobj(state: *mut lua_State, l: usize) -> *mut TStr
     ts
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_remove(state: *mut lua_State, ts: *mut TString) {
     let tb = unsafe { ptr::addr_of_mut!((*G(state)).strt) };
     let mut p = unsafe { (*tb).hash.add(lmod((*ts).hash, (*tb).size)) };
@@ -412,7 +405,6 @@ unsafe fn internshrstr(state: *mut lua_State, str_: *const c_char, l: usize) -> 
     ts
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_newlstr(state: *mut lua_State, str_: *const c_char, l: usize) -> *mut TString {
     if l <= LUAI_MAXSHORTLEN {
         unsafe { internshrstr(state, str_, l) }
@@ -465,7 +457,6 @@ unsafe fn f_newext(state: *mut lua_State, ud: *mut c_void) {
     ne.ts = unsafe { createstrobj(state, size, LUA_VLNGSTR, (*G(state)).seed) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_newextlstr(
     state: *mut lua_State,
     s: *const c_char,
@@ -505,7 +496,6 @@ pub unsafe fn luaS_newextlstr(
     ne.ts
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaS_normstr(state: *mut lua_State, ts: *mut TString) -> *mut TString {
     let len = unsafe { (*ts).u.lnglen };
     if len > LUAI_MAXSHORTLEN {

@@ -170,7 +170,9 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
         let g = unsafe { G(L) };
         let mainth = unsafe { mainthread(g) };
         errcode = unsafe { luaE_resetthread(L, errcode) };
-        unsafe { (*L).status = errcode };
+        unsafe {
+            (*L).status = LuaStatus::from_u8(errcode).expect("lua_State.status must be valid")
+        };
         if unsafe { (*mainth).nesting_level > 0 } {
             unsafe {
                 setobjs2s(L, (*mainth).top.p, (*L).top.p.sub(1));
@@ -509,7 +511,7 @@ unsafe fn rethook(L: *mut lua_State, mut ci: *mut CallInfo, nres: c_int) {
 }
 
 unsafe fn tryfuncTM(L: *mut lua_State, func: StkId, status: u32) -> u32 {
-    let tm = unsafe { crate::tm::luaT_gettmbyobj(L, s2v(func), TM_CALL) };
+    let tm = unsafe { crate::tm::luaT_gettmbyobj(L, s2v(func), TagMethod::Call) };
     if unsafe { ttisnil(tm) } {
         unsafe { luaG_callerror(L, s2v(func)) };
     }
@@ -821,12 +823,12 @@ unsafe fn resume(L: *mut lua_State, ud: *mut c_void) {
     let mut n = unsafe { *(ud.cast::<c_int>()) };
     let firstArg = unsafe { (*L).top.p.sub(n as usize) };
     let ci = unsafe { (*L).ci };
-    if unsafe { (*L).status } == LUA_OK {
+    if unsafe { (*L).status } == LuaStatus::Ok {
         unsafe { ccall(L, firstArg.sub(1), LUA_MULTRET, 0) };
     } else {
         unsafe {
-            api_check((*L).status == LUA_YIELD, "yielded status expected");
-            (*L).status = LUA_OK;
+            api_check((*L).status == LuaStatus::Yield, "yielded status expected");
+            (*L).status = LuaStatus::Ok;
         }
         if unsafe { isLua(ci) } {
             unsafe {
@@ -871,7 +873,7 @@ pub unsafe fn lua_resume(
     nresults: *mut c_int,
 ) -> c_int {
     let status;
-    if unsafe { (*L).status } == LUA_OK {
+    if unsafe { (*L).status } == LuaStatus::Ok {
         if unsafe { (*L).ci } != ptr::addr_of_mut!(unsafe { &mut *L }.base_ci) {
             return unsafe {
                 resume_error(L, c"cannot resume non-suspended coroutine".as_ptr(), nargs)
@@ -879,7 +881,7 @@ pub unsafe fn lua_resume(
         } else if unsafe { (*L).top.p.offset_from((*(*L).ci).func.p.add(1)) as c_int == nargs } {
             return unsafe { resume_error(L, c"cannot resume dead coroutine".as_ptr(), nargs) };
         }
-    } else if unsafe { (*L).status } != LUA_YIELD {
+    } else if unsafe { (*L).status } != LuaStatus::Yield {
         return unsafe { resume_error(L, c"cannot resume dead coroutine".as_ptr(), nargs) };
     }
     unsafe { (*L).nCcalls = if from.is_null() { 0 } else { getCcalls(from) } };
@@ -890,7 +892,7 @@ pub unsafe fn lua_resume(
         (*L).nCcalls = (*L).nCcalls.wrapping_add(1);
         api_checkpop(
             L,
-            if (*L).status == LUA_OK {
+            if (*L).status == LuaStatus::Ok {
                 nargs + 1
             } else {
                 nargs
@@ -902,7 +904,7 @@ pub unsafe fn lua_resume(
     let status = unsafe { precover(L, status) };
     if unsafe { errorstatus(status) } {
         unsafe {
-            (*L).status = status;
+            (*L).status = LuaStatus::from_u8(status).expect("lua_State.status must be valid");
             luaD_seterrorobj(L, status, (*L).top.p);
             (*(*L).ci).top.p = (*L).top.p;
         }
@@ -917,12 +919,10 @@ pub unsafe fn lua_resume(
     unsafe { APIstatus(status) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_isyieldable(L: *mut lua_State) -> c_int {
     unsafe { yieldable(L) as c_int }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_yieldk(
     L: *mut lua_State,
     nresults: c_int,
@@ -939,7 +939,7 @@ pub unsafe fn lua_yieldk(
         }
     }
     unsafe {
-        (*L).status = LUA_YIELD;
+        (*L).status = LuaStatus::Yield;
         (*ci).u2.nyield = nresults;
     }
     if unsafe { isLua(ci) } {
@@ -973,7 +973,6 @@ unsafe fn closepaux(L: *mut lua_State, ud: *mut c_void) {
     unsafe { luaF_close(L, pcl.level, pcl.status, 0) };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaD_closeprotected(L: *mut lua_State, level: isize, mut status: TStatus) -> TStatus {
     let old_ci = unsafe { (*L).ci };
     let old_allowhooks = unsafe { (*L).allowhook };

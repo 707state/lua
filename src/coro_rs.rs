@@ -65,7 +65,7 @@ unsafe fn auxresume(state: *mut lua_State, co: *mut lua_State, narg: c_int) -> c
     }
     unsafe { lua_xmove(state, co, narg) };
     let status = unsafe { lua_resume(co, state, narg, &mut nres) };
-    if status == LUA_OK.into() || status == LUA_YIELD.into() {
+    if status == LuaStatus::Ok.as_c_int() || status == LuaStatus::Yield.as_c_int() {
         if unsafe { lua_checkstack(state, nres + 1) } == 0 {
             unsafe { lua_pop(co, nres) };
             unsafe { lua_pushstring(state, ERR_TOO_MANY_RESULTS_TO_RESUME.as_ptr().cast()) };
@@ -98,11 +98,13 @@ unsafe fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
     let r = unsafe { auxresume(state, co, lua_gettop(state)) };
     if r < 0 {
         let mut stat = unsafe { lua_status(co) };
-        if stat != LUA_OK.into() && stat != LUA_YIELD.into() {
+        if stat != LuaStatus::Ok.as_c_int() && stat != LuaStatus::Yield.as_c_int() {
             stat = unsafe { crate::state::lua_closethread(co, state) };
             unsafe { lua_xmove(co, state, 1) };
         }
-        if stat != LUA_ERRMEM.into() && unsafe { lua_type(state, -1) } == LUA_TSTRING.into() {
+        if stat != LuaStatus::ErrMem.as_c_int()
+            && unsafe { lua_type(state, -1) } == LuaType::String.as_c_int()
+        {
             luaL_where(state, 1);
             unsafe { lua_insert(state, -2) };
             unsafe { lua_concat(state, 2) };
@@ -113,7 +115,7 @@ unsafe fn lua_b_auxwrap(state: *mut lua_State) -> c_int {
 }
 
 unsafe fn lua_b_cocreate(state: *mut lua_State) -> c_int {
-    luaL_checktype(state, 1, LUA_TFUNCTION.into());
+    luaL_checktype(state, 1, LuaType::Function.as_c_int());
     let new_state = unsafe { crate::state::lua_newthread(state) };
     unsafe { lua_pushvalue(state, 1) };
     unsafe { lua_xmove(state, new_state, 1) };
@@ -136,8 +138,8 @@ unsafe fn auxstatus(state: *mut lua_State, co: *mut lua_State) -> c_int {
     }
 
     match unsafe { lua_status(co) as u8 } {
-        LUA_YIELD => COS_YIELD,
-        val if val == LUA_OK.into() => {
+        val if val == LuaStatus::Yield.as_u8() => COS_YIELD,
+        val if val == LuaStatus::Ok.as_u8() => {
             let co = unsafe { LuaThread::from_ptr(co) };
             if co.get_stack(0).is_some() {
                 COS_NORM
@@ -160,7 +162,7 @@ unsafe fn lua_b_costatus(state: *mut lua_State) -> c_int {
 
 #[inline]
 unsafe fn getoptco(state: *mut lua_State) -> *mut lua_State {
-    if unsafe { lua_type(state, 1) } == LUA_TNONE {
+    if unsafe { lua_type(state, 1) } == LuaType::None.as_c_int() {
         state
     } else {
         unsafe { getco(state) }
@@ -185,7 +187,7 @@ unsafe fn lua_b_close(state: *mut lua_State) -> c_int {
     match status {
         COS_DEAD | COS_YIELD => {
             let close_status = unsafe { crate::state::lua_closethread(co, state) };
-            if close_status == LUA_OK.into() {
+            if close_status == LuaStatus::Ok.as_c_int() {
                 unsafe { lua_pushboolean(state, 1) };
                 1
             } else {

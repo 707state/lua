@@ -97,7 +97,7 @@ fn size_lclosure(n: c_int) -> usize {
 unsafe fn callclosemethod(state: *mut lua_State, obj: *mut TValue, err: *mut TValue, yy: c_int) {
     let mut top = unsafe { (*state).top.p };
     let func = top;
-    let tm = unsafe { luaT_gettmbyobj(state, obj, TM_CLOSE) };
+    let tm = unsafe { luaT_gettmbyobj(state, obj, TagMethod::Close) };
     unsafe { setobj2s(state, top, tm) };
     top = unsafe { top.add(1) };
     unsafe { setobj2s(state, top, obj) };
@@ -115,7 +115,7 @@ unsafe fn callclosemethod(state: *mut lua_State, obj: *mut TValue, err: *mut TVa
 }
 
 unsafe fn checkclosemth(state: *mut lua_State, level: StkId) {
-    let tm = unsafe { luaT_gettmbyobj(state, s2v(level), TM_CLOSE) };
+    let tm = unsafe { luaT_gettmbyobj(state, s2v(level), TagMethod::Close) };
     if unsafe { ttisnil(tm) } {
         let idx = unsafe { level.offset_from((*(*state).ci).func.p) as c_int };
         let mut vname = unsafe { luaG_findlocal(state, (*state).ci, idx, ptr::null_mut()) };
@@ -166,7 +166,6 @@ pub(crate) unsafe fn luaF_newCclosure(state: *mut lua_State, nupvals: c_int) -> 
     c
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_newLclosure(state: *mut lua_State, mut nupvals: c_int) -> *mut LClosure {
     let o = unsafe { luaC_newobj(state, LUA_VLCL, size_lclosure(nupvals)) };
     let c = o.cast::<LClosure>();
@@ -182,7 +181,6 @@ pub unsafe fn luaF_newLclosure(state: *mut lua_State, mut nupvals: c_int) -> *mu
     c
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_initupvals(state: *mut lua_State, cl: *mut LClosure) {
     let nup = unsafe { (*cl).nupvalues as usize };
     let upvals = unsafe { (*cl).upvals.as_mut_ptr() };
@@ -220,7 +218,6 @@ unsafe fn newupval(state: *mut lua_State, level: StkId, prev: *mut *mut UpVal) -
     uv
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_findupval(state: *mut lua_State, level: StkId) -> *mut UpVal {
     let mut pp = unsafe { ptr::addr_of_mut!((*state).openupval) };
     let mut p = unsafe { *pp };
@@ -251,7 +248,6 @@ pub(crate) unsafe fn luaF_newtbcupval(state: *mut lua_State, level: StkId) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_unlinkupval(uv: *mut UpVal) {
     unsafe {
         *(*uv).u.open.previous = (*uv).u.open.next;
@@ -261,7 +257,6 @@ pub unsafe fn luaF_unlinkupval(uv: *mut UpVal) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_closeupval(state: *mut lua_State, level: StkId) {
     let mut uv = unsafe { (*state).openupval };
     while !uv.is_null() && unsafe { uplevel(uv) >= level } {
@@ -296,7 +291,6 @@ pub(crate) unsafe fn luaF_close(
     level
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
     let o = unsafe { luaC_newobj(state, LUA_VPROTO, size_of::<Proto>()) };
     let f = o.cast::<Proto>();
@@ -325,7 +319,6 @@ pub unsafe fn luaF_newproto(state: *mut lua_State) -> *mut Proto {
     f
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_protosize(p: *mut Proto) -> usize {
     let mut sz = size_of::<Proto>()
         + unsafe { (*p).sizep.max(0) as usize } * size_of::<*mut Proto>()
@@ -340,7 +333,6 @@ pub unsafe fn luaF_protosize(p: *mut Proto) -> usize {
     sz
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaF_freeproto(state: *mut lua_State, f: *mut Proto) {
     if unsafe { (*f).flag & PF_FIXED } == 0 {
         unsafe {

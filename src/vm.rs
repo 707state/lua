@@ -137,7 +137,11 @@ unsafe fn fasttm(L: *mut lua_State, mt: *mut Table, e: c_int) -> *const TValue {
         if checknoTM(mt, e) {
             core::ptr::null()
         } else {
-            luaT_gettm(mt, e, (&mut (*G(L)).tmname)[e as usize])
+            luaT_gettm(
+                mt,
+                TagMethod::from_c_int(e).expect("invalid tag method index"),
+                (&mut (*G(L)).tmname)[e as usize],
+            )
         }
     }
 }
@@ -236,8 +240,9 @@ unsafe fn getarg(i: Instruction, pos: u32, size: u32) -> c_int {
 }
 
 #[inline]
-unsafe fn GET_OPCODE(i: Instruction) -> c_int {
-    unsafe { ((i >> POS_OP) & mask1(SIZE_OP, 0)) as c_int }
+unsafe fn GET_OPCODE(i: Instruction) -> Opcode {
+    let raw = unsafe { ((i >> POS_OP) & mask1(SIZE_OP, 0)) as c_int };
+    Opcode::from_c_int(raw).expect("invalid opcode")
 }
 
 #[inline]
@@ -465,7 +470,6 @@ pub(crate) unsafe fn luaV_tonumber_(obj: *const TValue, n: *mut lua_Number) -> c
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int) -> c_int {
     unsafe {
         let mut f = n.floor();
@@ -480,7 +484,6 @@ pub unsafe fn luaV_flttointeger(n: lua_Number, p: *mut lua_Integer, mode: c_int)
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaV_tointegerns(obj: *const TValue, p: *mut lua_Integer, mode: c_int) -> c_int {
     unsafe {
         if ttisfloat(obj) {
@@ -624,7 +627,7 @@ pub(crate) unsafe fn luaV_finishget(
     unsafe {
         for _ in 0..MAXTAGLOOP {
             let tm = if tag == LUA_VNOTABLE {
-                let tm = luaT_gettmbyobj(L, t, TM_INDEX);
+                let tm = luaT_gettmbyobj(L, t, TagMethod::Index);
                 if notm(tm) {
                     luaG_typeerror(L, t, c"index".as_ptr());
                 }
@@ -678,7 +681,7 @@ pub(crate) unsafe fn luaV_finishset(
                     return;
                 }
             } else {
-                tm = luaT_gettmbyobj(L, t, TM_NEWINDEX);
+                tm = luaT_gettmbyobj(L, t, TagMethod::NewIndex);
                 if notm(tm) {
                     luaG_typeerror(L, t, c"index".as_ptr());
                 }
@@ -807,7 +810,7 @@ unsafe fn lessthanothers(L: *mut lua_State, l: *const TValue, r: *const TValue) 
         if ttisstring(l) && ttisstring(r) {
             c_int::from(l_strcmp(tsvalue(l), tsvalue(r)) < 0)
         } else {
-            luaT_callorderTM(L, l, r, TM_LT)
+            luaT_callorderTM(L, l, r, TagMethod::Lt)
         }
     }
 }
@@ -817,7 +820,7 @@ unsafe fn lessequalothers(L: *mut lua_State, l: *const TValue, r: *const TValue)
         if ttisstring(l) && ttisstring(r) {
             c_int::from(l_strcmp(tsvalue(l), tsvalue(r)) <= 0)
         } else {
-            luaT_callorderTM(L, l, r, TM_LE)
+            luaT_callorderTM(L, l, r, TagMethod::Le)
         }
     }
 }
@@ -846,7 +849,6 @@ pub(crate) unsafe fn luaV_lessequal(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaV_equalobj(L: *mut lua_State, t1: *const TValue, t2: *const TValue) -> c_int {
     unsafe {
         let tm;
@@ -1024,7 +1026,7 @@ pub(crate) unsafe fn luaV_objlen(L: *mut lua_State, ra: StkId, rb: *const TValue
                 return;
             }
             _ => {
-                tm = luaT_gettmbyobj(L, rb, TM_LEN);
+                tm = luaT_gettmbyobj(L, rb, TagMethod::Len);
                 if notm(tm) {
                     luaG_typeerror(L, rb, c"get length of".as_ptr());
                 }
@@ -1122,27 +1124,39 @@ pub unsafe fn luaV_finishOp(L: *mut lua_State) {
         let inst = *(*ci).u.l.savedpc.sub(1);
         let op = GET_OPCODE(inst);
         match op {
-            OP_MMBIN | OP_MMBINI | OP_MMBINK => {
+            Opcode::MMBin | Opcode::MMBinI | Opcode::MMBinK => {
                 setobjs2s(L, base.add(GETARG_A(*(*ci).u.l.savedpc.sub(2)) as usize), {
                     (*L).top.p = (*L).top.p.sub(1);
                     (*L).top.p
                 });
             }
-            OP_UNM | OP_BNOT | OP_LEN | OP_GETTABUP | OP_GETTABLE | OP_GETI | OP_GETFIELD
-            | OP_SELF => {
+            Opcode::Unm
+            | Opcode::BNot
+            | Opcode::Len
+            | Opcode::GetTabUp
+            | Opcode::GetTable
+            | Opcode::GetI
+            | Opcode::GetField
+            | Opcode::Self_ => {
                 setobjs2s(L, base.add(GETARG_A(inst) as usize), {
                     (*L).top.p = (*L).top.p.sub(1);
                     (*L).top.p
                 });
             }
-            OP_LT | OP_LE | OP_LTI | OP_LEI | OP_GTI | OP_GEI | OP_EQ => {
+            Opcode::Lt
+            | Opcode::Le
+            | Opcode::LtI
+            | Opcode::LeI
+            | Opcode::GtI
+            | Opcode::GeI
+            | Opcode::Eq => {
                 let res = c_int::from(!l_isfalse(s2v((*L).top.p.sub(1))));
                 (*L).top.p = (*L).top.p.sub(1);
                 if res != GETARG_K(inst) {
                     (*ci).u.l.savedpc = (*ci).u.l.savedpc.add(1);
                 }
             }
-            OP_CONCAT => {
+            Opcode::Concat => {
                 let top = (*L).top.p.sub(1);
                 let a = GETARG_A(inst);
                 let total = top.sub(1).offset_from(base.add(a as usize)) as c_int;
@@ -1150,10 +1164,10 @@ pub unsafe fn luaV_finishOp(L: *mut lua_State) {
                 (*L).top.p = top.sub(1);
                 luaV_concat(L, total);
             }
-            OP_CLOSE => {
+            Opcode::Close => {
                 (*ci).u.l.savedpc = (*ci).u.l.savedpc.sub(1);
             }
-            OP_RETURN => {
+            Opcode::Return => {
                 let ra = base.add(GETARG_A(inst) as usize);
                 (*L).top.p = ra.add((*ci).u2.nres as usize);
                 (*ci).u.l.savedpc = (*ci).u.l.savedpc.sub(1);
@@ -1195,30 +1209,30 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                     }
                 );
                 match GET_OPCODE(i) {
-                    OP_MOVE => {
+                    Opcode::Move => {
                         let ra = RA(base, i);
                         setobjs2s(L, ra, RB(base, i));
                     }
-                    OP_LOADI => {
+                    Opcode::LoadI => {
                         setivalue(s2v(RA(base, i)), GETARG_SBX(i) as lua_Integer);
                     }
-                    OP_LOADF => {
+                    Opcode::LoadF => {
                         setfltvalue(s2v(RA(base, i)), GETARG_SBX(i) as lua_Number);
                     }
-                    OP_LOADK => {
+                    Opcode::LoadK => {
                         setobj2s(L, RA(base, i), k.add(GETARG_BX(i) as usize));
                     }
-                    OP_LOADKX => {
+                    Opcode::LoadKx => {
                         setobj2s(L, RA(base, i), k.add(GETARG_AX(*pc) as usize));
                         pc = pc.add(1);
                     }
-                    OP_LOADFALSE => setbfvalue(s2v(RA(base, i))),
-                    OP_LFALSESKIP => {
+                    Opcode::LoadFalse => setbfvalue(s2v(RA(base, i))),
+                    Opcode::LFalseSkip => {
                         setbfvalue(s2v(RA(base, i)));
                         pc = pc.add(1);
                     }
-                    OP_LOADTRUE => setbtvalue(s2v(RA(base, i))),
-                    OP_LOADNIL => {
+                    Opcode::LoadTrue => setbtvalue(s2v(RA(base, i))),
+                    Opcode::LoadNil => {
                         let mut ra = RA(base, i);
                         let mut b = GETARG_B(i);
                         loop {
@@ -1230,17 +1244,17 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             ra = ra.add(1);
                         }
                     }
-                    OP_GETUPVAL => {
+                    Opcode::GetUpval => {
                         let b = GETARG_B(i) as usize;
                         setobj2s(L, RA(base, i), (*(*(*cl).upvals.as_mut_ptr().add(b))).v.p);
                     }
-                    OP_SETUPVAL => {
+                    Opcode::SetUpval => {
                         let ra = RA(base, i);
                         let uv = *(*cl).upvals.as_mut_ptr().add(GETARG_B(i) as usize);
                         setobj((*uv).v.p, s2v(ra));
                         luaC_barrier(L, obj2gco(uv), s2v(ra));
                     }
-                    OP_GETTABUP => {
+                    Opcode::GetTabUp => {
                         let ra = RA(base, i);
                         let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_B(i) as usize)))
                             .v
@@ -1258,7 +1272,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             let _ = tag;
                         }
                     }
-                    OP_GETTABLE => {
+                    Opcode::GetTable => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let rc = s2v(RC(base, i));
@@ -1280,7 +1294,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             let _ = tag;
                         }
                     }
-                    OP_GETI => {
+                    Opcode::GetI => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let c = GETARG_C(i) as lua_Integer;
@@ -1301,7 +1315,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             let _ = tag;
                         }
                     }
-                    OP_GETFIELD => {
+                    Opcode::GetField => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let rc = KC(k, i);
@@ -1317,7 +1331,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             let _ = tag;
                         }
                     }
-                    OP_SETTABUP => {
+                    Opcode::SetTabUp => {
                         let upval = (*(*(*cl).upvals.as_mut_ptr().add(GETARG_A(i) as usize)))
                             .v
                             .p;
@@ -1336,7 +1350,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_SETTABLE => {
+                    Opcode::SetTable => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let rc = RKC(base, k, i);
@@ -1355,7 +1369,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_SETI => {
+                    Opcode::SetI => {
                         let ra = RA(base, i);
                         let b = GETARG_B(i) as lua_Integer;
                         let rc = RKC(base, k, i);
@@ -1373,7 +1387,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_SETFIELD => {
+                    Opcode::SetField => {
                         let ra = RA(base, i);
                         let rb = KB(k, i);
                         let rc = RKC(base, k, i);
@@ -1390,7 +1404,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_NEWTABLE => {
+                    Opcode::NewTable => {
                         let ra = RA(base, i);
                         let mut b = GETARG_VB(i) as u32;
                         let mut c = GETARG_VC(i) as u32;
@@ -1409,7 +1423,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         }
                         checkGC(L, ci, pc, &mut trap, ra.add(1));
                     }
-                    OP_SELF => {
+                    Opcode::Self_ => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let rc = KC(k, i);
@@ -1426,27 +1440,51 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             let _ = tag;
                         }
                     }
-                    OP_ADDI | OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_POWK | OP_DIVK
-                    | OP_IDIVK | OP_BANDK | OP_BORK | OP_BXORK | OP_SHLI | OP_SHRI | OP_ADD
-                    | OP_SUB | OP_MUL | OP_MOD | OP_POW | OP_DIV | OP_IDIV | OP_BAND | OP_BOR
-                    | OP_BXOR | OP_SHL | OP_SHR => {
+                    Opcode::AddI
+                    | Opcode::AddK
+                    | Opcode::SubK
+                    | Opcode::MulK
+                    | Opcode::ModK
+                    | Opcode::PowK
+                    | Opcode::DivK
+                    | Opcode::IDivK
+                    | Opcode::BAndK
+                    | Opcode::BOrK
+                    | Opcode::BXorK
+                    | Opcode::ShlI
+                    | Opcode::ShrI
+                    | Opcode::Add
+                    | Opcode::Sub
+                    | Opcode::Mul
+                    | Opcode::Mod
+                    | Opcode::Pow
+                    | Opcode::Div
+                    | Opcode::IDiv
+                    | Opcode::BAnd
+                    | Opcode::BOr
+                    | Opcode::BXor
+                    | Opcode::Shl
+                    | Opcode::Shr => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let rc = if matches!(
                             GET_OPCODE(i),
-                            OP_ADDK
-                                | OP_SUBK
-                                | OP_MULK
-                                | OP_MODK
-                                | OP_POWK
-                                | OP_DIVK
-                                | OP_IDIVK
-                                | OP_BANDK
-                                | OP_BORK
-                                | OP_BXORK
+                            Opcode::AddK
+                                | Opcode::SubK
+                                | Opcode::MulK
+                                | Opcode::ModK
+                                | Opcode::PowK
+                                | Opcode::DivK
+                                | Opcode::IDivK
+                                | Opcode::BAndK
+                                | Opcode::BOrK
+                                | Opcode::BXorK
                         ) {
                             KC(k, i)
-                        } else if matches!(GET_OPCODE(i), OP_ADDI | OP_SHLI | OP_SHRI) {
+                        } else if matches!(
+                            GET_OPCODE(i),
+                            Opcode::AddI | Opcode::ShlI | Opcode::ShrI
+                        ) {
                             core::ptr::null_mut()
                         } else {
                             s2v(RC(base, i))
@@ -1456,11 +1494,14 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         let mut n1 = 0.0;
                         let mut n2 = 0.0;
                         let opcode = GET_OPCODE(i);
-                        if matches!(opcode, OP_MODK | OP_IDIVK | OP_MOD | OP_IDIV) {
+                        if matches!(
+                            opcode,
+                            Opcode::ModK | Opcode::IDivK | Opcode::Mod | Opcode::IDiv
+                        ) {
                             savestate(L, ci, pc);
                         }
                         match opcode {
-                            OP_ADDI => {
+                            Opcode::AddI => {
                                 let imm = GETARG_SC(i) as lua_Integer;
                                 if ttisinteger(rb) {
                                     setivalue(s2v(ra), ivalue(rb).wrapping_add(imm));
@@ -1470,30 +1511,38 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                                     pc = pc.add(1);
                                 }
                             }
-                            OP_SHLI => {
+                            Opcode::ShlI => {
                                 let imm = GETARG_SC(i) as lua_Integer;
                                 if tointegerns(rb, &mut i1) != 0 {
                                     setivalue(s2v(ra), luaV_shiftl(imm, i1));
                                     pc = pc.add(1);
                                 }
                             }
-                            OP_SHRI => {
+                            Opcode::ShrI => {
                                 let imm = GETARG_SC(i) as lua_Integer;
                                 if tointegerns(rb, &mut i1) != 0 {
                                     setivalue(s2v(ra), luaV_shiftl(i1, -imm));
                                     pc = pc.add(1);
                                 }
                             }
-                            OP_ADDK | OP_SUBK | OP_MULK | OP_MODK | OP_IDIVK | OP_ADD | OP_SUB
-                            | OP_MUL | OP_MOD | OP_IDIV => {
+                            Opcode::AddK
+                            | Opcode::SubK
+                            | Opcode::MulK
+                            | Opcode::ModK
+                            | Opcode::IDivK
+                            | Opcode::Add
+                            | Opcode::Sub
+                            | Opcode::Mul
+                            | Opcode::Mod
+                            | Opcode::IDiv => {
                                 if ttisinteger(rb) && ttisinteger(rc) {
                                     i1 = ivalue(rb);
                                     i2 = ivalue(rc);
                                     let res = match opcode {
-                                        OP_ADDK | OP_ADD => i1.wrapping_add(i2),
-                                        OP_SUBK | OP_SUB => i1.wrapping_sub(i2),
-                                        OP_MULK | OP_MUL => i1.wrapping_mul(i2),
-                                        OP_MODK | OP_MOD => luaV_mod(L, i1, i2),
+                                        Opcode::AddK | Opcode::Add => i1.wrapping_add(i2),
+                                        Opcode::SubK | Opcode::Sub => i1.wrapping_sub(i2),
+                                        Opcode::MulK | Opcode::Mul => i1.wrapping_mul(i2),
+                                        Opcode::ModK | Opcode::Mod => luaV_mod(L, i1, i2),
                                         _ => luaV_idiv(L, i1, i2),
                                     };
                                     setivalue(s2v(ra), res);
@@ -1502,21 +1551,21 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                                     && tonumberns(rc, &mut n2) != 0
                                 {
                                     let res = match opcode {
-                                        OP_ADDK | OP_ADD => n1 + n2,
-                                        OP_SUBK | OP_SUB => n1 - n2,
-                                        OP_MULK | OP_MUL => n1 * n2,
-                                        OP_MODK | OP_MOD => luaV_modf(L, n1, n2),
+                                        Opcode::AddK | Opcode::Add => n1 + n2,
+                                        Opcode::SubK | Opcode::Sub => n1 - n2,
+                                        Opcode::MulK | Opcode::Mul => n1 * n2,
+                                        Opcode::ModK | Opcode::Mod => luaV_modf(L, n1, n2),
                                         _ => (n1 / n2).floor(),
                                     };
                                     setfltvalue(s2v(ra), res);
                                     pc = pc.add(1);
                                 }
                             }
-                            OP_POWK | OP_DIVK | OP_POW | OP_DIV => {
+                            Opcode::PowK | Opcode::DivK | Opcode::Pow | Opcode::Div => {
                                 if tonumberns(rb, &mut n1) != 0 && tonumberns(rc, &mut n2) != 0 {
                                     setfltvalue(
                                         s2v(ra),
-                                        if matches!(opcode, OP_POWK | OP_POW) {
+                                        if matches!(opcode, Opcode::PowK | Opcode::Pow) {
                                             if n2 == 2.0 { n1 * n1 } else { n1.powf(n2) }
                                         } else {
                                             n1 / n2
@@ -1525,23 +1574,29 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                                     pc = pc.add(1);
                                 }
                             }
-                            OP_BANDK | OP_BORK | OP_BXORK | OP_BAND | OP_BOR | OP_BXOR | OP_SHL
-                            | OP_SHR => {
+                            Opcode::BAndK
+                            | Opcode::BOrK
+                            | Opcode::BXorK
+                            | Opcode::BAnd
+                            | Opcode::BOr
+                            | Opcode::BXor
+                            | Opcode::Shl
+                            | Opcode::Shr => {
                                 if tointegerns(rb, &mut i1) != 0 && tointegerns(rc, &mut i2) != 0 {
                                     let res = match opcode {
-                                        OP_BANDK | OP_BAND => {
+                                        Opcode::BAndK | Opcode::BAnd => {
                                             ((i1 as lua_Unsigned) & (i2 as lua_Unsigned))
                                                 as lua_Integer
                                         }
-                                        OP_BORK | OP_BOR => {
+                                        Opcode::BOrK | Opcode::BOr => {
                                             ((i1 as lua_Unsigned) | (i2 as lua_Unsigned))
                                                 as lua_Integer
                                         }
-                                        OP_BXORK | OP_BXOR => {
+                                        Opcode::BXorK | Opcode::BXor => {
                                             ((i1 as lua_Unsigned) ^ (i2 as lua_Unsigned))
                                                 as lua_Integer
                                         }
-                                        OP_SHL => luaV_shiftl(i1, i2),
+                                        Opcode::Shl => luaV_shiftl(i1, i2),
                                         _ => luaV_shiftl(i1, -i2),
                                     };
                                     setivalue(s2v(ra), res);
@@ -1551,15 +1606,22 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             _ => {}
                         }
                     }
-                    OP_MMBIN => {
+                    Opcode::MMBin => {
                         let ra = RA(base, i);
                         let pi = *pc.sub(2);
                         let rb = s2v(RB(base, i));
                         savestate(L, ci, pc);
-                        luaT_trybinTM(L, s2v(ra), rb, RA(base, pi), GETARG_C(i));
+                        luaT_trybinTM(
+                            L,
+                            s2v(ra),
+                            rb,
+                            RA(base, pi),
+                            TagMethod::from_c_int(GETARG_C(i))
+                                .expect("MMBIN opcode must encode a valid tag method"),
+                        );
                         updatetrap(ci, &mut trap);
                     }
-                    OP_MMBINI => {
+                    Opcode::MMBinI => {
                         let ra = RA(base, i);
                         let pi = *pc.sub(2);
                         savestate(L, ci, pc);
@@ -1569,11 +1631,12 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             GETARG_SB(i) as lua_Integer,
                             GETARG_K(i),
                             RA(base, pi),
-                            GETARG_C(i),
+                            TagMethod::from_c_int(GETARG_C(i))
+                                .expect("MMBINI opcode must encode a valid tag method"),
                         );
                         updatetrap(ci, &mut trap);
                     }
-                    OP_MMBINK => {
+                    Opcode::MMBinK => {
                         let ra = RA(base, i);
                         let pi = *pc.sub(2);
                         savestate(L, ci, pc);
@@ -1583,11 +1646,12 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             KB(k, i),
                             GETARG_K(i),
                             RA(base, pi),
-                            GETARG_C(i),
+                            TagMethod::from_c_int(GETARG_C(i))
+                                .expect("MMBINK opcode must encode a valid tag method"),
                         );
                         updatetrap(ci, &mut trap);
                     }
-                    OP_UNM => {
+                    Opcode::Unm => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let mut nb = 0.0;
@@ -1597,11 +1661,11 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             setfltvalue(s2v(ra), -nb);
                         } else {
                             savestate(L, ci, pc);
-                            luaT_trybinTM(L, rb, rb, ra, TM_UNM);
+                            luaT_trybinTM(L, rb, rb, ra, TagMethod::Unm);
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_BNOT => {
+                    Opcode::BNot => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         let mut ib = 0;
@@ -1612,24 +1676,24 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             );
                         } else {
                             savestate(L, ci, pc);
-                            luaT_trybinTM(L, rb, rb, ra, TM_BNOT);
+                            luaT_trybinTM(L, rb, rb, ra, TagMethod::Bnot);
                             updatetrap(ci, &mut trap);
                         }
                     }
-                    OP_NOT => {
+                    Opcode::Not => {
                         if l_isfalse(s2v(RB(base, i))) {
                             setbtvalue(s2v(RA(base, i)));
                         } else {
                             setbfvalue(s2v(RA(base, i)));
                         }
                     }
-                    OP_LEN => {
+                    Opcode::Len => {
                         let ra = RA(base, i);
                         savestate(L, ci, pc);
                         luaV_objlen(L, ra, s2v(RB(base, i)));
                         updatetrap(ci, &mut trap);
                     }
-                    OP_CONCAT => {
+                    Opcode::Concat => {
                         let ra = RA(base, i);
                         let n = GETARG_B(i);
                         (*L).top.p = ra.add(n as usize);
@@ -1638,25 +1702,25 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         updatetrap(ci, &mut trap);
                         checkGC(L, ci, pc, &mut trap, (*L).top.p);
                     }
-                    OP_CLOSE => {
+                    Opcode::Close => {
                         let ra = RA(base, i);
                         savestate(L, ci, pc);
-                        let _ = luaF_close(L, ra, LUA_OK, 1);
+                        let _ = luaF_close(L, ra, LuaStatus::Ok.as_u8(), 1);
                         updatetrap(ci, &mut trap);
                     }
-                    OP_TBC => {
+                    Opcode::Tbc => {
                         let ra = RA(base, i);
                         savestate(L, ci, pc);
                         luaF_newtbcupval(L, ra);
                     }
-                    OP_JMP => dojump(ci, i, 0, &mut pc, &mut trap),
-                    OP_EQ => {
+                    Opcode::Jmp => dojump(ci, i, 0, &mut pc, &mut trap),
+                    Opcode::Eq => {
                         savestate(L, ci, pc);
                         let cond = luaV_equalobj(L, s2v(RA(base, i)), s2v(RB(base, i)));
                         updatetrap(ci, &mut trap);
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_LT => {
+                    Opcode::Lt => {
                         let ra = s2v(RA(base, i));
                         let rb = s2v(RB(base, i));
                         let cond = if ttisinteger(ra) && ttisinteger(rb) {
@@ -1671,7 +1735,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         };
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_LE => {
+                    Opcode::Le => {
                         let ra = s2v(RA(base, i));
                         let rb = s2v(RB(base, i));
                         let cond = if ttisinteger(ra) && ttisinteger(rb) {
@@ -1686,33 +1750,33 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         };
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_EQK => {
+                    Opcode::EqK => {
                         let cond = luaV_rawequalobj(s2v(RA(base, i)), KB(k, i));
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_EQI | OP_LTI | OP_LEI | OP_GTI | OP_GEI => {
+                    Opcode::EqI | Opcode::LtI | Opcode::LeI | Opcode::GtI | Opcode::GeI => {
                         let ra = s2v(RA(base, i));
                         let im = GETARG_SB(i);
                         let cond = if ttisinteger(ra) {
                             let v = ivalue(ra);
                             match GET_OPCODE(i) {
-                                OP_EQI => c_int::from(v == im as lua_Integer),
-                                OP_LTI => c_int::from(v < im as lua_Integer),
-                                OP_LEI => c_int::from(v <= im as lua_Integer),
-                                OP_GTI => c_int::from(v > im as lua_Integer),
+                                Opcode::EqI => c_int::from(v == im as lua_Integer),
+                                Opcode::LtI => c_int::from(v < im as lua_Integer),
+                                Opcode::LeI => c_int::from(v <= im as lua_Integer),
+                                Opcode::GtI => c_int::from(v > im as lua_Integer),
                                 _ => c_int::from(v >= im as lua_Integer),
                             }
                         } else if ttisfloat(ra) {
                             let v = fltvalue(ra);
                             let imf = im as lua_Number;
                             match GET_OPCODE(i) {
-                                OP_EQI => c_int::from(v == imf),
-                                OP_LTI => c_int::from(v < imf),
-                                OP_LEI => c_int::from(v <= imf),
-                                OP_GTI => c_int::from(v > imf),
+                                Opcode::EqI => c_int::from(v == imf),
+                                Opcode::LtI => c_int::from(v < imf),
+                                Opcode::LeI => c_int::from(v <= imf),
+                                Opcode::GtI => c_int::from(v > imf),
                                 _ => c_int::from(v >= imf),
                             }
-                        } else if GET_OPCODE(i) == OP_EQI {
+                        } else if GET_OPCODE(i) == Opcode::EqI {
                             0
                         } else {
                             savestate(L, ci, pc);
@@ -1720,16 +1784,16 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                                 L,
                                 ra,
                                 im,
-                                if matches!(GET_OPCODE(i), OP_GTI | OP_GEI) {
+                                if matches!(GET_OPCODE(i), Opcode::GtI | Opcode::GeI) {
                                     1
                                 } else {
                                     0
                                 },
                                 GETARG_C(i),
-                                if matches!(GET_OPCODE(i), OP_LTI | OP_GTI) {
-                                    TM_LT
+                                if matches!(GET_OPCODE(i), Opcode::LtI | Opcode::GtI) {
+                                    TagMethod::Lt
                                 } else {
-                                    TM_LE
+                                    TagMethod::Le
                                 },
                             );
                             updatetrap(ci, &mut trap);
@@ -1737,11 +1801,11 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         };
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_TEST => {
+                    Opcode::Test => {
                         let cond = c_int::from(!l_isfalse(s2v(RA(base, i))));
                         docondjump(cond, ci, i, &mut pc, &mut trap);
                     }
-                    OP_TESTSET => {
+                    Opcode::TestSet => {
                         let ra = RA(base, i);
                         let rb = s2v(RB(base, i));
                         if c_int::from(l_isfalse(rb)) == GETARG_K(i) {
@@ -1751,7 +1815,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             donextjump(ci, &mut pc, &mut trap);
                         }
                     }
-                    OP_CALL => {
+                    Opcode::Call => {
                         let ra = RA(base, i);
                         let b = GETARG_B(i);
                         let nresults = GETARG_C(i) - 1;
@@ -1767,7 +1831,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             continue 'newframe;
                         }
                     }
-                    OP_TAILCALL => {
+                    Opcode::TailCall => {
                         let ra = RA(base, i);
                         let mut b = GETARG_B(i);
                         let nparams1 = GETARG_C(i);
@@ -1800,7 +1864,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             continue 'newframe;
                         }
                     }
-                    OP_RETURN => {
+                    Opcode::Return => {
                         let ra = RA(base, i);
                         let mut n = GETARG_B(i) - 1;
                         let nparams1 = GETARG_C(i);
@@ -1831,7 +1895,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         keep_trap = true;
                         continue 'newframe;
                     }
-                    OP_RETURN0 => {
+                    Opcode::Return0 => {
                         if (*L).hookmask != 0 {
                             (*L).top.p = RA(base, i);
                             savepc(ci, pc);
@@ -1854,7 +1918,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         keep_trap = true;
                         continue 'newframe;
                     }
-                    OP_RETURN1 => {
+                    Opcode::Return1 => {
                         if (*L).hookmask != 0 {
                             let ra = RA(base, i);
                             (*L).top.p = ra.add(1);
@@ -1885,7 +1949,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         keep_trap = true;
                         continue 'newframe;
                     }
-                    OP_FORLOOP => {
+                    Opcode::ForLoop => {
                         let ra = RA(base, i);
                         if ttisinteger(s2v(ra.add(1))) {
                             let count = ivalue(s2v(ra)) as lua_Unsigned;
@@ -1901,18 +1965,18 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         }
                         updatetrap(ci, &mut trap);
                     }
-                    OP_FORPREP => {
+                    Opcode::ForPrep => {
                         let ra = RA(base, i);
                         savestate(L, ci, pc);
                         if forprep(L, ra) != 0 {
                             pc = pc.add(GETARG_BX(i) as usize + 1);
                         }
                     }
-                    OP_TFORPREP => {
+                    Opcode::TForPrep => {
                         let ra = RA(base, i);
                         let mut temp = TValue {
                             value_: Value { i: 0 },
-                            tt_: LUA_VNIL,
+                            tt_: LuaVariant::Nil.as_u8(),
                         };
                         setobj(&mut temp, s2v(ra.add(3)));
                         setobjs2s(L, ra.add(3), ra.add(2));
@@ -1922,7 +1986,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         pc = pc.add(GETARG_BX(i) as usize);
                         let i = *pc;
                         pc = pc.add(1);
-                        debug_assert_eq!(GET_OPCODE(i), OP_TFORCALL);
+                        debug_assert_eq!(GET_OPCODE(i), Opcode::TForCall);
                         setobjs2s(L, ra.add(5), ra.add(3));
                         setobjs2s(L, ra.add(4), ra.add(1));
                         setobjs2s(L, ra.add(3), ra);
@@ -1933,12 +1997,12 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         updatebase(ci, &mut base);
                         let ni = *pc;
                         pc = pc.add(1);
-                        debug_assert_eq!(GET_OPCODE(ni), OP_TFORLOOP);
+                        debug_assert_eq!(GET_OPCODE(ni), Opcode::TForLoop);
                         if !ttisnil(s2v(RA(base, ni).add(3))) {
                             pc = pc.sub(GETARG_BX(ni) as usize);
                         }
                     }
-                    OP_TFORCALL => {
+                    Opcode::TForCall => {
                         let ra = RA(base, i);
                         setobjs2s(L, ra.add(5), ra.add(3));
                         setobjs2s(L, ra.add(4), ra.add(1));
@@ -1950,18 +2014,18 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         updatebase(ci, &mut base);
                         let ni = *pc;
                         pc = pc.add(1);
-                        debug_assert_eq!(GET_OPCODE(ni), OP_TFORLOOP);
+                        debug_assert_eq!(GET_OPCODE(ni), Opcode::TForLoop);
                         if !ttisnil(s2v(RA(base, ni).add(3))) {
                             pc = pc.sub(GETARG_BX(ni) as usize);
                         }
                     }
-                    OP_TFORLOOP => {
+                    Opcode::TForLoop => {
                         let ra = RA(base, i);
                         if !ttisnil(s2v(ra.add(3))) {
                             pc = pc.sub(GETARG_BX(i) as usize);
                         }
                     }
-                    OP_SETLIST => {
+                    Opcode::SetList => {
                         let ra = RA(base, i);
                         let mut n = GETARG_VB(i) as u32;
                         let mut last = GETARG_VC(i) as u32;
@@ -1987,14 +2051,14 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                             n -= 1;
                         }
                     }
-                    OP_CLOSURE => {
+                    Opcode::Closure => {
                         let ra = RA(base, i);
                         let p = *(*(*cl).p).p.add(GETARG_BX(i) as usize);
                         savestate(L, ci, pc);
                         pushclosure(L, p, (*cl).upvals.as_mut_ptr(), base, ra);
                         checkGC(L, ci, pc, &mut trap, ra.add(1));
                     }
-                    OP_VARARG => {
+                    Opcode::VarArg => {
                         let ra = RA(base, i);
                         let n = GETARG_C(i) - 1;
                         let vatab = if GETARG_K(i) != 0 { GETARG_B(i) } else { -1 };
@@ -2002,17 +2066,17 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         luaT_getvarargs(L, ci, ra, n, vatab);
                         updatetrap(ci, &mut trap);
                     }
-                    OP_GETVARG => {
+                    Opcode::GetVarg => {
                         luaT_getvararg(ci, RA(base, i), s2v(RC(base, i)));
                     }
-                    OP_ERRNNIL => {
+                    Opcode::ErrNNil => {
                         let ra = s2v(RA(base, i));
                         if !ttisnil(ra) {
                             savestate(L, ci, pc);
                             luaG_errnnil(L, cl, GETARG_BX(i));
                         }
                     }
-                    OP_VARARGPREP => {
+                    Opcode::VarArgPrep => {
                         savepc(ci, pc);
                         luaT_adjustvarargs(L, ci, (*cl).p);
                         updatetrap(ci, &mut trap);
@@ -2022,7 +2086,7 @@ pub unsafe fn luaV_execute(L: *mut lua_State, mut ci: *mut CallInfo) {
                         }
                         updatebase(ci, &mut base);
                     }
-                    OP_EXTRAARG => debug_assert!(false),
+                    Opcode::ExtraArg => debug_assert!(false),
                     _ => unreachable!(),
                 }
             }

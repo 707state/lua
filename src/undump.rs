@@ -513,7 +513,6 @@ fn check_header(state: &mut LoadState) {
     checknum(state, LUAC_NUM, c"Lua number".as_ptr());
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaU_undump(
     state: *mut lua_State,
     z: *mut ZIO,

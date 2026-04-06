@@ -47,7 +47,6 @@ unsafe fn tryagain(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_growaux_(
     state: *mut lua_State,
     block: *mut c_void,
@@ -99,19 +98,16 @@ pub unsafe fn luaM_shrinkvector_(
     newblock
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_toobig(state: *mut lua_State) -> ! {
     unsafe { luaG_runerror(state, "memory allocation error: block too big") }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_free_(state: *mut lua_State, block: *mut c_void, osize: usize) {
     let g = unsafe { global_state(state) };
     unsafe { callfrealloc(g, block, osize, 0) };
     unsafe { (*g).gcdebt += osize as l_mem };
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_realloc_(
     state: *mut lua_State,
     block: *mut c_void,
@@ -130,7 +126,6 @@ pub unsafe fn luaM_realloc_(
     newblock
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_saferealloc_(
     state: *mut lua_State,
     block: *mut c_void,
@@ -144,7 +139,6 @@ pub unsafe fn luaM_saferealloc_(
     newblock
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaM_malloc_(state: *mut lua_State, size: usize, tag: c_int) -> *mut c_void {
     if size == 0 {
         return core::ptr::null_mut();

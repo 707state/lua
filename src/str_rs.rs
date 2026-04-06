@@ -239,7 +239,7 @@ unsafe fn dump_writer(
 
 #[inline]
 unsafe fn tonum(state: *mut lua_State, arg: c_int) -> bool {
-    if unsafe { lua_type(state, arg) } == LUA_TNUMBER.into() {
+    if unsafe { lua_type(state, arg) } == LuaType::Number.as_c_int() {
         unsafe { lua_pushvalue(state, arg) };
         true
     } else {
@@ -251,7 +251,7 @@ unsafe fn tonum(state: *mut lua_State, arg: c_int) -> bool {
 
 unsafe fn trymt(state: *mut lua_State, mtkey: &'static [u8]) {
     unsafe { lua_settop(state, 2) };
-    if unsafe { lua_type(state, 2) } == LUA_TSTRING.into() || {
+    if unsafe { lua_type(state, 2) } == LuaType::String.as_c_int() || {
         luaL_getmetafield(state, 2, mtkey.as_ptr().cast())
     } == 0
     {

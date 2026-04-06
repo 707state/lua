@@ -53,18 +53,18 @@ unsafe fn resethookcount(L: *mut lua_State) {
 }
 
 #[inline]
-unsafe fn test_amode(op: usize) -> bool {
-    luaP_opmodes[op] & (1 << 3) != 0
+unsafe fn test_amode(op: Opcode) -> bool {
+    luaP_opmodes[op.as_usize()] & (1 << 3) != 0
 }
 
 #[inline]
-unsafe fn test_mmmode(op: usize) -> bool {
-    luaP_opmodes[op] & (1 << 7) != 0
+unsafe fn test_mmmode(op: Opcode) -> bool {
+    luaP_opmodes[op.as_usize()] & (1 << 7) != 0
 }
 
 #[inline]
-unsafe fn get_opcode(i: Instruction) -> usize {
-    (i & 0x7f) as usize
+unsafe fn get_opcode(i: Instruction) -> Opcode {
+    Opcode::from_c_int((i & 0x7f) as c_int).expect("invalid opcode")
 }
 
 #[inline]
@@ -117,7 +117,6 @@ unsafe fn getbaseline(f: *const Proto, pc: c_int, basepc: *mut c_int) -> c_int {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_getfuncline(f: *const Proto, pc: c_int) -> c_int {
     let f = unsafe { pdebug(f) };
     if unsafe { (*f).lineinfo.is_null() } {
@@ -146,7 +145,6 @@ unsafe fn settraps(mut ci: *mut CallInfo) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_sethook(L: *mut lua_State, mut func: lua_Hook, mut mask: c_int, count: c_int) {
     if func.is_none() || mask == 0 {
         mask = 0;
@@ -215,7 +213,6 @@ unsafe fn findvararg(ci: *mut CallInfo, n: c_int, pos: *mut StkId) -> *const c_c
     ptr::null()
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_findlocal(
     L: *mut lua_State,
     ci: *mut CallInfo,
@@ -252,7 +249,6 @@ pub unsafe fn luaG_findlocal(
     name
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_getlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) -> *const c_char {
     let name;
     if ar.is_null() {
@@ -274,7 +270,6 @@ pub unsafe fn lua_getlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) ->
     name
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_setlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) -> *const c_char {
     let mut pos = ptr::null_mut();
     let name = unsafe { luaG_findlocal(L, ar_ref(ar).i_ci, n, &mut pos) };
@@ -434,7 +429,6 @@ unsafe fn auxgetinfo(
     status
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn lua_getinfo(L: *mut lua_State, mut what: *const c_char, ar: *mut lua_Debug) -> c_int {
     let ar = unsafe { ar_mut(ar) };
     let (ci, func) = if unsafe { *what } == b'>' as c_char {
@@ -482,14 +476,14 @@ unsafe fn findsetreg(p: *const Proto, mut lastpc: c_int, reg: c_int) -> c_int {
         let i = unsafe { *(*p).code.add(pc as usize) };
         let op = unsafe { get_opcode(i) };
         let a = unsafe { getarg_a(i) };
-        let change = match op as c_int {
-            OP_LOADNIL => {
+        let change = match op {
+            Opcode::LoadNil => {
                 let b = unsafe { getarg_b(i) };
                 a <= reg && reg <= a + b
             }
-            OP_TFORCALL => reg >= a + 2,
-            OP_CALL | OP_TAILCALL => reg >= a,
-            OP_JMP => {
+            Opcode::TForCall => reg >= a + 2,
+            Opcode::Call | Opcode::TailCall => reg >= a,
+            Opcode::Jmp => {
                 let dest = pc + 1 + unsafe { getarg_sj(i) };
                 if dest <= lastpc && dest > jmptarget {
                     jmptarget = dest;
@@ -532,19 +526,19 @@ unsafe fn basicgetobjname(
     unsafe { *ppc = pc };
     if pc != -1 {
         let i = unsafe { *(*p).code.add(pc as usize) };
-        match unsafe { get_opcode(i) } as c_int {
-            OP_MOVE => {
+        match unsafe { get_opcode(i) } {
+            Opcode::Move => {
                 let b = unsafe { getarg_b(i) };
                 if b < unsafe { getarg_a(i) } {
                     return unsafe { basicgetobjname(p, ppc, b, name) };
                 }
             }
-            OP_GETUPVAL => {
+            Opcode::GetUpval => {
                 unsafe { *name = upvalname(p, getarg_b(i)) };
                 return STR_UPVALUE.as_ptr().cast();
             }
-            OP_LOADK => return unsafe { kname(p, getarg_bx(i), name) },
-            OP_LOADKX => {
+            Opcode::LoadK => return unsafe { kname(p, getarg_bx(i), name) },
+            Opcode::LoadKx => {
                 let extra = unsafe { *(*p).code.add(pc as usize + 1) };
                 return unsafe { kname(p, getarg_ax(extra), name) };
             }
@@ -598,24 +592,24 @@ unsafe fn getobjname(
     }
     if pc != -1 {
         let i = unsafe { *(*p).code.add(pc as usize) };
-        match unsafe { get_opcode(i) } as c_int {
-            OP_GETTABUP => {
+        match unsafe { get_opcode(i) } {
+            Opcode::GetTabUp => {
                 unsafe { kname(p, getarg_c(i), name) };
                 return unsafe { is_env(p, pc, i, true) };
             }
-            OP_GETTABLE => {
+            Opcode::GetTable => {
                 unsafe { rname(p, pc, getarg_c(i), name) };
                 return unsafe { is_env(p, pc, i, false) };
             }
-            OP_GETI => {
+            Opcode::GetI => {
                 unsafe { *name = STR_INTEGER_INDEX.as_ptr().cast() };
                 return STR_FIELD.as_ptr().cast();
             }
-            OP_GETFIELD => {
+            Opcode::GetField => {
                 unsafe { kname(p, getarg_c(i), name) };
                 return unsafe { is_env(p, pc, i, false) };
             }
-            OP_SELF => {
+            Opcode::Self_ => {
                 unsafe { kname(p, getarg_c(i), name) };
                 return STR_METHOD.as_ptr().cast();
             }
@@ -632,23 +626,29 @@ unsafe fn funcnamefromcode(
     name: *mut *const c_char,
 ) -> *const c_char {
     let i = unsafe { *(*p).code.add(pc as usize) };
-    let tm = match unsafe { get_opcode(i) } as c_int {
-        OP_CALL | OP_TAILCALL => return unsafe { getobjname(p, pc, getarg_a(i), name) },
-        OP_TFORCALL => {
+    let tm = match unsafe { get_opcode(i) } {
+        Opcode::Call | Opcode::TailCall => return unsafe { getobjname(p, pc, getarg_a(i), name) },
+        Opcode::TForCall => {
             unsafe { *name = STR_FOR_ITER.as_ptr().cast() };
             return STR_FOR_ITER.as_ptr().cast();
         }
-        OP_SELF | OP_GETTABUP | OP_GETTABLE | OP_GETI | OP_GETFIELD => TM_INDEX,
-        OP_SETTABUP | OP_SETTABLE | OP_SETI | OP_SETFIELD => TM_NEWINDEX,
-        OP_MMBIN | OP_MMBINI | OP_MMBINK => unsafe { getarg_c(i) },
-        OP_UNM => TM_UNM,
-        OP_BNOT => TM_BNOT,
-        OP_LEN => TM_LEN,
-        OP_CONCAT => TM_CONCAT,
-        OP_EQ => TM_EQ,
-        OP_LT | OP_LTI | OP_GTI => TM_LT,
-        OP_LE | OP_LEI | OP_GEI => TM_LE,
-        OP_CLOSE | OP_RETURN => TM_CLOSE,
+        Opcode::Self_
+        | Opcode::GetTabUp
+        | Opcode::GetTable
+        | Opcode::GetI
+        | Opcode::GetField => TagMethod::Index.as_c_int(),
+        Opcode::SetTabUp | Opcode::SetTable | Opcode::SetI | Opcode::SetField => {
+            TagMethod::NewIndex.as_c_int()
+        }
+        Opcode::MMBin | Opcode::MMBinI | Opcode::MMBinK => unsafe { getarg_c(i) },
+        Opcode::Unm => TagMethod::Unm.as_c_int(),
+        Opcode::BNot => TagMethod::Bnot.as_c_int(),
+        Opcode::Len => TagMethod::Len.as_c_int(),
+        Opcode::Concat => TagMethod::Concat.as_c_int(),
+        Opcode::Eq => TagMethod::Eq.as_c_int(),
+        Opcode::Lt | Opcode::LtI | Opcode::GtI => TagMethod::Lt.as_c_int(),
+        Opcode::Le | Opcode::LeI | Opcode::GeI => TagMethod::Le.as_c_int(),
+        Opcode::Close | Opcode::Return => TagMethod::Close.as_c_int(),
         _ => return ptr::null(),
     };
     unsafe { *name = getstr((*G(L)).tmname[tm as usize]).add(2) };
@@ -675,7 +675,7 @@ unsafe fn funcnamefromcall(
 
 #[inline]
 unsafe fn ttisfunction(o: *const TValue) -> bool {
-    unsafe { ttype(o) == LUA_TFUNCTION }
+    unsafe { ttype(o) == LuaType::Function.as_u8() }
 }
 
 #[inline]
@@ -769,12 +769,10 @@ unsafe fn typeerror(
     unsafe { luaG_runerror(L, &format!("attempt to {op_s} a {t_s} value{extra_s}")) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_typeerror(L: *mut lua_State, o: *const TValue, op: *const c_char) -> ! {
     unsafe { typeerror(L, o, op, varinfo(L, o)) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
     let ci = unsafe { (*L).ci };
     let mut name = ptr::null();
@@ -787,7 +785,6 @@ pub unsafe fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
     unsafe { typeerror(L, o, c"call".as_ptr(), extra) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_char) -> ! {
     let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
     let t_s = unsafe { std::ffi::CStr::from_ptr(luaT_objtypename(L, o)) }.to_string_lossy();
@@ -799,7 +796,6 @@ pub unsafe fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_concaterror(L: *mut lua_State, mut p1: *const TValue, p2: *const TValue) -> ! {
     if unsafe { ttisstring(p1) || cvt2str(p1) } {
         p1 = p2;
@@ -807,7 +803,6 @@ pub unsafe fn luaG_concaterror(L: *mut lua_State, mut p1: *const TValue, p2: *co
     unsafe { luaG_typeerror(L, p1, c"concatenate".as_ptr()) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_opinterror(
     L: *mut lua_State,
     p1: *const TValue,
@@ -820,7 +815,6 @@ pub unsafe fn luaG_opinterror(
     unsafe { luaG_typeerror(L, p2, msg) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_tointerror(L: *mut lua_State, p1: *const TValue, mut p2: *const TValue) -> ! {
     let mut temp = 0;
     if unsafe { crate::vm_rs::luaV_tointegerns(p1, &mut temp, LUA_FLOORN2I_FLOOR) } == 0 {
@@ -830,7 +824,6 @@ pub unsafe fn luaG_tointerror(L: *mut lua_State, p1: *const TValue, mut p2: *con
     unsafe { luaG_runerror(L, &format!("number{vi} has no integer representation")) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
     let t1 = unsafe { luaT_objtypename(L, p1) };
     let t2 = unsafe { luaT_objtypename(L, p2) };
@@ -844,7 +837,6 @@ pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const T
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! {
     let mut globalname = STR_QUESTION.as_ptr().cast();
     if k > 0 {
@@ -854,7 +846,6 @@ pub unsafe fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! 
     unsafe { luaG_runerror(L, &format!("global '{gn_s}' already defined")) }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_addinfo(
     L: *mut lua_State,
     msg: *const c_char,
@@ -934,7 +925,6 @@ unsafe fn changedline(p: *const Proto, oldpc: c_int, newpc: c_int) -> c_int {
     c_int::from(unsafe { luaG_getfuncline(p.cast(), oldpc) != luaG_getfuncline(p.cast(), newpc) })
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_tracecall(L: *mut lua_State) -> c_int {
     let ci = unsafe { (*L).ci };
     let p = unsafe { pdebug((*ci_func(ci)).p) };
@@ -950,7 +940,6 @@ pub unsafe fn luaG_tracecall(L: *mut lua_State) -> c_int {
     1
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int {
     let ci = unsafe { (*L).ci };
     let mask = unsafe { (*L).hookmask as u8 };
@@ -993,7 +982,7 @@ pub unsafe fn luaG_traceexec(L: *mut lua_State, pc: *const Instruction) -> c_int
         }
         unsafe { (*L).oldpc = npci };
     }
-    if unsafe { (*L).status == LUA_YIELD } {
+    if unsafe { (*L).status == LuaStatus::Yield } {
         if counthook {
             unsafe { (*L).hookcount = 1 };
         }

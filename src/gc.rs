@@ -60,11 +60,11 @@ unsafe fn luaS_clearcache(g: *mut GlobalState) {
     unsafe { crate::string::luaS_clearcache(g) }
 }
 #[inline]
-unsafe fn luaT_gettm(e: *mut Table, ev: c_int, en: *mut TString) -> *const TValue {
+unsafe fn luaT_gettm(e: *mut Table, ev: TagMethod, en: *mut TString) -> *const TValue {
     unsafe { crate::tm::luaT_gettm(e, ev, en) }
 }
 #[inline]
-unsafe fn luaT_gettmbyobj(s: *mut lua_State, o: *const TValue, ev: c_int) -> *const TValue {
+unsafe fn luaT_gettmbyobj(s: *mut lua_State, o: *const TValue, ev: TagMethod) -> *const TValue {
     unsafe { crate::tm::luaT_gettmbyobj(s, o, ev) }
 }
 #[inline]
@@ -519,7 +519,6 @@ unsafe fn iscleared(g: *mut GlobalState, o: *mut GCObject) -> bool {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObject) {
     unsafe {
         let g = G(L);
@@ -536,7 +535,6 @@ pub unsafe fn luaC_barrier_(L: *mut lua_State, o: *mut GCObject, v: *mut GCObjec
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
     unsafe {
         let g = G(L);
@@ -552,7 +550,6 @@ pub unsafe fn luaC_barrierback_(L: *mut lua_State, o: *mut GCObject) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
     unsafe {
         let g = G(L);
@@ -565,7 +562,6 @@ pub unsafe fn luaC_fix(L: *mut lua_State, o: *mut GCObject) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_newobjdt(
     L: *mut lua_State,
     tt: lu_byte,
@@ -584,7 +580,6 @@ pub unsafe fn luaC_newobjdt(
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_newobj(L: *mut lua_State, tt: lu_byte, sz: usize) -> *mut GCObject {
     unsafe { luaC_newobjdt(L, tt, sz, 0) }
 }
@@ -797,7 +792,11 @@ unsafe fn gfasttm(g: *mut GlobalState, mt: *mut Table, e: usize) -> *const TValu
         if checknoTM(mt, e) {
             ptr::null()
         } else {
-            luaT_gettm(mt, e as c_int, (&mut (*g).tmname)[e])
+            luaT_gettm(
+                mt,
+                TagMethod::from_c_int(e as c_int).expect("invalid tag method index"),
+                (&mut (*g).tmname)[e],
+            )
         }
     }
 }
@@ -1165,7 +1164,7 @@ unsafe fn GCTM(L: *mut lua_State) {
             tt_: 0,
         };
         setgcovalue(L, ptr::addr_of_mut!(v), udata2finalize(g));
-        let tm = luaT_gettmbyobj(L, ptr::addr_of!(v), TM_GC as c_int);
+        let tm = luaT_gettmbyobj(L, ptr::addr_of!(v), TagMethod::Gc);
         if !notm(tm) {
             let oldah = (*L).allowhook;
             let oldgcstp = (*g).gcstp;
@@ -1606,7 +1605,6 @@ unsafe fn deletelist(L: *mut lua_State, mut p: *mut GCObject, limit: *mut GCObje
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_freeallobjects(L: *mut lua_State) {
     unsafe {
         let g = G(L);
@@ -1771,7 +1769,6 @@ unsafe fn incstep(L: *mut lua_State, g: *mut GlobalState) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_step(L: *mut lua_State) {
     unsafe {
         let g = G(L);
@@ -1804,7 +1801,6 @@ unsafe fn fullinc(L: *mut lua_State, g: *mut GlobalState) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub unsafe fn luaC_fullgc(L: *mut lua_State, isemergency: c_int) {
     unsafe {
         let g = G(L);
