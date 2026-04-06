@@ -2379,6 +2379,23 @@ pub(crate) unsafe fn luaopen_string(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `string` 标准库的模块标记类型。
+pub struct StringModule;
+
+impl crate::module::LuaModule for StringModule {
+    const NAME: &'static str = "string";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_string(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &STRLIB
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::run_lua_test;

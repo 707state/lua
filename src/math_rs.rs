@@ -1192,6 +1192,23 @@ pub(crate) unsafe fn luaopen_math(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `math` 标准库的模块标记类型。
+pub struct MathModule;
+
+impl crate::module::LuaModule for MathModule {
+    const NAME: &'static str = "math";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_math(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &MATHLIB_REGS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::run_lua_test;

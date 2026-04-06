@@ -355,6 +355,23 @@ pub(crate) unsafe fn luaopen_utf8(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `utf8` 标准库的模块标记类型。
+pub struct Utf8Module;
+
+impl crate::module::LuaModule for Utf8Module {
+    const NAME: &'static str = "utf8";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_utf8(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &UTF8LIB_REGS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::run_lua_test;

@@ -20,6 +20,36 @@ pub(crate) struct luaL_Reg {
 
 unsafe impl Sync for luaL_Reg {}
 
+// ─── 纯 Rust 风格的函数注册 ────────────────────────────────────────────────
+
+/// 纯 Rust 风格的模块函数列表类型。
+///
+/// 每个条目是 `(函数名, 函数指针)` 的元组，无需 null 终止符。
+/// 与 C 风格的 `luaL_Reg` 数组相比，这种方式更符合 Rust 惯例，
+/// 并且在编译期即可确定列表长度。
+pub(crate) type LuaFnList = &'static [(&'static str, unsafe fn(*mut lua_State) -> c_int)];
+
+/// 将纯 Rust 函数列表注册为 Lua 模块表。
+///
+/// 类似于 `luaL_setfuncs`，但接受 `LuaFnList` 而非 null 终止的 `luaL_Reg` 数组。
+/// 创建一个新表并将所有函数注册进去，然后将表留在栈顶。
+///
+/// # Safety
+///
+/// `state` 必须是有效的 Lua 状态机指针。
+pub(crate) unsafe fn register_lib(state: *mut lua_State, fns: LuaFnList) {
+    unsafe { lua_createtable(state, 0, fns.len() as c_int) };
+    for (name, func) in fns {
+        // 将 Rust fn 指针转换为 LuaCFunction（Option<unsafe fn(...)>）
+        let cfn: LuaCFunction = Some(*func as unsafe fn(*mut lua_State) -> c_int);
+        unsafe { lua_pushcclosure(state, cfn, 0) };
+        // 将函数名转换为 C 字符串（安全：所有名称均为纯 ASCII 不含 null）
+        let mut name_buf = name.as_bytes().to_vec();
+        name_buf.push(0);
+        unsafe { lua_setfield(state, -2, name_buf.as_ptr().cast()) };
+    }
+}
+
 /// 将已格式化好的错误消息作为 Lua 错误抛出（替代 C 风格变参的 luaL_error）。
 /// 调用方使用 `format!()` 完成格式化后传入 `&str`。
 pub(crate) unsafe fn luaL_error(state: *mut lua_State, msg: &str) -> c_int {

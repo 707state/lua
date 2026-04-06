@@ -585,3 +585,20 @@ pub(crate) unsafe fn luaopen_debug(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &DBLIB) };
     1
 }
+
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `debug` 标准库的模块标记类型。
+pub struct DebugModule;
+
+impl crate::module::LuaModule for DebugModule {
+    const NAME: &'static str = "debug";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_debug(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &DBLIB
+    }
+}

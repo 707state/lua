@@ -1849,6 +1849,23 @@ pub unsafe fn luaopen_table(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `table` 标准库的模块标记类型。
+pub struct TableModule;
+
+impl crate::module::LuaModule for TableModule {
+    const NAME: &'static str = "table";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_table(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &TAB_FUNCS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -728,6 +728,26 @@ pub(crate) unsafe fn luaopen_base(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// 基础库（`_G`）的模块标记类型。
+///
+/// 基础库比较特殊：它注册到全局环境（`_G`）而非独立的模块表，
+/// 因此 `NAME` 使用 Lua 惯例的 `"_G"`。
+pub struct BaseModule;
+
+impl crate::module::LuaModule for BaseModule {
+    const NAME: &'static str = "_G";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_base(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &BASE_FUNCS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::run_lua_test;

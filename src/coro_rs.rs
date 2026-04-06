@@ -212,6 +212,23 @@ pub(crate) unsafe fn luaopen_coroutine(state: *mut lua_State) -> c_int {
     1
 }
 
+// ─── LuaModule 实现 ────────────────────────────────────────────────────────
+
+/// `coroutine` 标准库的模块标记类型。
+pub struct CoroutineModule;
+
+impl crate::module::LuaModule for CoroutineModule {
+    const NAME: &'static str = "coroutine";
+
+    unsafe fn open(state: *mut lua_State) -> c_int {
+        unsafe { luaopen_coroutine(state) }
+    }
+
+    fn functions() -> &'static [crate::lua_module::luaL_Reg] {
+        &CO_FUNCS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::run_lua_test;

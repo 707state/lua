@@ -23,6 +23,7 @@ pub mod luaffi;
 pub mod luavm;
 pub mod math_rs;
 pub mod mem;
+pub mod module;
 pub mod object;
 pub mod opcodes;
 pub mod os_rs;
