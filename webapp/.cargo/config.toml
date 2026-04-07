@@ -1,4 +1,0 @@
-# webapp 子目录专用的 Cargo 配置
-# 构建 Yew 前端时默认使用 wasm32-unknown-unknown 目标
-[build]
-target = "wasm32-unknown-unknown"
