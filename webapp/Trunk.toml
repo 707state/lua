@@ -1,0 +1,7 @@
+[build]
+# GitHub Pages 部署路径：https://707state.github.io/lua/
+public_url = "/lua/"
+# 禁用文件名哈希，保持文件名稳定（webapp.js / webapp_bg.wasm）
+filehash = false
+# 禁用 SRI（Sub-Resource Integrity）校验，避免 CDN/缓存场景下的加载失败
+no_sri = true
