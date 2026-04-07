@@ -1,5 +1,6 @@
 use crate::do_rs::luaD_rawrunprotected;
 use crate::luaffi::{localeconv, strtod};
+use crate::string::*;
 use crate::mem::*;
 use crate::runtime::*;
 use crate::tm::*;

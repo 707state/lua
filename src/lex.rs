@@ -1,5 +1,8 @@
 #![allow(non_snake_case, dead_code)]
 
+use crate::debug::luaG_addinfo;
+use crate::gc::luaC_fix;
+use crate::object::*;
 use crate::runtime::*;
 use crate::string::{raw_luaS_new, raw_luaS_newlstr};
 use crate::table::{raw_luaH_getstr, raw_luaH_set};
@@ -60,40 +63,6 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
     b"<string>\0",
 ];
 
-#[inline]
-unsafe fn luaC_fix(s: *mut lua_State, o: *mut GCObject) {
-    unsafe { crate::gc::luaC_fix(s, o) }
-}
-#[inline]
-unsafe fn luaC_step(s: *mut lua_State) {
-    unsafe { crate::gc::luaC_step(s) }
-}
-#[inline]
-unsafe fn luaD_throw(s: *mut lua_State, e: u8) -> ! {
-    unsafe { crate::do_rs::luaD_throw(s, e) }
-}
-#[inline]
-unsafe fn luaG_addinfo(
-    s: *mut lua_State,
-    m: *const c_char,
-    src: *mut TString,
-    l: c_int,
-) -> *const c_char {
-    unsafe { crate::debug::luaG_addinfo(s, m, src, l) }
-}
-#[inline]
-unsafe fn luaO_hexavalue(c: c_int) -> u8 {
-    unsafe { crate::object::luaO_hexavalue(c) }
-}
-// luaO_pushfstring 直接使用 crate::object::luaO_pushfstring，不封装（变参函数无法在非 extern 函数中转发）
-#[inline]
-unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
-    unsafe { crate::object::luaO_str2num(s, o) }
-}
-#[inline]
-unsafe fn luaO_utf8esc(b: *mut c_char, x: u32) -> c_int {
-    unsafe { crate::object::luaO_utf8esc(b, x) }
-}
 
 #[inline]
 fn lisprint(c: c_int) -> bool {

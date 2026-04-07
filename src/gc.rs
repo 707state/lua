@@ -1,84 +1,8 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
-use crate::{luavm::GlobalState, runtime::*};
+use crate::{do_rs::*, func::*, luavm::GlobalState, mem::*, runtime::*, state::*, string::*, table::*, tm::*};
 use core::mem::size_of;
 
-#[inline]
-unsafe fn luaM_malloc_(s: *mut lua_State, size: usize, tag: c_int) -> *mut c_void {
-    unsafe { crate::mem::luaM_malloc_(s, size, tag) }
-}
-#[inline]
-unsafe fn luaM_free_(s: *mut lua_State, b: *mut c_void, os: usize) {
-    unsafe { crate::mem::luaM_free_(s, b, os) }
-}
-#[inline]
-unsafe fn luaH_size(t: *mut Table) -> usize {
-    unsafe { crate::table::luaH_size(t) }
-}
-#[inline]
-unsafe fn luaH_free(s: *mut lua_State, t: *mut Table) {
-    unsafe { crate::table::luaH_free(s, t) }
-}
-#[inline]
-unsafe fn luaF_protosize(p: *mut Proto) -> usize {
-    unsafe { crate::func::luaF_protosize(p) }
-}
-#[inline]
-unsafe fn luaF_freeproto(s: *mut lua_State, f: *mut Proto) {
-    unsafe { crate::func::luaF_freeproto(s, f) }
-}
-#[inline]
-unsafe fn luaE_threadsize(s: *mut lua_State) -> usize {
-    unsafe { crate::state::luaE_threadsize(s) }
-}
-#[inline]
-unsafe fn luaE_freethread(s: *mut lua_State, t: *mut lua_State) {
-    unsafe { crate::state::luaE_freethread(s, t) }
-}
-#[inline]
-unsafe fn luaE_setdebt(g: *mut GlobalState, d: l_mem) {
-    unsafe { crate::state::luaE_setdebt(g, d) }
-}
-#[inline]
-unsafe fn luaE_warnerror(s: *mut lua_State, w: *const c_char) {
-    unsafe { crate::state::luaE_warnerror(s, w) }
-}
-#[inline]
-unsafe fn luaS_sizelngstr(len: usize, kind: c_int) -> usize {
-    unsafe { crate::string::luaS_sizelngstr(len, kind) }
-}
-#[inline]
-unsafe fn luaS_resize(s: *mut lua_State, n: c_int) {
-    unsafe { crate::string::luaS_resize(s, n) }
-}
-#[inline]
-unsafe fn luaS_remove(s: *mut lua_State, ts: *mut TString) {
-    unsafe { crate::string::luaS_remove(s, ts) }
-}
-#[inline]
-unsafe fn luaS_clearcache(g: *mut GlobalState) {
-    unsafe { crate::string::luaS_clearcache(g) }
-}
-#[inline]
-unsafe fn luaT_gettm(e: *mut Table, ev: TagMethod, en: *mut TString) -> *const TValue {
-    unsafe { crate::tm::luaT_gettm(e, ev, en) }
-}
-#[inline]
-unsafe fn luaT_gettmbyobj(s: *mut lua_State, o: *const TValue, ev: TagMethod) -> *const TValue {
-    unsafe { crate::tm::luaT_gettmbyobj(s, o, ev) }
-}
-#[inline]
-unsafe fn luaD_shrinkstack(L: *mut lua_State) {
-    unsafe { crate::do_rs::luaD_shrinkstack(L) }
-}
-#[inline]
-unsafe fn luaD_checkminstack(L: *mut lua_State) -> c_int {
-    unsafe { crate::do_rs::luaD_checkminstack(L) }
-}
-#[inline]
-unsafe fn luaF_unlinkupval(uv: *mut UpVal) {
-    unsafe { crate::func::luaF_unlinkupval(uv) }
-}
 
 #[inline]
 unsafe fn bitmask(b: u8) -> u8 {

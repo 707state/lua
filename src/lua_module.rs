@@ -1,10 +1,10 @@
-use crate::runtime::luaO_pushstr;
 use core::ffi::{c_char, c_int};
 use core::ptr;
 use std::ffi::CStr;
 
 pub(crate) use crate::api::*;
 pub(crate) use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
+use crate::object::*;
 use crate::luaffi::LUAL_NUMSIZES;
 pub use crate::runtime::{
     LUA_REGISTRYINDEX, LUA_VERSION_NUM, lua_CFunction, lua_Integer, lua_Number, lua_State,
@@ -20,13 +20,6 @@ pub(crate) struct luaL_Reg {
 
 unsafe impl Sync for luaL_Reg {}
 
-// ─── 纯 Rust 风格的函数注册 ────────────────────────────────────────────────
-
-/// 纯 Rust 风格的模块函数列表类型。
-///
-/// 每个条目是 `(函数名, 函数指针)` 的元组，无需 null 终止符。
-/// 与 C 风格的 `luaL_Reg` 数组相比，这种方式更符合 Rust 惯例，
-/// 并且在编译期即可确定列表长度。
 pub(crate) type LuaFnList = &'static [(&'static str, unsafe fn(*mut lua_State) -> c_int)];
 
 /// 将纯 Rust 函数列表注册为 Lua 模块表。

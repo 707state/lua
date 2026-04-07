@@ -15,6 +15,7 @@ use crate::mem::*;
 use crate::object::luaO_pushstr;
 use crate::runtime::*;
 use crate::state::luaE_incCstack;
+use crate::string::*;
 use core::mem::size_of;
 use core::ptr;
 

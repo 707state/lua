@@ -6,13 +6,15 @@
     clashing_extern_declarations
 )]
 
+use crate::object::*;
 use crate::runtime::*;
+use crate::string::*;
 
 pub static lua_ident: [u8; 129] =
     *b"$LuaVersion: Lua 5.5.0  Copyright (C) 1994-2025 Lua.org, PUC-Rio $$LuaAuthors: R. Ierusalimschy, L. H. de Figueiredo, W. Celes $\0";
 
 use crate::debug::luaG_errormsg;
-use crate::runtime::luaE_setdebt;
+use crate::state::luaE_setdebt;
 
 pub unsafe fn lua_checkstack(L: *mut lua_State, n: c_int) -> c_int {
     let ci = unsafe { (*L).ci };

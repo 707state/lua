@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "webapp"]
+resolver = "2"
+
 [package]
 name = "lua"
 version = "5.5.0"
@@ -7,3 +11,6 @@ edition = "2024"
 name = "lua_rs"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"

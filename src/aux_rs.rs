@@ -10,209 +10,11 @@ use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::raw::c_uint;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 struct LoadBuffer {
     bytes: Vec<u8>,
     offset: usize,
-}
-
-#[inline]
-unsafe fn lua_atpanic(state: *mut lua_State, panicf: Option<unsafe fn(*mut lua_State) -> c_int>) {
-    unsafe { crate::api::lua_atpanic(state as _, core::mem::transmute(panicf)) };
-}
-#[inline]
-unsafe fn lua_absindex(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_absindex(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_checkstack(state: *mut lua_State, n: c_int) -> c_int {
-    unsafe { crate::api::lua_checkstack(state as _, n) }
-}
-#[inline]
-unsafe fn lua_concat(state: *mut lua_State, n: c_int) {
-    unsafe { crate::api::lua_concat(state as _, n) }
-}
-#[inline]
-unsafe fn lua_copy(state: *mut lua_State, fromidx: c_int, toidx: c_int) {
-    unsafe { crate::api::lua_copy(state as _, fromidx, toidx) }
-}
-#[inline]
-unsafe fn lua_getfield(state: *mut lua_State, idx: c_int, key: *const c_char) -> c_int {
-    unsafe { crate::api::lua_getfield(state as _, idx, key) }
-}
-#[inline]
-unsafe fn lua_getglobal(state: *mut lua_State, name: *const c_char) -> c_int {
-    unsafe { crate::api::lua_getglobal(state as _, name) }
-}
-#[inline]
-unsafe fn lua_getinfo(state: *mut lua_State, what: *const c_char, ar: *mut lua_Debug) -> c_int {
-    unsafe { crate::debug::lua_getinfo(state as _, what, ar as _) }
-}
-#[inline]
-unsafe fn lua_getmetatable(state: *mut lua_State, objindex: c_int) -> c_int {
-    unsafe { crate::api::lua_getmetatable(state as _, objindex) }
-}
-#[inline]
-unsafe fn lua_getstack_debug(state: *mut lua_State, level: c_int, ar: *mut lua_Debug) -> c_int {
-    unsafe { crate::debug::lua_getstack(state as _, level, ar as _) }
-}
-#[inline]
-unsafe fn lua_gettable(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_gettable(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_gettop(state: *mut lua_State) -> c_int {
-    unsafe { crate::api::lua_gettop(state as _) }
-}
-#[inline]
-unsafe fn lua_geti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
-    unsafe { crate::api::lua_geti(state as _, idx, n) }
-}
-#[inline]
-unsafe fn lua_isinteger(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_isinteger(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_isnumber(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_isnumber(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_isstring(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_isstring(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_len(state: *mut lua_State, idx: c_int) {
-    unsafe { crate::api::lua_len(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_load(
-    state: *mut lua_State,
-    reader: lua_Reader,
-    data: *mut c_void,
-    chunkname: *const c_char,
-    mode: *const c_char,
-) -> c_int {
-    unsafe {
-        crate::api::lua_load(
-            state as _,
-            core::mem::transmute(reader),
-            data,
-            chunkname,
-            mode,
-        )
-    }
-}
-#[inline]
-unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: c_uint) -> *mut lua_State {
-    unsafe { crate::state::lua_newstate(core::mem::transmute(f), ud, seed) as _ }
-}
-#[inline]
-unsafe fn lua_newuserdatauv(state: *mut lua_State, size: usize, nuvalue: c_int) -> *mut c_void {
-    unsafe { crate::api::lua_newuserdatauv(state as _, size, nuvalue) }
-}
-#[inline]
-unsafe fn lua_next(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_next(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_pushlightuserdata(state: *mut lua_State, p: *mut c_void) {
-    unsafe { crate::api::lua_pushlightuserdata(state as _, p) }
-}
-#[inline]
-unsafe fn lua_rawequal(state: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int {
-    unsafe { crate::api::lua_rawequal(state as _, idx1, idx2) }
-}
-#[inline]
-unsafe fn lua_rawget(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_rawget(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_rawgeti(state: *mut lua_State, idx: c_int, n: lua_Integer) -> c_int {
-    unsafe { crate::api::lua_rawgeti(state as _, idx, n) }
-}
-#[inline]
-unsafe fn lua_rawlen(state: *mut lua_State, idx: c_int) -> usize {
-    unsafe { crate::api::lua_rawlen(state as _, idx) as usize }
-}
-#[inline]
-unsafe fn lua_rawseti(state: *mut lua_State, idx: c_int, n: lua_Integer) {
-    unsafe { crate::api::lua_rawseti(state as _, idx, n) }
-}
-#[inline]
-unsafe fn lua_rotate(state: *mut lua_State, idx: c_int, n: c_int) {
-    unsafe { crate::api::lua_rotate(state as _, idx, n) }
-}
-#[inline]
-unsafe fn lua_setglobal(state: *mut lua_State, name: *const c_char) {
-    unsafe { crate::api::lua_setglobal(state as _, name) }
-}
-#[inline]
-unsafe fn lua_setmetatable(state: *mut lua_State, objindex: c_int) -> c_int {
-    unsafe { crate::api::lua_setmetatable(state as _, objindex) }
-}
-#[inline]
-unsafe fn lua_settop(state: *mut lua_State, idx: c_int) {
-    unsafe { crate::api::lua_settop(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_stringtonumber(state: *mut lua_State, s: *const c_char) -> usize {
-    unsafe { crate::api::lua_stringtonumber(state as _, s) }
-}
-#[inline]
-unsafe fn lua_toboolean(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_toboolean(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_toclose(state: *mut lua_State, idx: c_int) {
-    unsafe { crate::api::lua_toclose(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_closeslot(state: *mut lua_State, idx: c_int) {
-    unsafe { crate::api::lua_closeslot(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_tointegerx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Integer {
-    unsafe { crate::api::lua_tointegerx(state as _, idx, isnum) }
-}
-#[inline]
-unsafe fn lua_tolstring(state: *mut lua_State, idx: c_int, len: *mut usize) -> *const c_char {
-    unsafe { crate::api::lua_tolstring(state as _, idx, len) }
-}
-#[inline]
-unsafe fn lua_tonumberx(state: *mut lua_State, idx: c_int, isnum: *mut c_int) -> lua_Number {
-    unsafe { crate::api::lua_tonumberx(state as _, idx, isnum) }
-}
-#[inline]
-unsafe fn lua_topointer(state: *mut lua_State, idx: c_int) -> *const c_void {
-    unsafe { crate::api::lua_topointer(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_touserdata(state: *mut lua_State, idx: c_int) -> *mut c_void {
-    unsafe { crate::api::lua_touserdata(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_type(state: *mut lua_State, idx: c_int) -> c_int {
-    unsafe { crate::api::lua_type(state as _, idx) }
-}
-#[inline]
-unsafe fn lua_typename(state: *mut lua_State, tag: c_int) -> *const c_char {
-    unsafe { crate::api::lua_typename(state as _, tag) }
-}
-#[inline]
-unsafe fn lua_version(state: *mut lua_State) -> lua_Number {
-    unsafe { crate::api::lua_version(state as _) }
-}
-#[inline]
-unsafe fn lua_setwarnf(state: *mut lua_State, f: lua_WarnFunction, ud: *mut c_void) {
-    unsafe { crate::api::lua_setwarnf(state as _, core::mem::transmute(f), ud) }
-}
-#[inline]
-unsafe fn lua_warning(state: *mut lua_State, msg: *const c_char, tocont: c_int) {
-    unsafe { crate::api::lua_warning(state as _, msg, tocont) }
-}
-#[inline]
-unsafe fn lua_getallocf(state: *mut lua_State, ud: *mut *mut c_void) -> lua_Alloc {
-    unsafe { core::mem::transmute(crate::api::lua_getallocf(state as _, ud)) }
 }
 
 #[inline]
@@ -263,7 +65,7 @@ unsafe fn findfield(state: *mut lua_State, objidx: c_int, level: c_int) -> bool 
 
 unsafe fn pushglobalfuncname(state: *mut lua_State, ar: *mut lua_Debug) -> bool {
     let top = unsafe { lua_gettop(state) };
-    let _ = unsafe { lua_getinfo(state, c"f".as_ptr(), ar) };
+    let _ = unsafe { crate::debug::lua_getinfo(state, c"f".as_ptr(), ar) };
     let _ = unsafe { lua_getfield(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE.as_ptr().cast()) };
     unsafe { luaL_checkstack(state, 6, c"not enough stack".as_ptr()) };
     if unsafe { findfield(state, top + 1, 2) } {
@@ -1044,6 +846,10 @@ unsafe fn warnfon(ud: *mut c_void, message: *const c_char, tocont: c_int) {
 }
 
 pub fn luaL_makeseed(_state: *mut lua_State) -> c_uint {
+    // 获取当前时间戳（纳秒级），在 wasm32 下用 js_sys::Date::now()（毫秒浮点）
+    #[cfg(target_arch = "wasm32")]
+    let now = (js_sys::Date::now() * 1_000_000.0) as usize;
+    #[cfg(not(target_arch = "wasm32"))]
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1056,7 +862,7 @@ pub fn luaL_newstate() -> *mut lua_State {
     // 确保 Lua 错误 panic 不会打印 "panicked at ..." 噪声
     crate::do_rs::install_lua_panic_hook();
     let state = unsafe {
-        lua_newstate(
+        crate::state::lua_newstate(
             Some(lua_l_alloc),
             ptr::null_mut(),
             luaL_makeseed(ptr::null_mut()),

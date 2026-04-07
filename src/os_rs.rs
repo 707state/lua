@@ -17,6 +17,7 @@ use crate::lua_module::{
 };
 use crate::runtime::*;
 use core::ffi::c_int;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // ─── 函数表 ────────────────────────────────────────────────────────────────
@@ -320,10 +321,19 @@ fn simple_strftime(fmt: &[u8], secs: i64, utc: bool) -> Result<String, String> {
 
 unsafe fn os_clock(state: *mut lua_State) -> c_int {
     // Rust 没有进程 CPU 时间接口；用挂钟时间近似
-    // 通过 process::cpu_time crate 可以更精确，但这里用 SystemTime
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    let start = START.get_or_init(std::time::Instant::now);
-    let elapsed = start.elapsed().as_secs_f64();
+    #[cfg(target_arch = "wasm32")]
+    let elapsed = {
+        // wasm32：用 Date.now() 减去模块加载时刻（静态初始化）
+        use std::sync::OnceLock;
+        static START_MS: OnceLock<f64> = OnceLock::new();
+        let start = START_MS.get_or_init(js_sys::Date::now);
+        (js_sys::Date::now() - start) / 1000.0
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let elapsed = {
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+    };
     unsafe { lua_pushnumber(state, elapsed) };
     1
 }
@@ -339,10 +349,10 @@ unsafe fn os_date(state: *mut lua_State) -> c_int {
     let secs: i64 = if has_t2 {
         luaL_checkinteger(state, 2)
     } else {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
-            .as_secs() as i64
+        #[cfg(target_arch = "wasm32")]
+        { (js_sys::Date::now() / 1000.0) as i64 }
+        #[cfg(not(target_arch = "wasm32"))]
+        { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs() as i64 }
     };
     let _ = isnum;
 
@@ -534,10 +544,10 @@ unsafe fn os_time(state: *mut lua_State) -> c_int {
         || unsafe { lua_type(state, 1) } == LUA_TNIL.into()
     {
         // os.time() → 当前 Unix 时间戳
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
-            .as_secs() as i64
+        #[cfg(target_arch = "wasm32")]
+        { (js_sys::Date::now() / 1000.0) as i64 }
+        #[cfg(not(target_arch = "wasm32"))]
+        { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs() as i64 }
     } else {
         luaL_checktype(state, 1, LUA_TTABLE.into());
         unsafe { lua_settop(state, 1) };
@@ -552,15 +562,21 @@ unsafe fn os_time(state: *mut lua_State) -> c_int {
 }
 
 unsafe fn os_tmpname(state: *mut lua_State) -> c_int {
-    use std::time::SystemTime;
-    let tmp = std::env::temp_dir();
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
+    #[cfg(target_arch = "wasm32")]
+    let nonce = (js_sys::Date::now() * 1000.0) as u32;
+    #[cfg(not(target_arch = "wasm32"))]
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
         .subsec_nanos();
-    let name = format!("lua_{:08x}", nonce);
-    let path = tmp.join(&name);
-    let path_str = path.to_string_lossy().into_owned();
+    // wasm32 下没有真实文件系统，仅返回一个合法路径字符串
+    #[cfg(target_arch = "wasm32")]
+    let path_str = format!("/tmp/lua_{:08x}", nonce);
+    #[cfg(not(target_arch = "wasm32"))]
+    let path_str = std::env::temp_dir()
+        .join(format!("lua_{:08x}", nonce))
+        .to_string_lossy()
+        .into_owned();
     unsafe { push_str(state, &path_str) };
     1
 }

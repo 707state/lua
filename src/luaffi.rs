@@ -16,8 +16,8 @@ pub use crate::api::{
 };
 pub use crate::lua_module::lua_pop;
 pub use crate::runtime::{
-    LUA_GCGEN, LUA_GCRESTART, LUA_GCSTOP, LUA_MULTRET, LUA_REGISTRYINDEX, LUA_VERSION_NUM,
-    lua_State,
+    LUA_GCGEN, LUA_GCRESTART, LUA_GCSTOP, LUA_MULTRET, LUA_OK, LUA_REGISTRYINDEX,
+    LUA_VERSION_NUM, lua_State,
 };
 pub use crate::state::lua_close;
 

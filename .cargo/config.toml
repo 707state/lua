@@ -4,6 +4,3 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
-
-[build]
-target = "wasm32-unknown-unknown"

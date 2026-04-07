@@ -736,6 +736,7 @@ unsafe fn io_tmpfile(state: *mut lua_State) -> c_int {
 }
 
 /// 创建匿名临时文件（使用 tempfile crate 兼容方式：std 实现）
+#[cfg(not(target_arch = "wasm32"))]
 fn tempfile() -> std::io::Result<std::fs::File> {
     // 用 std 实现：在 temp 目录创建文件，立即 unlink（Unix）或标记删除（Windows）
     let dir = std::env::temp_dir();
@@ -755,6 +756,15 @@ fn tempfile() -> std::io::Result<std::fs::File> {
     // 立即删除文件名（file 仍然有效）
     let _ = std::fs::remove_file(&path);
     Ok(file)
+}
+
+/// wasm32 下没有真实文件系统，io.tmpfile 始终返回错误。
+#[cfg(target_arch = "wasm32")]
+fn tempfile() -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "io.tmpfile is not supported in WebAssembly",
+    ))
 }
 
 unsafe fn getiofile(state: *mut lua_State, findex: &'static [u8]) -> *mut RustStream {

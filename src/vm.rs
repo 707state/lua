@@ -13,11 +13,9 @@ use crate::func::luaF_findupval;
 use crate::func::luaF_newLclosure;
 use crate::opcodes::luaP_isIT;
 use crate::runtime::*;
-use crate::string::luaS_createlngstrobj;
-use crate::string::luaS_eqstr;
-use crate::table::luaH_getshortstr;
-use crate::table::luaH_psetshortstr;
-use crate::table::luaH_resizearray;
+use crate::string::*;
+use crate::table::*;
+use crate::object::*;
 use crate::tm::*;
 use core::mem::size_of;
 

@@ -14,6 +14,8 @@ use crate::parser_rs::luaY_parser;
 use crate::runtime::*;
 use crate::state::*;
 use crate::undump::luaU_undump;
+use crate::object::*;
+use crate::string::*;
 use crate::vm_rs::*;
 use crate::zio::*;
 use core::mem::size_of;

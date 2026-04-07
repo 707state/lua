@@ -8,6 +8,8 @@
 
 use crate::do_rs::luaD_hook;
 use crate::do_rs::luaD_hookcall;
+use crate::object::*;
+use crate::string::*;
 use crate::func::*;
 use crate::luaffi::strchr;
 use crate::luaffi::strcmp;

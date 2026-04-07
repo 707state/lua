@@ -1767,6 +1767,7 @@ pub(crate) use crate::gc::{
     luaC_barrier_, luaC_barrierback_, luaC_changemode, luaC_checkfinalizer, luaC_fullgc, luaC_step,
 };
 use crate::luavm::GlobalState;
+use crate::string::luaS_new;
 pub(crate) use crate::vm_rs::{
     luaV_concat, luaV_equalobj, luaV_finishget, luaV_finishset, luaV_lessequal, luaV_lessthan,
     luaV_objlen, luaV_tointeger, luaV_tonumber_,
@@ -1788,10 +1789,6 @@ pub(crate) unsafe fn luaU_dump(
     unsafe { crate::dump::luaU_dump(L as _, p as _, core::mem::transmute(writer), data, strip) }
 }
 
-#[inline]
-pub(crate) unsafe fn luaE_setdebt(g: *mut GlobalState, debt: l_mem) {
-    unsafe { crate::state::luaE_setdebt(g as _, debt) }
-}
 
 // Wrapper functions for modules with self-contained type definitions.
 // All structs are #[repr(C)] with identical layouts, so pointer casts are safe.
@@ -1814,62 +1811,7 @@ pub(crate) unsafe fn luaF_newtbcupval(L: *mut lua_State, level: StkId) {
     unsafe { crate::func::luaF_newtbcupval(L as _, level as _) }
 }
 
-#[inline]
-pub(crate) unsafe fn luaO_arith(
-    L: *mut lua_State,
-    op: LuaArithOp,
-    p1: *const TValue,
-    p2: *const TValue,
-    res: StkId,
-) {
-    unsafe { crate::object::luaO_arith(L as _, op, p1 as _, p2 as _, res as _) }
-}
-#[inline]
-pub(crate) unsafe fn luaO_tostringbuff(obj: *const TValue, buff: *mut c_char) -> u32 {
-    unsafe { crate::object::luaO_tostringbuff(obj as _, buff) }
-}
-#[inline]
-pub(crate) unsafe fn luaO_str2num(s: *const c_char, o: *mut TValue) -> usize {
-    unsafe { crate::object::luaO_str2num(s, o as _) }
-}
-#[inline]
-pub(crate) unsafe fn luaO_tostring(L: *mut lua_State, obj: *mut TValue) {
-    unsafe { crate::object::luaO_tostring(L as _, obj as _) }
-}
-
-/// 将 Rust `&str` 推入 Lua 栈并返回内部字符串指针（替代 C 风格变参的 luaO_pushvfstring/luaO_pushfstring）。
-#[inline]
-pub(crate) unsafe fn luaO_pushstr(state: *mut lua_State, s: &str) -> *const c_char {
-    unsafe { crate::object::luaO_pushstr(state as _, s) }
-}
-
 pub(crate) use crate::object::{luaO_applyparam, luaO_codeparam};
-
-#[inline]
-pub(crate) unsafe fn luaS_new(L: *mut lua_State, s: *const c_char) -> *mut TString {
-    unsafe { crate::string::luaS_new(L as _, s) as *mut TString }
-}
-#[inline]
-pub(crate) unsafe fn luaS_newlstr(L: *mut lua_State, s: *const c_char, len: usize) -> *mut TString {
-    unsafe { crate::string::luaS_newlstr(L as _, s, len) as *mut TString }
-}
-#[inline]
-pub(crate) unsafe fn luaS_newextlstr(
-    L: *mut lua_State,
-    s: *const c_char,
-    len: usize,
-    falloc: lua_Alloc,
-    ud: *mut c_void,
-) -> *mut TString {
-    unsafe {
-        crate::string::luaS_newextlstr(L as _, s, len, core::mem::transmute(falloc), ud)
-            as *mut TString
-    }
-}
-#[inline]
-pub(crate) unsafe fn luaS_newudata(L: *mut lua_State, s: usize, nuvalue: u16) -> *mut Udata {
-    unsafe { crate::string::luaS_newudata(L as _, s, nuvalue) as *mut Udata }
-}
 
 pub(crate) use crate::table::{
     luaH_finishset, luaH_get, luaH_getint, luaH_getn, luaH_getstr, luaH_new, luaH_next, luaH_pset,
