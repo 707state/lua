@@ -21,6 +21,8 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "console",
 ] }
-
+log = "0.4"
+console_log = "1.0"
 # 引用同 workspace 的 Lua 核心库
 lua = { path = ".." }
+console_error_panic_hook = "0.1"

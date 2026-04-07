@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::ptr;
+use log::{info, debug, Level};
 
 use lua_rs::api::{
     lua_concat, lua_getglobal, lua_gettop, lua_pushcclosure, lua_pushlstring, lua_pushstring,
@@ -248,6 +249,8 @@ enum HistoryEntry {
 
 #[function_component(App)]
 fn app() -> Html {
+     let _ = console_log::init_with_level(Level::Debug);
+
     // 持久化 Lua state
     let repl = use_mut_ref(|| LuaRepl::new().expect("failed to create Lua state"));
 

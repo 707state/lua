@@ -14,3 +14,21 @@ crate-type = ["rlib", "cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
+
+# ── Profile 配置（必须在 Cargo.toml 中，.cargo/config.toml 不支持 [profile.*]）──
+
+# debug 构建：完整 DWARF 调试信息，用于 Chrome DevTools + C/C++ DWARF 扩展
+[profile.dev]
+opt-level = 0          # 禁止内联，保证调用栈可读
+debug = 2              # 输出完整行号 + 变量名（DWARF level 2）
+codegen-units = 256    # 最大并行编译单元，加快增量编译
+panic = "unwind"       # Lua 错误传播依赖 catch_unwind，必须用 unwind
+strip = false          # 禁止剥离符号
+
+# release 构建：保留 DWARF，panic=unwind 防止 Lua 错误触发 unreachable trap
+[profile.release]
+opt-level = 2          # 正常优化（s/z 会破坏调试，3 体积太大）
+debug = 2              # 保留完整 DWARF（wasm-bindgen keep_debug 依赖它）
+codegen-units = 1      # 单 CGU，允许跨函数优化 + 更小体积
+panic = "unwind"       # 关键：避免 luaD_throw 触发 wasm unreachable trap
+strip = false          # 禁止剥离，保留 DWARF section

@@ -2,3 +2,7 @@
 # 构建 Yew 前端时默认使用 wasm32-unknown-unknown 目标
 [build]
 target = "wasm32-unknown-unknown"
+
+# 注意：[profile.*] 在 .cargo/config.toml 中不被 Cargo 支持，静默无效。
+# Profile 配置必须写在 Cargo.toml 中（workspace 根或成员包）。
+# DWARF 和 panic=unwind 的配置已移至根 Cargo.toml 的 [profile.*] 节。

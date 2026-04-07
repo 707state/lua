@@ -1,7 +1,19 @@
 [build]
 # GitHub Pages 部署路径：https://707state.github.io/lua/
+# 本地 trunk serve 时注释掉此行（用根路径）；CI trunk build --release 时取消注释
 public_url = "/lua/"
 # 禁用文件名哈希，保持文件名稳定（webapp.js / webapp_bg.wasm）
 filehash = false
 # 禁用 SRI（Sub-Resource Integrity）校验，避免 CDN/缓存场景下的加载失败
 no_sri = true
+
+# trunk serve 本地开发服务器配置
+[serve]
+port = 8080
+open = false
+addresses = ["127.0.0.1"]
+
+# wasm-bindgen 配置：debug 构建保留 DWARF 调试信息
+[tools.wasm-bindgen]
+# keep-debug 保留 wasm 中的 DWARF section，Chrome DWARF 扩展依赖它
+keep_debug = true
