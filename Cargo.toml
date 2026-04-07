@@ -9,4 +9,4 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3"
+js-sys={workspace=true}
