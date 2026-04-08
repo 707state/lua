@@ -192,6 +192,7 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
     let Some(mut ar) = thread.get_stack(0) else {
         let msg = format!("bad argument #{} ({})", arg, cstr_lossy(extramsg));
         unsafe { push_string(state, &msg) };
+        drop(msg); // drop before luaD_throw (JS异常展开时Rust Drop不运行)
         return unsafe { lua_error(state) };
     };
     let _ = thread.get_info(c"nt", &mut ar);
@@ -210,6 +211,7 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
                     cstr_lossy(extramsg)
                 );
                 unsafe { push_string(state, &msg) };
+                drop(msg);
                 return unsafe { lua_error(state) };
             }
         }
@@ -235,6 +237,8 @@ fn lua_l_argerror_impl(state: *mut lua_State, mut arg: c_int, extramsg: *const c
         cstr_lossy(extramsg)
     );
     unsafe { push_string(state, &msg) };
+    drop(msg);
+    drop(name);
     unsafe { lua_error(state) }
 }
 
@@ -248,7 +252,9 @@ pub fn luaL_typeerror(state: *mut lua_State, arg: c_int, tname: *const c_char) -
             unsafe { type_name(state, arg) }
         };
     let msg = format!("{} expected, got {}", cstr_lossy(tname), typearg);
-    unsafe { luaL_argerror(state, arg, CString::new(msg).unwrap().as_ptr()) }
+    // 保持 CString 的生命周期直到 luaL_argerror 返回，避免悬空指针
+    let cmsg = CString::new(msg).unwrap();
+    unsafe { luaL_argerror(state, arg, cmsg.as_ptr()) }
 }
 
 pub fn luaL_where(state: *mut lua_State, level: c_int) {

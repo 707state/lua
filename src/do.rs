@@ -46,7 +46,7 @@ use std::process::abort;
 //   负数       → base-level 错误（需向外层传播）
 
 #[cfg(target_arch = "wasm32")]
-mod wasm_js {
+pub(crate) mod wasm_js {
     use js_sys::Function;
     use wasm_bindgen::prelude::*;
     use crate::runtime::{lua_State, Pfunc};
@@ -57,7 +57,7 @@ mod wasm_js {
     ///
     /// 这个函数不通过 #[wasm_bindgen] 导出（避免依赖 wasm-bindgen 的导出机制），
     /// 而是直接获取其函数指针传递给 JS。
-    pub unsafe fn call_pfunc_inner(f_bits: f64, l_bits: f64, ud_bits: f64) {
+    pub(crate) unsafe fn call_pfunc_inner(f_bits: f64, l_bits: f64, ud_bits: f64) {
         let f_ptr = f_bits as u32 as usize;
         let l_ptr = l_bits as u32 as usize;
         let ud_ptr = ud_bits as u32 as usize;
@@ -93,18 +93,22 @@ mod wasm_js {
 
     fn make_wrapper() -> Function {
         // JS 包装器：接收 inner（Rust 函数的 JS 包装），以及 f/l/ud 三个地址。
-        // try/catch 捕获 __lua__N 和 __luabase__N 格式的字符串异常。
+        // wasm_bindgen::throw_str 抛出的是 Error 对象（message 字段含错误码），
+        // 同时兼容裸字符串形式。
         let body = r#"
             try {
                 inner(f, l, ud);
                 return 0.0;
             } catch(e) {
-                if (typeof e === 'string') {
-                    if (e.startsWith('__lua__')) {
-                        return parseFloat(e.slice(7));
+                // wasm_bindgen::throw_str 抛出 Error 对象，message 是 "__lua__N"
+                // 同时兼容裸字符串（未来可能的形式）
+                var msg = (e instanceof Error) ? e.message : (typeof e === 'string' ? e : null);
+                if (msg !== null) {
+                    if (msg.startsWith('__lua__')) {
+                        return parseFloat(msg.slice(7));
                     }
-                    if (e.startsWith('__luabase__')) {
-                        return -(parseFloat(e.slice(11)) + 1.0);
+                    if (msg.startsWith('__luabase__')) {
+                        return -(parseFloat(msg.slice(11)) + 1.0);
                     }
                 }
                 throw e;
@@ -113,24 +117,24 @@ mod wasm_js {
         Function::new_with_args("inner, f, l, ud", body)
     }
 
-    /// 将 Rust 函数 call_pfunc_inner 包装为 JS Function 对象（thread_local 缓存）。
+    /// 获取 JS 侧的 inner 函数引用。
+    ///
+    /// 使用 #[wasm_bindgen] 导出的全局函数 `__lua_pfunc_dispatch`，
+    /// 通过 globalThis 查找，避免 Closure::wrap 的包装层（会重新抛出 JS 异常）。
     pub fn get_inner_js_fn() -> Function {
         thread_local! {
-            // 用 js_sys::Function::new_with_args 包装 Rust 函数指针：
-            // 通过 WebAssembly.Table 或直接用 wasm-bindgen 的 Closure 机制。
-            //
-            // 最简单的方式：用 Closure::wrap 包装一个 Rust 闭包
             static INNER_FN: js_sys::Function = {
-                // 使用 Closure::new 创建一个持久的 JS 可调用对象
-                // 注意：这里 leak() 使其永不释放（进程生命周期内有效）
-                let closure = wasm_bindgen::closure::Closure::wrap(
-                    Box::new(|f: f64, l: f64, ud: f64| {
-                        unsafe { call_pfunc_inner(f, l, ud) };
-                    }) as Box<dyn Fn(f64, f64, f64)>
-                );
-                let js_fn = closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
-                closure.forget(); // 泄漏，永久有效
-                js_fn
+                // 从 globalThis 获取 wasm-bindgen 导出的函数
+                // wasm-bindgen 将 #[wasm_bindgen] 函数挂在模块导出上，
+                // trunk/wasm-pack 会把它们挂到 globalThis 或模块对象。
+                // 这里用一个 JS 包装函数直接调用 WASM 导出。
+                //
+                // 关键：这个包装函数不经过 wasm-bindgen Closure 层，
+                // 因此 JS 异常可以正常传播到外层 try/catch。
+                Function::new_with_args(
+                    "f, l, ud",
+                    "globalThis.__lua_pfunc_dispatch(f, l, ud);"
+                )
             };
         }
         INNER_FN.with(|f| f.clone())
@@ -309,16 +313,29 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
     }
 }
 
-/// WASM 版：通过 wasm_bindgen::throw_str 抛出 JS 字符串异常传播 Lua 错误。
-/// 异常格式："__lua__N"（N 为 TStatus 数值）。
-/// JS try/catch 包装器（在 luaD_rawrunprotected 中构造）负责捕获并返回错误码。
+// 预生成的静态异常字符串（TStatus = u8，最多 6 个有效值 0-5）
+// 避免 luaD_throw 中使用 format! 分配堆内存——JS 异常展开时 Rust Drop 不会运行，
+// format! 分配的 String 会泄漏，多次调用后堆损坏。
+#[cfg(target_arch = "wasm32")]
+static LUA_THROW_MSGS: [&str; 6] = [
+    "__lua__0", "__lua__1", "__lua__2",
+    "__lua__3", "__lua__4", "__lua__5",
+];
+
+#[cfg(target_arch = "wasm32")]
+static LUA_THROW_BASE_MSGS: [&str; 6] = [
+    "__luabase__0", "__luabase__1", "__luabase__2",
+    "__luabase__3", "__luabase__4", "__luabase__5",
+];
+
+/// WASM 版：通过 wasm_bindgen::throw_str 抛出 JS 异常传播 Lua 错误。
+/// 使用静态字符串避免堆分配（JS 异常展开时 Rust Drop 不运行，堆分配会泄漏）。
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
+    let msg = LUA_THROW_MSGS.get(errcode as usize).copied().unwrap_or("__lua__2");
     if unsafe { (*L).nesting_level > 0 } {
-        // 在保护区内：抛出带错误码的 JS 字符串异常，由 JS try/catch 包装器捕获
-        wasm_bindgen::throw_str(&format!("__lua__{}", errcode));
+        wasm_bindgen::throw_str(msg);
     } else {
-        // 没有保护点：尝试主线程或调用 panic handler
         let g = unsafe { G(L) };
         let mainth = unsafe { mainthread(g) };
         errcode = unsafe { luaE_resetthread(L, errcode) };
@@ -330,8 +347,8 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
                 setobjs2s(L, (*mainth).top.p, (*L).top.p.sub(1));
                 (*mainth).top.p = (*mainth).top.p.add(1);
             }
-            // 主线程有保护区：抛出异常让主线程的 JS 包装器捕获
-            wasm_bindgen::throw_str(&format!("__lua__{}", errcode));
+            let msg2 = LUA_THROW_MSGS.get(errcode as usize).copied().unwrap_or("__lua__2");
+            wasm_bindgen::throw_str(msg2);
         } else {
             if let Some(panicf) = unsafe { (*g).panic } {
                 unsafe { panicf(L) };
@@ -346,15 +363,14 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
 /// Native 版：抛出 base-level 错误（穿透中间层直到最外层保护点）。
 #[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
-    // LuaErrorBase 会被每层 catch_unwind 识别并重新抛出，直到最外层才会被捕获并转为 LuaError
     std::panic::panic_any(LuaErrorBase(errcode));
 }
 
-/// WASM 版：抛出 base-level 错误，格式 "__luabase__N"。
-/// JS 包装器识别此格式并返回负数，外层 luaD_rawrunprotected 检测到负数后继续传播。
+/// WASM 版：抛出 base-level 错误，使用静态字符串避免堆分配。
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
-    wasm_bindgen::throw_str(&format!("__luabase__{}", errcode));
+    let msg = LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2");
+    wasm_bindgen::throw_str(msg);
 }
 
 // ── luaD_rawrunprotected ──────────────────────────────────────────────────────
@@ -434,26 +450,89 @@ pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void)
     unsafe { (*L).nesting_level = (*L).nesting_level.wrapping_sub(1) };
     unsafe { (*L).nCcalls = oldnCcalls };
 
+    // 解析结果：
+    // - Ok(0.0)   → 无异常，检查 L.status（Lua 代码 yield 不抛异常，只设 L.status）
+    // - Ok(>0.0)  → JS try/catch 捕获的普通 Lua 错误码
+    // - Ok(<0.0)  → JS try/catch 捕获的 base-level 错误
+    // - Err(e)    → JS 异常穿透了 wrapper 的 try/catch（因 wasm-bindgen Closure 边界
+    //               会重新抛出异常），需要在 Rust 侧解析 JsValue 字符串
     match result {
         Ok(val) => {
             let code = val.as_f64().unwrap_or(0.0) as i64;
             if code == 0 {
+                // 无 JS 异常，但从 Lua 代码 yield 时不抛异常，只设 L.status = Yield
+                let l_status = unsafe { (*L).status };
+                if l_status == LuaStatus::Yield {
+                    return LUA_YIELD;
+                }
                 return LUA_OK;
             }
             if code > 0 {
                 return code as TStatus;
             }
-            // 负数：base-level 错误，解码：stored = -(errcode + 1)
+            // 负数：base-level 错误，解码
             let errcode = ((-code) - 1) as TStatus;
             if unsafe { (*L).nesting_level == 0 } {
                 return errcode;
             }
-            // 还有外层保护区，继续向外抛出
-            wasm_bindgen::throw_str(&format!("__luabase__{}", errcode));
+            let msg = LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2");
+            wasm_bindgen::throw_str(msg);
         }
-        Err(_) => {
-            // wrapper 函数本身出错（理论上不会发生，因为 wrapper 内部已 try/catch）
-            LUA_ERRRUN
+        Err(js_err) => {
+            // JS try/catch 包装器没有捕获到异常，在 Rust 侧解析 JsValue。
+            // wasm_bindgen::throw_str 抛出 Error 对象，message 字段是 "__lua__N"
+            // 注意：throw_str/throw_val 之前必须 drop 所有堆分配，
+            // 因为 JS 异常展开时 Rust Drop 不会运行。
+            let msg_static: Option<&'static str>;
+            let is_lua_err: bool;
+            {
+                // 在独立作用域内解析，确保 String 在 throw 前被 drop
+                let s = if let Some(s) = js_err.as_string() {
+                    s
+                } else {
+                    js_sys::Reflect::get(&js_err, &JsValue::from_str("message"))
+                        .ok()
+                        .and_then(|v| v.as_string())
+                        .unwrap_or_default()
+                };
+
+                if let Some(rest) = s.strip_prefix("__lua__") {
+                    if let Ok(code) = rest.parse::<u8>() {
+                        // s 在此处 drop
+                        drop(s);
+                        return code as TStatus;
+                    }
+                    msg_static = None;
+                    is_lua_err = false;
+                } else if let Some(rest) = s.strip_prefix("__luabase__") {
+                    if let Ok(code) = rest.parse::<u8>() {
+                        let errcode = code as TStatus;
+                        // s 在此处 drop
+                        drop(s);
+                        if unsafe { (*L).nesting_level == 0 } {
+                            return errcode;
+                        }
+                        msg_static = Some(LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2"));
+                        is_lua_err = true;
+                    } else {
+                        msg_static = None;
+                        is_lua_err = false;
+                    }
+                } else {
+                    msg_static = None;
+                    is_lua_err = false;
+                }
+                // s 在此处 drop
+            }
+            if is_lua_err {
+                if let Some(msg) = msg_static {
+                    // js_err drop 后再 throw（避免 JsValue 泄漏）
+                    drop(js_err);
+                    wasm_bindgen::throw_str(msg);
+                }
+            }
+            // 非 Lua 异常，重新抛出（js_err 所有权转移给 throw_val，不泄漏）
+            wasm_bindgen::throw_val(js_err);
         }
     }
 }

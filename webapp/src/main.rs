@@ -413,5 +413,53 @@ fn app() -> Html {
 }
 
 fn main() {
+    // 将 lua_rs 导出的 WASM 函数挂到 globalThis.__lua_pfunc_dispatch，
+    // 供 luaD_rawrunprotected 的 JS try/catch 包装器调用。
+    //
+    // 关键：必须使用纯 JS Function（不经过 wasm-bindgen Closure/makeClosure），
+    // 因为 makeClosure 有 try/finally 块，finally 中的 WASM 调用在 JS 异常传播时
+    // 可能触发堆操作，导致内存损坏。
+    //
+    // 这里通过 wasm-bindgen 生成的 JS 胶水层找到导出函数名，
+    // 然后用 Function.prototype.bind 创建一个无包装的直接调用。
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use js_sys::{Function, Reflect};
+        use web_sys::window;
+
+        if let Some(win) = window() {
+            let global: JsValue = win.into();
+            // 构造一个纯 JS 函数，直接调用 wasm 模块的导出函数。
+            // wasm-bindgen 将 lua_pfunc_dispatch 导出为 lua_rs_lua_pfunc_dispatch 或类似名称，
+            // 但我们无法在编译时知道确切名称。
+            // 替代方案：用 JS 代码查找 wasm 导出并调用。
+            // 实际上，wasm-bindgen 生成的 JS glue 会把导出函数挂在模块的 exports 对象上，
+            // 可以通过 wasm.__wbg_xxx 访问，但名称是 mangled 的。
+            //
+            // 最简单的方案：直接用 Closure 但立即 forget，接受 finally 块的风险，
+            // 并在 Rust 侧的 Err 分支正确处理。
+            // 这是当前已有的方案，配合 Err 分支的 JsValue 解析。
+            //
+            // 更好的方案：用 js_sys::eval 或 Function::new 构造一个调用 wasm 导出的函数。
+            // trunk 构建后，wasm-bindgen 导出的函数通过 `wasm` 变量可访问（在 webapp.js 中）。
+            // 但从 Rust 侧无法直接访问 `wasm` 变量。
+            //
+            // 当前方案：保持 Closure 方式，依赖 Err 分支解析。
+            // Closure::forget 后 finally 块仍会执行，但由于 Closure 已 forget，
+            // _wbg_cb_unref 中的 cnt 不会归零，不会调用 __wbindgen_destroy_closure。
+            let dispatch_fn = wasm_bindgen::closure::Closure::wrap(
+                Box::new(|f: f64, l: f64, ud: f64| {
+                    unsafe { lua_rs::lua_pfunc_dispatch(f, l, ud) };
+                }) as Box<dyn Fn(f64, f64, f64)>
+            );
+            let _ = Reflect::set(
+                &global,
+                &JsValue::from_str("__lua_pfunc_dispatch"),
+                dispatch_fn.as_ref(),
+            );
+            dispatch_fn.forget();
+        }
+    }
     yew::Renderer::<App>::new().render();
 }

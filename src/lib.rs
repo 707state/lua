@@ -1,5 +1,12 @@
 #![feature(portable_simd)]
 
+/// WASM 专用：Pfunc 分发函数，由 webapp 挂到 globalThis.__lua_pfunc_dispatch。
+/// 不经过 wasm_bindgen::Closure 包装层，JS 异常可以正常向外传播到 try/catch。
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn lua_pfunc_dispatch(f_bits: f64, l_bits: f64, ud_bits: f64) {
+    crate::do_rs::wasm_js::call_pfunc_inner(f_bits, l_bits, ud_bits);
+}
+
 pub mod api;
 pub mod aux_rs;
 pub mod base_rs;

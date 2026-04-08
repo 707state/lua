@@ -21,6 +21,7 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "console",
 ] }
+js-sys = "0.3"
 log = "0.4"
 console_log = "1.0"
 # 引用同 workspace 的 Lua 核心库

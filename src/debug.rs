@@ -768,7 +768,9 @@ unsafe fn typeerror(
     let op_s = unsafe { std::ffi::CStr::from_ptr(op) }.to_string_lossy();
     let t_s = unsafe { std::ffi::CStr::from_ptr(t) }.to_string_lossy();
     let extra_s = unsafe { std::ffi::CStr::from_ptr(extra) }.to_string_lossy();
-    unsafe { luaG_runerror(L, &format!("attempt to {op_s} a {t_s} value{extra_s}")) }
+    let msg = format!("attempt to {op_s} a {t_s} value{extra_s}");
+    drop(op_s); drop(t_s); drop(extra_s);
+    unsafe { luaG_runerror_owned(L, msg) }
 }
 
 pub unsafe fn luaG_typeerror(L: *mut lua_State, o: *const TValue, op: *const c_char) -> ! {
@@ -790,12 +792,9 @@ pub unsafe fn luaG_callerror(L: *mut lua_State, o: *const TValue) -> ! {
 pub unsafe fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_char) -> ! {
     let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
     let t_s = unsafe { std::ffi::CStr::from_ptr(luaT_objtypename(L, o)) }.to_string_lossy();
-    unsafe {
-        luaG_runerror(
-            L,
-            &format!("bad 'for' {what_s} (number expected, got {t_s})"),
-        )
-    }
+    let msg = format!("bad 'for' {what_s} (number expected, got {t_s})");
+    drop(what_s); drop(t_s);
+    unsafe { luaG_runerror_owned(L, msg) }
 }
 
 pub unsafe fn luaG_concaterror(L: *mut lua_State, mut p1: *const TValue, p2: *const TValue) -> ! {
@@ -823,7 +822,9 @@ pub unsafe fn luaG_tointerror(L: *mut lua_State, p1: *const TValue, mut p2: *con
         p2 = p1;
     }
     let vi = unsafe { std::ffi::CStr::from_ptr(varinfo(L, p2)) }.to_string_lossy();
-    unsafe { luaG_runerror(L, &format!("number{vi} has no integer representation")) }
+    let msg = format!("number{vi} has no integer representation");
+    drop(vi);
+    unsafe { luaG_runerror_owned(L, msg) }
 }
 
 pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const TValue) -> ! {
@@ -831,11 +832,15 @@ pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const T
     let t2 = unsafe { luaT_objtypename(L, p2) };
     if unsafe { strcmp(t1, t2) == 0 } {
         let t1_s = unsafe { std::ffi::CStr::from_ptr(t1) }.to_string_lossy();
-        unsafe { luaG_runerror(L, &format!("attempt to compare two {t1_s} values")) }
+        let msg = format!("attempt to compare two {t1_s} values");
+        drop(t1_s);
+        unsafe { luaG_runerror_owned(L, msg) }
     } else {
         let t1_s = unsafe { std::ffi::CStr::from_ptr(t1) }.to_string_lossy();
         let t2_s = unsafe { std::ffi::CStr::from_ptr(t2) }.to_string_lossy();
-        unsafe { luaG_runerror(L, &format!("attempt to compare {t1_s} with {t2_s}")) }
+        let msg = format!("attempt to compare {t1_s} with {t2_s}");
+        drop(t1_s); drop(t2_s);
+        unsafe { luaG_runerror_owned(L, msg) }
     }
 }
 
@@ -845,7 +850,9 @@ pub unsafe fn luaG_errnnil(L: *mut lua_State, cl: *mut LClosure, k: c_int) -> ! 
         let _ = unsafe { kname(pdebug((*cl).p), k - 1, &mut globalname) };
     }
     let gn_s = unsafe { std::ffi::CStr::from_ptr(globalname) }.to_string_lossy();
-    unsafe { luaG_runerror(L, &format!("global '{gn_s}' already defined")) }
+    let msg = format!("global '{gn_s}' already defined");
+    drop(gn_s);
+    unsafe { luaG_runerror_owned(L, msg) }
 }
 
 pub unsafe fn luaG_addinfo(
@@ -884,12 +891,38 @@ pub unsafe fn luaG_errormsg(L: *mut lua_State) -> ! {
     unsafe { luaD_throw(L, LUA_ERRRUN) }
 }
 
-/// 将已格式化好的错误消息推入 Lua 栈并触发运行时错误（替代 C 风格变参的 luaG_runerror）。
-/// 调用方使用 `format!()` 完成格式化后传入 `&str`。
+/// 将已格式化好的错误消息推入 Lua 栈并触发运行时错误。
+/// 接受 `&str`（字符串字面量）或 `String`（通过 as_str 转换）。
+/// 内部在调用 luaG_errormsg → luaD_throw 之前，确保消息已推入 Lua 栈。
+/// 注意：调用方传入 `&format!(...)` 时，format! 的 String 在调用者栈帧上，
+/// 无法在此函数内 drop。调用方应使用 luaG_runerror_owned 避免内存泄漏。
 pub unsafe fn luaG_runerror(L: *mut lua_State, msg: &str) -> ! {
     let ci = unsafe { (*L).ci };
     unsafe { luaC_checkGC(L) };
     let pushed = unsafe { luaO_pushstr(L, msg) };
+    if unsafe { isLua(ci) } {
+        unsafe {
+            luaG_addinfo(
+                L,
+                pushed,
+                (*pdebug((*ci_func(ci)).p)).source,
+                getcurrentline(ci),
+            );
+            setobjs2s(L, (*L).top.p.sub(2), (*L).top.p.sub(1));
+            (*L).top.p = (*L).top.p.sub(1);
+        }
+    }
+    unsafe { luaG_errormsg(L) }
+}
+
+/// WASM 安全版本：接受 String 所有权，在 luaG_errormsg 之前 drop，
+/// 避免 JS 异常展开时内存泄漏导致堆损坏。
+pub unsafe fn luaG_runerror_owned(L: *mut lua_State, msg: String) -> ! {
+    let ci = unsafe { (*L).ci };
+    unsafe { luaC_checkGC(L) };
+    let pushed = unsafe { luaO_pushstr(L, &msg) };
+    // msg 在此处 drop（消息已复制到 Lua 堆）
+    drop(msg);
     if unsafe { isLua(ci) } {
         unsafe {
             luaG_addinfo(

@@ -63,7 +63,9 @@ pub unsafe fn luaM_growaux_(
     if size >= limit / 2 {
         if size >= limit {
             let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
-            unsafe { luaG_runerror(state, &format!("too many {what_s} (limit is {limit})")) };
+            let msg = format!("too many {what_s} (limit is {limit})");
+            drop(what_s);
+            unsafe { luaG_runerror_owned(state, msg) };
         }
         size = limit;
     } else {
