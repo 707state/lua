@@ -22,6 +22,121 @@ use core::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::abort;
 
+// ── WASM 专用：JS try/catch 异常桥接 ─────────────────────────────────────────
+//
+// 方案：
+//   luaD_throw (WASM)           → wasm_bindgen::throw_str("__lua__N") 抛出 JS 字符串异常
+//   luaD_throwbaselevel (WASM)  → wasm_bindgen::throw_str("__luabase__N")
+//   luaD_rawrunprotected (WASM) → 用 js_sys::Function 构造 JS try/catch 包装器，
+//                                  捕获异常并解析错误码，无需 WASM EH 特性
+//
+// JS 包装器逻辑（运行时构造）：
+//   try { wasm.__lua_call_pfunc(f, l, ud); return 0; }
+//   catch(e) {
+//     if (typeof e === 'string' && e.startsWith('__lua__'))
+//       return parseInt(e.slice(7));          // 普通错误
+//     if (typeof e === 'string' && e.startsWith('__luabase__'))
+//       return -(parseInt(e.slice(11)) + 1);  // base-level 错误（负数标记）
+//     throw e;                                // 真实异常，继续传播
+//   }
+//
+// luaD_rawrunprotected 读取返回值：
+//   0         → LUA_OK
+//   正数       → 普通 Lua 错误码
+//   负数       → base-level 错误（需向外层传播）
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_js {
+    use js_sys::Function;
+    use wasm_bindgen::prelude::*;
+    use crate::runtime::{lua_State, Pfunc};
+    use core::ffi::c_void;
+
+    /// Rust 侧的 Pfunc 执行器：由 JS try/catch 包装器调用。
+    /// 参数编码为 f64（WASM32 指针 <= 4GB，f64 有 53 位精度，足够）。
+    ///
+    /// 这个函数不通过 #[wasm_bindgen] 导出（避免依赖 wasm-bindgen 的导出机制），
+    /// 而是直接获取其函数指针传递给 JS。
+    pub unsafe fn call_pfunc_inner(f_bits: f64, l_bits: f64, ud_bits: f64) {
+        let f_ptr = f_bits as u32 as usize;
+        let l_ptr = l_bits as u32 as usize;
+        let ud_ptr = ud_bits as u32 as usize;
+
+        let f: Pfunc = if f_ptr == 0 {
+            None
+        } else {
+            Some(unsafe {
+                core::mem::transmute::<usize, unsafe fn(*mut lua_State, *mut c_void)>(f_ptr)
+            })
+        };
+        let L = l_ptr as *mut lua_State;
+        let ud = ud_ptr as *mut c_void;
+
+        if let Some(f) = f {
+            unsafe { f(L, ud) };
+        }
+    }
+
+    /// 获取（并缓存）JS try/catch 包装函数。
+    ///
+    /// 返回的 JS Function 签名：(inner: Function, f: f64, l: f64, ud: f64) -> f64
+    ///   - inner: Rust call_pfunc_inner 的 JS 包装（通过 js_sys::Function::bind 传入）
+    ///   - 返回 0.0      → LUA_OK
+    ///   - 返回 > 0.0    → 普通 Lua 错误码
+    ///   - 返回 < 0.0    → base-level 错误（需穿透到最外层）
+    pub fn get_protected_wrapper() -> Function {
+        thread_local! {
+            static WRAPPER: Function = make_wrapper();
+        }
+        WRAPPER.with(|f| f.clone())
+    }
+
+    fn make_wrapper() -> Function {
+        // JS 包装器：接收 inner（Rust 函数的 JS 包装），以及 f/l/ud 三个地址。
+        // try/catch 捕获 __lua__N 和 __luabase__N 格式的字符串异常。
+        let body = r#"
+            try {
+                inner(f, l, ud);
+                return 0.0;
+            } catch(e) {
+                if (typeof e === 'string') {
+                    if (e.startsWith('__lua__')) {
+                        return parseFloat(e.slice(7));
+                    }
+                    if (e.startsWith('__luabase__')) {
+                        return -(parseFloat(e.slice(11)) + 1.0);
+                    }
+                }
+                throw e;
+            }
+        "#;
+        Function::new_with_args("inner, f, l, ud", body)
+    }
+
+    /// 将 Rust 函数 call_pfunc_inner 包装为 JS Function 对象（thread_local 缓存）。
+    pub fn get_inner_js_fn() -> Function {
+        thread_local! {
+            // 用 js_sys::Function::new_with_args 包装 Rust 函数指针：
+            // 通过 WebAssembly.Table 或直接用 wasm-bindgen 的 Closure 机制。
+            //
+            // 最简单的方式：用 Closure::wrap 包装一个 Rust 闭包
+            static INNER_FN: js_sys::Function = {
+                // 使用 Closure::new 创建一个持久的 JS 可调用对象
+                // 注意：这里 leak() 使其永不释放（进程生命周期内有效）
+                let closure = wasm_bindgen::closure::Closure::wrap(
+                    Box::new(|f: f64, l: f64, ud: f64| {
+                        unsafe { call_pfunc_inner(f, l, ud) };
+                    }) as Box<dyn Fn(f64, f64, f64)>
+                );
+                let js_fn = closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
+                closure.forget(); // 泄漏，永久有效
+                js_fn
+            };
+        }
+        INNER_FN.with(|f| f.clone())
+    }
+}
+
 // 线程局部变量：记录当前线程处于 luaD_rawrunprotected 保护区的层数。
 // panic hook 利用此标记来静默 LuaError/LuaErrorBase 产生的 panic 消息，
 // 避免在正常的 Lua 错误处理流程中打印 "panicked at ..." 噪声。
@@ -163,6 +278,10 @@ pub unsafe fn luaD_seterrorobj(L: *mut lua_State, errcode: TStatus, oldtop: StkI
     unsafe { (*L).top.p = oldtop.add(1) };
 }
 
+// ── luaD_throw ───────────────────────────────────────────────────────────────
+
+/// Native 版：通过 panic 传播 Lua 错误（catch_unwind 捕获）。
+#[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
     if unsafe { (*L).nesting_level > 0 } {
         // 在 luaD_rawrunprotected 保护内：用 LuaError panic 跳出，由 catch_unwind 捕获
@@ -190,11 +309,58 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
     }
 }
 
+/// WASM 版：通过 wasm_bindgen::throw_str 抛出 JS 字符串异常传播 Lua 错误。
+/// 异常格式："__lua__N"（N 为 TStatus 数值）。
+/// JS try/catch 包装器（在 luaD_rawrunprotected 中构造）负责捕获并返回错误码。
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
+    if unsafe { (*L).nesting_level > 0 } {
+        // 在保护区内：抛出带错误码的 JS 字符串异常，由 JS try/catch 包装器捕获
+        wasm_bindgen::throw_str(&format!("__lua__{}", errcode));
+    } else {
+        // 没有保护点：尝试主线程或调用 panic handler
+        let g = unsafe { G(L) };
+        let mainth = unsafe { mainthread(g) };
+        errcode = unsafe { luaE_resetthread(L, errcode) };
+        unsafe {
+            (*L).status = LuaStatus::from_u8(errcode).expect("lua_State.status must be valid")
+        };
+        if unsafe { (*mainth).nesting_level > 0 } {
+            unsafe {
+                setobjs2s(L, (*mainth).top.p, (*L).top.p.sub(1));
+                (*mainth).top.p = (*mainth).top.p.add(1);
+            }
+            // 主线程有保护区：抛出异常让主线程的 JS 包装器捕获
+            wasm_bindgen::throw_str(&format!("__lua__{}", errcode));
+        } else {
+            if let Some(panicf) = unsafe { (*g).panic } {
+                unsafe { panicf(L) };
+            }
+            abort()
+        }
+    }
+}
+
+// ── luaD_throwbaselevel ───────────────────────────────────────────────────────
+
+/// Native 版：抛出 base-level 错误（穿透中间层直到最外层保护点）。
+#[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
     // LuaErrorBase 会被每层 catch_unwind 识别并重新抛出，直到最外层才会被捕获并转为 LuaError
     std::panic::panic_any(LuaErrorBase(errcode));
 }
 
+/// WASM 版：抛出 base-level 错误，格式 "__luabase__N"。
+/// JS 包装器识别此格式并返回负数，外层 luaD_rawrunprotected 检测到负数后继续传播。
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
+    wasm_bindgen::throw_str(&format!("__luabase__{}", errcode));
+}
+
+// ── luaD_rawrunprotected ──────────────────────────────────────────────────────
+
+/// Native 版：用 catch_unwind 包装受保护执行。
+#[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void) -> TStatus {
     let oldnCcalls = unsafe { (*L).nCcalls };
     // 进入保护区：lua_State 嵌套层数 +1，thread_local 深度计数 +1
@@ -230,6 +396,64 @@ pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void)
             }
             // 其他 panic（非 Lua 错误）：继续传播
             std::panic::resume_unwind(payload);
+        }
+    }
+}
+
+/// WASM 版：用 JS try/catch 包装受保护执行，无需 WASM EH 特性。
+///
+/// 原理：
+/// 1. luaD_throw 在 WASM 上抛出 "__lua__N" 格式的 JS 字符串异常（-> ! 语义保持）
+/// 2. JS 包装器（通过 js_sys::Function 构造）内部 try/catch 捕获异常
+/// 3. 捕获到 Lua 错误时，以数值形式返回错误码给 Rust
+/// 4. 返回值 > 0 → 普通错误码；< 0 → base-level 错误（需穿透外层）
+#[cfg(target_arch = "wasm32")]
+pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void) -> TStatus {
+    use wasm_bindgen::JsValue;
+
+    let oldnCcalls = unsafe { (*L).nCcalls };
+    // 进入保护区
+    unsafe { (*L).nesting_level = (*L).nesting_level.wrapping_add(1) };
+
+    // 获取 JS 对象（thread_local 缓存，只构造一次）：
+    // - inner_fn: Rust call_pfunc_inner 的 JS 包装（Closure::forget 永久有效）
+    // - wrapper:  try/catch 包装函数，签名 (inner, f, l, ud) -> f64
+    let inner_fn = wasm_js::get_inner_js_fn();
+    let wrapper = wasm_js::get_protected_wrapper();
+
+    // 将 Rust 指针编码为 JS 数值
+    let f_val = JsValue::from_f64(f.map_or(0usize, |fp| fp as usize) as f64);
+    let l_val = JsValue::from_f64(L as usize as f64);
+    let ud_val = JsValue::from_f64(ud as usize as f64);
+
+    // 调用：wrapper(inner_fn, f, l, ud)
+    // JS 内部：try { inner_fn(f,l,ud); return 0 } catch(e) { 解析并返回错误码 }
+    let result = wrapper.call4(&JsValue::NULL, &inner_fn, &f_val, &l_val, &ud_val);
+
+    // 离开保护区
+    unsafe { (*L).nesting_level = (*L).nesting_level.wrapping_sub(1) };
+    unsafe { (*L).nCcalls = oldnCcalls };
+
+    match result {
+        Ok(val) => {
+            let code = val.as_f64().unwrap_or(0.0) as i64;
+            if code == 0 {
+                return LUA_OK;
+            }
+            if code > 0 {
+                return code as TStatus;
+            }
+            // 负数：base-level 错误，解码：stored = -(errcode + 1)
+            let errcode = ((-code) - 1) as TStatus;
+            if unsafe { (*L).nesting_level == 0 } {
+                return errcode;
+            }
+            // 还有外层保护区，继续向外抛出
+            wasm_bindgen::throw_str(&format!("__luabase__{}", errcode));
+        }
+        Err(_) => {
+            // wrapper 函数本身出错（理论上不会发生，因为 wrapper 内部已 try/catch）
+            LUA_ERRRUN
         }
     }
 }

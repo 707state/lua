@@ -1,26 +1,13 @@
-# ── WASM 目标：启用原生 Wasm Exception Handling ───────────────────────────────
+# ── WASM 目标配置 ──────────────────────────────────────────────────────────────
 #
-# Lua 的错误传播机制（luaD_throw）使用 std::panic::panic_any(LuaError(...))，
-# 由 luaD_rawrunprotected 的 catch_unwind 捕获。
+# 错误传播机制已重构为 JS try/catch 桥接方案：
 #
-# WASM 平台在没有原生 exception-handling 提案时 panic = "unwind" 实际上是 abort，
-# 导致 catch_unwind 无法捕获，所有 Lua 错误变成进程崩溃。
+#   luaD_throw (WASM)           → wasm_bindgen::throw_str("__lua__N")
+#                                  抛出 JS 字符串异常（-> ! 语义保持）
+#   luaD_rawrunprotected (WASM) → js_sys::Function 构造 JS try/catch 包装器，
+#                                  捕获异常并返回错误码给 Rust
 #
-# 解法（来自 https://github.com/rust-lang/rust/pull/111322）：
-#   -C target-feature=+exception-handling  — 告诉 LLVM 使用 Wasm EH 指令
-#   -C llvm-args=-wasm-enable-eh           — 开启 LLVM 的 Wasm EH 后端
+# 此方案不依赖 WASM Exception Handling 提案（无需 +exception-handling 标志），
+# 通过 wasm-bindgen 的 JS 互操作实现非局部跳转语义。
 #
-# 两个 flag 缺一不可，配合 Cargo.toml 中的 panic = "unwind" 三者合力才能让
-# catch_unwind 在 wasm32 目标上真正捕获 panic，而不是触发 wasm unreachable trap。
-
-[target.wasm32-wasip2]
-rustflags = [
-    "-C", "target-feature=+exception-handling",
-    "-C", "llvm-args=-wasm-enable-eh",
-]
-
-[target.wasm32-unknown-unknown]
-rustflags = [
-    "-C", "target-feature=+exception-handling",
-    "-C", "llvm-args=-wasm-enable-eh",
-]
+# native 平台仍使用原有的 catch_unwind 方案（不受此配置影响）。
