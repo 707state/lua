@@ -2386,6 +2386,7 @@ pub struct StringModule;
 
 impl crate::module::LuaModule for StringModule {
     const NAME: &'static str = "string";
+    const C_NAME: &'static core::ffi::CStr = c"string";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_string(state) }

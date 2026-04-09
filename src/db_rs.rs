@@ -593,6 +593,7 @@ pub struct DebugModule;
 
 impl crate::module::LuaModule for DebugModule {
     const NAME: &'static str = "debug";
+    const C_NAME: &'static core::ffi::CStr = c"debug";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_debug(state) }

@@ -11,11 +11,11 @@ use crate::do_rs::*;
 use crate::func::luaF_closeupval;
 use crate::func::luaF_findupval;
 use crate::func::luaF_newLclosure;
+use crate::object::*;
 use crate::opcodes::luaP_isIT;
 use crate::runtime::*;
 use crate::string::*;
 use crate::table::*;
-use crate::object::*;
 use crate::tm::*;
 use core::mem::size_of;
 

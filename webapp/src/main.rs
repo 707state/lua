@@ -2,10 +2,10 @@
 //!
 //! 构建：trunk serve / trunk build --release
 
+use log::{Level, debug, info};
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::ptr;
-use log::{info, debug, Level};
 
 use lua_rs::api::{
     lua_concat, lua_getglobal, lua_gettop, lua_pushcclosure, lua_pushlstring, lua_pushstring,
@@ -18,8 +18,8 @@ use lua_rs::aux_rs::{
 use lua_rs::init::luaL_openselectedlibs;
 use lua_rs::lua_module::lua_pop;
 use lua_rs::luaffi::{
-    LUA_MULTRET, LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_State,
-    lua_insert, lua_pcall, lua_pushcfunction, lua_remove,
+    LUA_MULTRET, LUA_OK, LUA_VERSION_NUM, LUAL_NUMSIZES, lua_State, lua_insert, lua_pcall,
+    lua_pushcfunction, lua_remove,
 };
 use lua_rs::state::lua_close;
 
@@ -187,8 +187,8 @@ impl LuaRepl {
             let output = self.l_print();
             Ok(output)
         } else {
-            let err = unsafe { lua_to_string(self.state, -1) }
-                .unwrap_or_else(|| "(error)".to_string());
+            let err =
+                unsafe { lua_to_string(self.state, -1) }.unwrap_or_else(|| "(error)".to_string());
             unsafe { lua_pop(self.state, 1) };
             // 同时取走 print buf（执行过程中可能有输出）
             let print_output = drain_print_buf();
@@ -233,7 +233,11 @@ unsafe fn lua_to_string(state: *mut lua_State, index: i32) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 
@@ -249,7 +253,7 @@ enum HistoryEntry {
 
 #[function_component(App)]
 fn app() -> Html {
-     let _ = console_log::init_with_level(Level::Debug);
+    let _ = console_log::init_with_level(Level::Debug);
 
     // 持久化 Lua state
     let repl = use_mut_ref(|| LuaRepl::new().expect("failed to create Lua state"));
@@ -424,8 +428,8 @@ fn main() {
     // 然后用 Function.prototype.bind 创建一个无包装的直接调用。
     #[cfg(target_arch = "wasm32")]
     {
-        use wasm_bindgen::prelude::*;
         use js_sys::{Function, Reflect};
+        use wasm_bindgen::prelude::*;
         use web_sys::window;
 
         if let Some(win) = window() {
@@ -448,11 +452,11 @@ fn main() {
             // 当前方案：保持 Closure 方式，依赖 Err 分支解析。
             // Closure::forget 后 finally 块仍会执行，但由于 Closure 已 forget，
             // _wbg_cb_unref 中的 cnt 不会归零，不会调用 __wbindgen_destroy_closure。
-            let dispatch_fn = wasm_bindgen::closure::Closure::wrap(
-                Box::new(|f: f64, l: f64, ud: f64| {
+            let dispatch_fn =
+                wasm_bindgen::closure::Closure::wrap(Box::new(|f: f64, l: f64, ud: f64| {
                     unsafe { lua_rs::lua_pfunc_dispatch(f, l, ud) };
-                }) as Box<dyn Fn(f64, f64, f64)>
-            );
+                })
+                    as Box<dyn Fn(f64, f64, f64)>);
             let _ = Reflect::set(
                 &global,
                 &JsValue::from_str("__lua_pfunc_dispatch"),

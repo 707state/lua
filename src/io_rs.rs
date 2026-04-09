@@ -46,20 +46,19 @@ impl RustStream {
     fn read_bytes(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             RustStream::File(f) => f.read(buf),
-            RustStream::Pipe { child, read: true } => {
-                child.stdout.as_mut().unwrap().read(buf)
-            }
+            RustStream::Pipe { child, read: true } => child.stdout.as_mut().unwrap().read(buf),
             RustStream::Stdio(StdioKind::Stdin) => std::io::stdin().read(buf),
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not readable")),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "not readable",
+            )),
         }
     }
 
     fn write_bytes(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
             RustStream::File(f) => f.write(buf),
-            RustStream::Pipe { child, read: false } => {
-                child.stdin.as_mut().unwrap().write(buf)
-            }
+            RustStream::Pipe { child, read: false } => child.stdin.as_mut().unwrap().write(buf),
             RustStream::Stdio(StdioKind::Stdout) => {
                 let written = std::io::stdout().write(buf)?;
                 Ok(written)
@@ -68,16 +67,17 @@ impl RustStream {
                 let written = std::io::stderr().write(buf)?;
                 Ok(written)
             }
-            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "not writable")),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "not writable",
+            )),
         }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             RustStream::File(f) => f.flush(),
-            RustStream::Pipe { child, read: false } => {
-                child.stdin.as_mut().unwrap().flush()
-            }
+            RustStream::Pipe { child, read: false } => child.stdin.as_mut().unwrap().flush(),
             RustStream::Stdio(StdioKind::Stdout) => std::io::stdout().flush(),
             RustStream::Stdio(StdioKind::Stderr) => std::io::stderr().flush(),
             _ => Ok(()),
@@ -481,7 +481,11 @@ unsafe fn push_dynamic_error(state: *mut lua_State, message: &str) -> c_int {
     }
 }
 
-fn file_result_from_io(state: *mut lua_State, result: std::io::Result<()>, fname: Option<&str>) -> c_int {
+fn file_result_from_io(
+    state: *mut lua_State,
+    result: std::io::Result<()>,
+    fname: Option<&str>,
+) -> c_int {
     match result {
         Ok(()) => luaL_fileresult(state, 1, ptr::null()),
         Err(e) => {
@@ -490,9 +494,13 @@ fn file_result_from_io(state: *mut lua_State, result: std::io::Result<()>, fname
             unsafe { push_fail(state) };
             if let Some(name) = fname {
                 let full = format!("{name}: {msg}");
-                unsafe { crate::lua_module::lua_pushlstring(state, full.as_ptr().cast(), full.len()) };
+                unsafe {
+                    crate::lua_module::lua_pushlstring(state, full.as_ptr().cast(), full.len())
+                };
             } else {
-                unsafe { crate::lua_module::lua_pushlstring(state, msg.as_ptr().cast(), msg.len()) };
+                unsafe {
+                    crate::lua_module::lua_pushlstring(state, msg.as_ptr().cast(), msg.len())
+                };
             }
             unsafe { lua_pushinteger(state, code as lua_Integer) };
             3
@@ -626,8 +634,7 @@ fn open_options_from_mode(mode: &[u8]) -> Option<(std::fs::OpenOptions, bool)> {
         return None;
     }
     let base = mode[0];
-    let plus = mode.get(1).copied() == Some(b'+')
-        || mode.get(2).copied() == Some(b'+');
+    let plus = mode.get(1).copied() == Some(b'+') || mode.get(2).copied() == Some(b'+');
     let mut opts = std::fs::OpenOptions::new();
     match base {
         b'r' => {
@@ -645,7 +652,9 @@ fn open_options_from_mode(mode: &[u8]) -> Option<(std::fs::OpenOptions, bool)> {
 }
 
 unsafe fn opencheck(state: *mut lua_State, fname: *const c_char, mode: *const c_char) {
-    let fname_s = unsafe { std::ffi::CStr::from_ptr(fname) }.to_string_lossy().into_owned();
+    let fname_s = unsafe { std::ffi::CStr::from_ptr(fname) }
+        .to_string_lossy()
+        .into_owned();
     let mode_s = unsafe { std::ffi::CStr::from_ptr(mode) }.to_bytes();
     let Some((opts, _)) = open_options_from_mode(mode_s) else {
         unsafe { luaL_error(state, &format!("cannot open '{fname_s}': invalid mode")) };
@@ -669,7 +678,9 @@ unsafe fn io_open(state: *mut lua_State) -> c_int {
     if !check_mode(mode_bytes) {
         let _ = crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
     }
-    let fname_s = unsafe { std::ffi::CStr::from_ptr(filename) }.to_string_lossy().into_owned();
+    let fname_s = unsafe { std::ffi::CStr::from_ptr(filename) }
+        .to_string_lossy()
+        .into_owned();
     let Some((opts, _)) = open_options_from_mode(mode_bytes) else {
         return luaL_fileresult(state, 0, filename);
     };
@@ -701,7 +712,9 @@ unsafe fn io_popen(state: *mut lua_State) -> c_int {
     if !check_modep(mode_bytes) {
         let _ = crate::lua_module::luaL_argerror(state, 2, ERR_INVALID_MODE.as_ptr().cast());
     }
-    let cmd = unsafe { std::ffi::CStr::from_ptr(filename) }.to_string_lossy().into_owned();
+    let cmd = unsafe { std::ffi::CStr::from_ptr(filename) }
+        .to_string_lossy()
+        .into_owned();
     let read = mode_bytes == b"r";
     let mut cmd_builder = std::process::Command::new("sh");
     cmd_builder.arg("-c").arg(&cmd);
@@ -884,11 +897,7 @@ unsafe fn g_read(state: *mut lua_State, stream: *mut RustStream, first: c_int) -
                     let data = unsafe { (*stream).read_n(l) };
                     let ok = !data.is_empty();
                     unsafe {
-                        crate::lua_module::lua_pushlstring(
-                            state,
-                            data.as_ptr().cast(),
-                            data.len(),
-                        )
+                        crate::lua_module::lua_pushlstring(state, data.as_ptr().cast(), data.len())
                     };
                     success = ok as c_int;
                 }
@@ -905,10 +914,7 @@ unsafe fn g_read(state: *mut lua_State, stream: *mut RustStream, first: c_int) -
                         // 读数字
                         match unsafe { (*stream).read_number() } {
                             Some(buf) => {
-                                if unsafe {
-                                    lua_stringtonumber(state, buf.as_ptr().cast())
-                                } != 0
-                                {
+                                if unsafe { lua_stringtonumber(state, buf.as_ptr().cast()) } != 0 {
                                     1
                                 } else {
                                     unsafe { lua_pushnil(state) };
@@ -1179,9 +1185,24 @@ pub(crate) unsafe fn luaopen_io(state: *mut lua_State) -> c_int {
     unsafe { create_library(state, &IOLIB) };
     unsafe { createmeta(state) };
     unsafe {
-        createstdfile(state, Box::new(RustStream::Stdio(StdioKind::Stdin)), Some(IO_INPUT), NAME_STDIN);
-        createstdfile(state, Box::new(RustStream::Stdio(StdioKind::Stdout)), Some(IO_OUTPUT), NAME_STDOUT);
-        createstdfile(state, Box::new(RustStream::Stdio(StdioKind::Stderr)), None, NAME_STDERR);
+        createstdfile(
+            state,
+            Box::new(RustStream::Stdio(StdioKind::Stdin)),
+            Some(IO_INPUT),
+            NAME_STDIN,
+        );
+        createstdfile(
+            state,
+            Box::new(RustStream::Stdio(StdioKind::Stdout)),
+            Some(IO_OUTPUT),
+            NAME_STDOUT,
+        );
+        createstdfile(
+            state,
+            Box::new(RustStream::Stdio(StdioKind::Stderr)),
+            None,
+            NAME_STDERR,
+        );
     }
     1
 }
@@ -1193,6 +1214,7 @@ pub struct IoModule;
 
 impl crate::module::LuaModule for IoModule {
     const NAME: &'static str = "io";
+    const C_NAME: &'static core::ffi::CStr = c"io";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_io(state) }

@@ -456,12 +456,9 @@ pub unsafe fn lua_newstate(f: lua_Alloc, ud: *mut c_void, seed: u32) -> *mut lua
         (*g).gcparams[LuaGcParam::StepMul.as_usize()] = luaO_codeparam(LUAI_GCMUL as u32);
         (*g).gcparams[LuaGcParam::StepSize.as_usize()] =
             luaO_codeparam((200 * size_of::<Table>()) as c_int as u32);
-        (*g).gcparams[LuaGcParam::MinorMul.as_usize()] =
-            luaO_codeparam(LUAI_GENMINORMUL as u32);
-        (*g).gcparams[LuaGcParam::MinorMajor.as_usize()] =
-            luaO_codeparam(LUAI_MINORMAJOR as u32);
-        (*g).gcparams[LuaGcParam::MajorMinor.as_usize()] =
-            luaO_codeparam(LUAI_MAJORMINOR as u32);
+        (*g).gcparams[LuaGcParam::MinorMul.as_usize()] = luaO_codeparam(LUAI_GENMINORMUL as u32);
+        (*g).gcparams[LuaGcParam::MinorMajor.as_usize()] = luaO_codeparam(LUAI_MINORMAJOR as u32);
+        (*g).gcparams[LuaGcParam::MajorMinor.as_usize()] = luaO_codeparam(LUAI_MAJORMINOR as u32);
         for mt in &mut (*g).mt {
             *mt = ptr::null_mut();
         }

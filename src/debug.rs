@@ -8,13 +8,13 @@
 
 use crate::do_rs::luaD_hook;
 use crate::do_rs::luaD_hookcall;
-use crate::object::*;
-use crate::string::*;
 use crate::func::*;
 use crate::luaffi::strchr;
 use crate::luaffi::strcmp;
+use crate::object::*;
 use crate::opcodes::*;
 use crate::runtime::*;
+use crate::string::*;
 use core::ffi::*;
 use core::mem::ManuallyDrop;
 
@@ -634,11 +634,9 @@ unsafe fn funcnamefromcode(
             unsafe { *name = STR_FOR_ITER.as_ptr().cast() };
             return STR_FOR_ITER.as_ptr().cast();
         }
-        Opcode::Self_
-        | Opcode::GetTabUp
-        | Opcode::GetTable
-        | Opcode::GetI
-        | Opcode::GetField => TagMethod::Index.as_c_int(),
+        Opcode::Self_ | Opcode::GetTabUp | Opcode::GetTable | Opcode::GetI | Opcode::GetField => {
+            TagMethod::Index.as_c_int()
+        }
         Opcode::SetTabUp | Opcode::SetTable | Opcode::SetI | Opcode::SetField => {
             TagMethod::NewIndex.as_c_int()
         }
@@ -769,7 +767,9 @@ unsafe fn typeerror(
     let t_s = unsafe { std::ffi::CStr::from_ptr(t) }.to_string_lossy();
     let extra_s = unsafe { std::ffi::CStr::from_ptr(extra) }.to_string_lossy();
     let msg = format!("attempt to {op_s} a {t_s} value{extra_s}");
-    drop(op_s); drop(t_s); drop(extra_s);
+    drop(op_s);
+    drop(t_s);
+    drop(extra_s);
     unsafe { luaG_runerror_owned(L, msg) }
 }
 
@@ -793,7 +793,8 @@ pub unsafe fn luaG_forerror(L: *mut lua_State, o: *const TValue, what: *const c_
     let what_s = unsafe { std::ffi::CStr::from_ptr(what) }.to_string_lossy();
     let t_s = unsafe { std::ffi::CStr::from_ptr(luaT_objtypename(L, o)) }.to_string_lossy();
     let msg = format!("bad 'for' {what_s} (number expected, got {t_s})");
-    drop(what_s); drop(t_s);
+    drop(what_s);
+    drop(t_s);
     unsafe { luaG_runerror_owned(L, msg) }
 }
 
@@ -839,7 +840,8 @@ pub unsafe fn luaG_ordererror(L: *mut lua_State, p1: *const TValue, p2: *const T
         let t1_s = unsafe { std::ffi::CStr::from_ptr(t1) }.to_string_lossy();
         let t2_s = unsafe { std::ffi::CStr::from_ptr(t2) }.to_string_lossy();
         let msg = format!("attempt to compare {t1_s} with {t2_s}");
-        drop(t1_s); drop(t2_s);
+        drop(t1_s);
+        drop(t2_s);
         unsafe { luaG_runerror_owned(L, msg) }
     }
 }

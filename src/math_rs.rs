@@ -1199,6 +1199,7 @@ pub struct MathModule;
 
 impl crate::module::LuaModule for MathModule {
     const NAME: &'static str = "math";
+    const C_NAME: &'static core::ffi::CStr = c"math";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_math(state) }

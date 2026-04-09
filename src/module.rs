@@ -15,12 +15,14 @@
 /// struct OsModule;
 /// impl LuaModule for OsModule {
 ///     const NAME: &'static str = "os";
+///     const C_NAME: &'static CStr = c"os";
 ///     fn open(state: *mut lua_State) -> c_int { luaopen_os(state) }
 /// }
 /// ```
 use crate::lua_module::luaL_Reg;
+use crate::luaffi::LuaCFunction;
 use crate::runtime::lua_State;
-use core::ffi::c_int;
+use core::ffi::{CStr, c_char, c_int};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 核心 Trait
@@ -36,6 +38,11 @@ pub trait LuaModule {
     ///
     /// 对于基础库来说通常是 `"_G"`（全局环境）。
     const NAME: &'static str;
+
+    /// 模块名的 C 字符串形式，用于 `luaL_requiref` / `lua_setfield` 等 FFI 场景。
+    ///
+    /// 推荐直接使用 `c"module_name"` 字面量，避免运行时构造临时缓冲区。
+    const C_NAME: &'static CStr;
 
     /// 将模块注册到 Lua 状态机并返回结果数量。
     ///
@@ -54,6 +61,57 @@ pub trait LuaModule {
     fn functions() -> &'static [luaL_Reg] {
         &[]
     }
+
+    /// Rust 风格的函数表描述，不需要 `luaL_Reg` 的 null 哨兵。
+    ///
+    /// 新模块建议优先实现这个接口，并配合 [`open_library`] 完成注册。
+    fn entries() -> &'static [ModuleFunction] {
+        &[]
+    }
+}
+
+/// Rust 风格的 Lua 导出函数描述。
+///
+/// 相比 `luaL_Reg`，它不依赖 null 终止数组，也不要求调用方手动维护哨兵项。
+#[derive(Clone, Copy)]
+pub struct ModuleFunction {
+    pub name: &'static CStr,
+    pub func: LuaCFunction,
+}
+
+impl ModuleFunction {
+    /// 使用普通 Rust 函数构造一个模块导出项。
+    pub const fn new(name: &'static CStr, func: unsafe fn(*mut lua_State) -> c_int) -> Self {
+        Self {
+            name,
+            func: Some(func),
+        }
+    }
+
+    /// 将 Rust 风格描述转换为 Lua 传统的 `luaL_Reg` 条目。
+    pub const fn as_reg(self) -> luaL_Reg {
+        luaL_Reg {
+            name: self.name.as_ptr(),
+            func: self.func,
+        }
+    }
+}
+
+unsafe impl Sync for ModuleFunction {}
+
+/// 将 Rust 风格函数表注册为一个新的 Lua 模块表，并将模块表留在栈顶。
+///
+/// # Safety
+///
+/// `state` 必须是有效的 Lua 状态机指针。
+pub unsafe fn open_library(state: *mut lua_State, functions: &[ModuleFunction]) {
+    unsafe { crate::lua_module::checkversion(state) };
+    unsafe { crate::lua_module::lua_createtable(state, 0, functions.len() as c_int) };
+
+    for entry in functions {
+        unsafe { crate::lua_module::push_cfunction(state, entry.func) };
+        unsafe { crate::lua_module::lua_setfield(state, -2, entry.name.as_ptr().cast::<c_char>()) };
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +126,8 @@ pub trait LuaModule {
 pub struct ModuleDescriptor {
     /// 模块在 Lua 中的名字（C 字符串，以 `\0` 结尾）。
     pub name: &'static str,
+    /// 模块在 Lua C API 中使用的名字。
+    pub c_name: &'static CStr,
     /// 对应 `luaopen_*` 函数的函数指针。
     pub open_fn: unsafe fn(*mut lua_State) -> c_int,
 }
@@ -79,8 +139,14 @@ impl ModuleDescriptor {
     pub const fn of<M: LuaModule>() -> Self {
         Self {
             name: M::NAME,
+            c_name: M::C_NAME,
             open_fn: M::open,
         }
+    }
+
+    #[inline]
+    pub const fn name_ptr(self) -> *const c_char {
+        self.c_name.as_ptr()
     }
 
     /// 调用模块的 open 函数。
@@ -147,7 +213,7 @@ impl ModuleRegistry {
 /// # 示例
 ///
 /// ```rust,ignore
-/// declare_lua_module!(OsModule, "os", luaopen_os);
+/// declare_lua_module!(OsModule, "os", c"os", luaopen_os);
 /// ```
 ///
 /// 展开后等价于：
@@ -156,6 +222,7 @@ impl ModuleRegistry {
 /// pub struct OsModule;
 /// impl LuaModule for OsModule {
 ///     const NAME: &'static str = "os";
+///     const C_NAME: &'static ::core::ffi::CStr = c"os";
 ///     unsafe fn open(state: *mut lua_State) -> c_int {
 ///         unsafe { luaopen_os(state) }
 ///     }
@@ -163,11 +230,12 @@ impl ModuleRegistry {
 /// ```
 #[macro_export]
 macro_rules! declare_lua_module {
-    ($type_name:ident, $lua_name:literal, $open_fn:path) => {
+    ($type_name:ident, $lua_name:literal, $c_lua_name:expr, $open_fn:path) => {
         pub struct $type_name;
 
         impl $crate::module::LuaModule for $type_name {
             const NAME: &'static str = $lua_name;
+            const C_NAME: &'static ::core::ffi::CStr = $c_lua_name;
 
             unsafe fn open(state: *mut $crate::runtime::lua_State) -> core::ffi::c_int {
                 unsafe { $open_fn(state) }
@@ -176,11 +244,12 @@ macro_rules! declare_lua_module {
     };
 
     // 带函数列表的版本
-    ($type_name:ident, $lua_name:literal, $open_fn:path, $funcs:expr) => {
+    ($type_name:ident, $lua_name:literal, $c_lua_name:expr, $open_fn:path, $funcs:expr) => {
         pub struct $type_name;
 
         impl $crate::module::LuaModule for $type_name {
             const NAME: &'static str = $lua_name;
+            const C_NAME: &'static ::core::ffi::CStr = $c_lua_name;
 
             unsafe fn open(state: *mut $crate::runtime::lua_State) -> core::ffi::c_int {
                 unsafe { $open_fn(state) }
@@ -202,6 +271,7 @@ mod tests {
 
     impl LuaModule for FakeModule {
         const NAME: &'static str = "fake";
+        const C_NAME: &'static CStr = c"fake";
 
         unsafe fn open(_state: *mut lua_State) -> c_int {
             1

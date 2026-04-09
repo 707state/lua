@@ -152,14 +152,7 @@ pub fn luaL_openselectedlibs(state: *mut lua_State, load: c_int, preload: c_int)
     luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE.as_ptr().cast());
 
     for entry in STDLIB_ENTRIES {
-        // 将模块名转换为以 null 结尾的 C 字符串
-        let name_bytes = entry.desc.name.as_bytes();
-        // 安全：所有模块名都是纯 ASCII，不含 null 字节，
-        // 但我们需要在栈上分配一个 null 结尾的副本。
-        // 借用 alloca 的等价方式：用 Vec<u8> + push(0)
-        let mut name_buf = name_bytes.to_vec();
-        name_buf.push(0);
-        let name_ptr = name_buf.as_ptr().cast::<core::ffi::c_char>();
+        let name_ptr = entry.desc.name_ptr();
 
         // 将 open_fn 包装为 LuaCFunction（即 Option<unsafe fn(*mut lua_State) -> c_int>）
         let open_fn_opt: crate::luaffi::LuaCFunction = Some(entry.desc.open_fn);

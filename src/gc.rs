@@ -1,8 +1,9 @@
 #![allow(non_snake_case, non_upper_case_globals, dead_code)]
 
-use crate::{do_rs::*, func::*, luavm::GlobalState, mem::*, runtime::*, state::*, string::*, table::*, tm::*};
+use crate::{
+    do_rs::*, func::*, luavm::GlobalState, mem::*, runtime::*, state::*, string::*, table::*, tm::*,
+};
 use core::mem::size_of;
-
 
 #[inline]
 unsafe fn bitmask(b: u8) -> u8 {
@@ -176,7 +177,7 @@ unsafe fn sizeLclosure(n: u8) -> usize {
 
 #[inline]
 unsafe fn sizestrshr(len: u32) -> usize {
-    size_of::<TString>() + len as usize + 1
+    offset_of!(TString, contents) + len as usize + 1
 }
 
 #[inline]
@@ -817,16 +818,32 @@ unsafe fn traverseLclosure(g: *mut GlobalState, cl: *mut LClosure) -> l_mem {
     }
 }
 
+unsafe fn threadstackinuse(th: *mut lua_State) -> usize {
+    unsafe {
+        let mut ci = (*th).ci;
+        let mut limit = (*th).top.p;
+        while !ci.is_null() {
+            if limit < (*ci).top.p {
+                limit = (*ci).top.p;
+            }
+            ci = (*ci).previous;
+        }
+        limit.offset_from((*th).stack.p) as usize + 1
+    }
+}
+
 unsafe fn traversethread(g: *mut GlobalState, th: *mut lua_State) -> l_mem {
     unsafe {
         let mut o = (*th).stack.p;
+        let nuse = if o.is_null() { 0 } else { threadstackinuse(th) };
         if isold(th.cast()) || (*g).gcstate == GCSpropagate {
             linkgclist_thread(th, ptr::addr_of_mut!((*g).grayagain));
         }
         if o.is_null() {
             return 0;
         }
-        while o < (*th).top.p {
+        let limit = (*th).stack.p.add(nuse);
+        while o < limit {
             markvalue(g, s2v(o));
             o = o.add(1);
         }
@@ -839,9 +856,9 @@ unsafe fn traversethread(g: *mut GlobalState, th: *mut lua_State) -> l_mem {
             if (*g).gcemergency == 0 {
                 luaD_shrinkstack(th);
             }
-            let mut o2 = (*th).top.p;
-            let limit = (*th).stack_last.p.add(EXTRA_STACK);
-            while o2 < limit {
+            let mut o2 = (*th).stack.p.add(threadstackinuse(th));
+            let stack_limit = (*th).stack_last.p.add(EXTRA_STACK);
+            while o2 < stack_limit {
                 setnilvalue(s2v(o2));
                 o2 = o2.add(1);
             }
@@ -850,7 +867,7 @@ unsafe fn traversethread(g: *mut GlobalState, th: *mut lua_State) -> l_mem {
                 (*g).twups = th;
             }
         }
-        (1 + (*th).top.p.offset_from((*th).stack.p) as usize) as l_mem
+        nuse as l_mem
     }
 }
 
@@ -1753,5 +1770,60 @@ unsafe fn libc_strchr(s: *const c_char, c: c_int) -> *const c_char {
             p = p.add(1);
         }
         ptr::null()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        aux_rs::{luaL_checkversion_, luaL_newstate},
+        luaffi::LUAL_NUMSIZES,
+        runtime::{setsvalue2s, LUA_VERSION_NUM},
+        state::lua_close,
+        string::luaS_new,
+    };
+
+    #[test]
+    fn full_gc_marks_thread_stack_up_to_callinfo_top() {
+        let state = luaL_newstate().cast::<lua_State>();
+        assert!(!state.is_null());
+
+        let result = (|| unsafe {
+            luaL_checkversion_(state.cast(), LUA_VERSION_NUM, LUAL_NUMSIZES);
+
+            let g = G(state);
+            let before = (*g).strt.nuse;
+            let hidden = (*state).stack.p.add(5);
+            let hidden_string = luaS_new(state, c"gc-hidden-stack-slot".as_ptr());
+
+            setsvalue2s(state, hidden, hidden_string);
+            assert!(hidden < (*(*state).ci).top.p);
+            assert!(hidden >= (*state).top.p);
+            assert_eq!((*g).strt.nuse, before + 1);
+
+            luaC_fullgc(state, 0);
+
+            assert_eq!(
+                (*g).strt.nuse,
+                before + 1,
+                "full GC collected a short string reachable only via ci->top"
+            );
+        })();
+
+        unsafe { lua_close(state.cast()) };
+        result
+    }
+
+    #[test]
+    fn short_string_size_matches_inline_layout() {
+        assert_eq!(
+            unsafe { sizestrshr(17) },
+            offset_of!(TString, contents) + 18
+        );
+        assert!(
+            unsafe { sizestrshr(17) } < size_of::<TString>() + 18,
+            "short strings are inline and must not be freed as a full TString"
+        );
     }
 }

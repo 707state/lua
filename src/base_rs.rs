@@ -738,6 +738,7 @@ pub struct BaseModule;
 
 impl crate::module::LuaModule for BaseModule {
     const NAME: &'static str = "_G";
+    const C_NAME: &'static core::ffi::CStr = c"_G";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_base(state) }

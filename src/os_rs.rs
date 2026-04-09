@@ -11,10 +11,10 @@
 
 use crate::aux_rs::{luaL_checkinteger, luaL_checktype, luaL_optinteger, luaL_optlstring};
 use crate::lua_module::{
-    LuaFnList, lua_Integer, lua_Number, lua_State, lua_createtable, lua_error, lua_pop,
-    lua_pushboolean, lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_setfield, lua_settop,
-    register_lib,
+    lua_Integer, lua_Number, lua_State, lua_createtable, lua_error, lua_pop, lua_pushboolean,
+    lua_pushinteger, lua_pushlstring, lua_pushnumber, lua_setfield, lua_settop,
 };
+use crate::module::{ModuleFunction, open_library};
 use crate::runtime::*;
 use core::ffi::c_int;
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,20 +22,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // ─── 函数表 ────────────────────────────────────────────────────────────────
 
-pub(crate) static SYSLIB: LuaFnList = &[
-    ("clock", os_clock as unsafe fn(*mut lua_State) -> c_int),
-    ("date", os_date as unsafe fn(*mut lua_State) -> c_int),
-    (
-        "difftime",
-        os_difftime as unsafe fn(*mut lua_State) -> c_int,
-    ),
-    ("execute", os_execute as unsafe fn(*mut lua_State) -> c_int),
-    ("exit", os_exit as unsafe fn(*mut lua_State) -> c_int),
-    ("getenv", os_getenv as unsafe fn(*mut lua_State) -> c_int),
-    ("remove", os_remove as unsafe fn(*mut lua_State) -> c_int),
-    ("rename", os_rename as unsafe fn(*mut lua_State) -> c_int),
-    ("time", os_time as unsafe fn(*mut lua_State) -> c_int),
-    ("tmpname", os_tmpname as unsafe fn(*mut lua_State) -> c_int),
+pub(crate) static SYSLIB: &[ModuleFunction] = &[
+    ModuleFunction::new(c"clock", os_clock),
+    ModuleFunction::new(c"date", os_date),
+    ModuleFunction::new(c"difftime", os_difftime),
+    ModuleFunction::new(c"execute", os_execute),
+    ModuleFunction::new(c"exit", os_exit),
+    ModuleFunction::new(c"getenv", os_getenv),
+    ModuleFunction::new(c"remove", os_remove),
+    ModuleFunction::new(c"rename", os_rename),
+    ModuleFunction::new(c"time", os_time),
+    ModuleFunction::new(c"tmpname", os_tmpname),
 ];
 
 // ─── 辅助函数 ────────────────────────────────────────────────────────────────
@@ -332,7 +329,10 @@ unsafe fn os_clock(state: *mut lua_State) -> c_int {
     #[cfg(not(target_arch = "wasm32"))]
     let elapsed = {
         static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+        START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_secs_f64()
     };
     unsafe { lua_pushnumber(state, elapsed) };
     1
@@ -350,9 +350,16 @@ unsafe fn os_date(state: *mut lua_State) -> c_int {
         luaL_checkinteger(state, 2)
     } else {
         #[cfg(target_arch = "wasm32")]
-        { (js_sys::Date::now() / 1000.0) as i64 }
+        {
+            (js_sys::Date::now() / 1000.0) as i64
+        }
         #[cfg(not(target_arch = "wasm32"))]
-        { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs() as i64 }
+        {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs() as i64
+        }
     };
     let _ = isnum;
 
@@ -545,9 +552,16 @@ unsafe fn os_time(state: *mut lua_State) -> c_int {
     {
         // os.time() → 当前 Unix 时间戳
         #[cfg(target_arch = "wasm32")]
-        { (js_sys::Date::now() / 1000.0) as i64 }
+        {
+            (js_sys::Date::now() / 1000.0) as i64
+        }
         #[cfg(not(target_arch = "wasm32"))]
-        { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs() as i64 }
+        {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs() as i64
+        }
     } else {
         luaL_checktype(state, 1, LUA_TTABLE.into());
         unsafe { lua_settop(state, 1) };
@@ -584,7 +598,7 @@ unsafe fn os_tmpname(state: *mut lua_State) -> c_int {
 // ─── 模块入口 ────────────────────────────────────────────────────────────────
 
 pub(crate) unsafe fn luaopen_os(state: *mut lua_State) -> c_int {
-    unsafe { register_lib(state, SYSLIB) };
+    unsafe { open_library(state, SYSLIB) };
     1
 }
 
@@ -594,9 +608,14 @@ pub struct OsModule;
 
 impl crate::module::LuaModule for OsModule {
     const NAME: &'static str = "os";
+    const C_NAME: &'static core::ffi::CStr = c"os";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_os(state) }
+    }
+
+    fn entries() -> &'static [ModuleFunction] {
+        SYSLIB
     }
 }
 

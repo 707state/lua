@@ -221,6 +221,7 @@ pub struct CoroutineModule;
 
 impl crate::module::LuaModule for CoroutineModule {
     const NAME: &'static str = "coroutine";
+    const C_NAME: &'static core::ffi::CStr = c"coroutine";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_coroutine(state) }

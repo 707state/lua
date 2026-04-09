@@ -362,6 +362,7 @@ pub struct Utf8Module;
 
 impl crate::module::LuaModule for Utf8Module {
     const NAME: &'static str = "utf8";
+    const C_NAME: &'static core::ffi::CStr = c"utf8";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_utf8(state) }

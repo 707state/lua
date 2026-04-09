@@ -4,8 +4,8 @@ use std::ffi::CStr;
 
 pub(crate) use crate::api::*;
 pub(crate) use crate::aux_rs::{luaL_argerror, luaL_checkversion_, luaL_setfuncs};
-use crate::object::*;
 use crate::luaffi::LUAL_NUMSIZES;
+use crate::object::*;
 pub use crate::runtime::{
     LUA_REGISTRYINDEX, LUA_VERSION_NUM, lua_CFunction, lua_Integer, lua_Number, lua_State,
     lua_Unsigned,
@@ -19,29 +19,6 @@ pub(crate) struct luaL_Reg {
 }
 
 unsafe impl Sync for luaL_Reg {}
-
-pub(crate) type LuaFnList = &'static [(&'static str, unsafe fn(*mut lua_State) -> c_int)];
-
-/// 将纯 Rust 函数列表注册为 Lua 模块表。
-///
-/// 类似于 `luaL_setfuncs`，但接受 `LuaFnList` 而非 null 终止的 `luaL_Reg` 数组。
-/// 创建一个新表并将所有函数注册进去，然后将表留在栈顶。
-///
-/// # Safety
-///
-/// `state` 必须是有效的 Lua 状态机指针。
-pub(crate) unsafe fn register_lib(state: *mut lua_State, fns: LuaFnList) {
-    unsafe { lua_createtable(state, 0, fns.len() as c_int) };
-    for (name, func) in fns {
-        // 将 Rust fn 指针转换为 LuaCFunction（Option<unsafe fn(...)>）
-        let cfn: LuaCFunction = Some(*func as unsafe fn(*mut lua_State) -> c_int);
-        unsafe { lua_pushcclosure(state, cfn, 0) };
-        // 将函数名转换为 C 字符串（安全：所有名称均为纯 ASCII 不含 null）
-        let mut name_buf = name.as_bytes().to_vec();
-        name_buf.push(0);
-        unsafe { lua_setfield(state, -2, name_buf.as_ptr().cast()) };
-    }
-}
 
 /// 将已格式化好的错误消息作为 Lua 错误抛出（替代 C 风格变参的 luaL_error）。
 /// 调用方使用 `format!()` 完成格式化后传入 `&str`。
@@ -151,11 +128,11 @@ mod tests {
     use crate::luaffi::{LUAL_NUMSIZES, lua_pcall};
     use crate::runtime::{LUA_OK, LUA_VERSION_NUM};
     use crate::state::lua_close;
-    use core::ffi::{c_char, c_int};
+    use core::ffi::c_int;
     use std::ptr;
 
     unsafe fn boom(state: *mut lua_State) -> c_int {
-        crate::lua_module::luaL_error(state, "broken item 7")
+        unsafe { crate::lua_module::luaL_error(state, "broken item 7") }
     }
 
     fn error_string(state: *mut lua_State) -> String {

@@ -1836,6 +1836,7 @@ pub struct TableModule;
 
 impl crate::module::LuaModule for TableModule {
     const NAME: &'static str = "table";
+    const C_NAME: &'static core::ffi::CStr = c"table";
 
     unsafe fn open(state: *mut lua_State) -> c_int {
         unsafe { luaopen_table(state) }

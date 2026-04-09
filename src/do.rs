@@ -10,12 +10,12 @@ use crate::debug::*;
 use crate::func::luaF_initupvals;
 use crate::luaffi::strchr;
 use crate::mem::luaM_realloc_;
+use crate::object::*;
 use crate::parser_rs::luaY_parser;
 use crate::runtime::*;
 use crate::state::*;
-use crate::undump::luaU_undump;
-use crate::object::*;
 use crate::string::*;
+use crate::undump::luaU_undump;
 use crate::vm_rs::*;
 use crate::zio::*;
 use core::mem::size_of;
@@ -47,10 +47,10 @@ use std::process::abort;
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod wasm_js {
+    use crate::runtime::{Pfunc, lua_State};
+    use core::ffi::c_void;
     use js_sys::Function;
     use wasm_bindgen::prelude::*;
-    use crate::runtime::{lua_State, Pfunc};
-    use core::ffi::c_void;
 
     /// Rust 侧的 Pfunc 执行器：由 JS try/catch 包装器调用。
     /// 参数编码为 f64（WASM32 指针 <= 4GB，f64 有 53 位精度，足够）。
@@ -318,21 +318,27 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
 // format! 分配的 String 会泄漏，多次调用后堆损坏。
 #[cfg(target_arch = "wasm32")]
 static LUA_THROW_MSGS: [&str; 6] = [
-    "__lua__0", "__lua__1", "__lua__2",
-    "__lua__3", "__lua__4", "__lua__5",
+    "__lua__0", "__lua__1", "__lua__2", "__lua__3", "__lua__4", "__lua__5",
 ];
 
 #[cfg(target_arch = "wasm32")]
 static LUA_THROW_BASE_MSGS: [&str; 6] = [
-    "__luabase__0", "__luabase__1", "__luabase__2",
-    "__luabase__3", "__luabase__4", "__luabase__5",
+    "__luabase__0",
+    "__luabase__1",
+    "__luabase__2",
+    "__luabase__3",
+    "__luabase__4",
+    "__luabase__5",
 ];
 
 /// WASM 版：通过 wasm_bindgen::throw_str 抛出 JS 异常传播 Lua 错误。
 /// 使用静态字符串避免堆分配（JS 异常展开时 Rust Drop 不运行，堆分配会泄漏）。
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
-    let msg = LUA_THROW_MSGS.get(errcode as usize).copied().unwrap_or("__lua__2");
+    let msg = LUA_THROW_MSGS
+        .get(errcode as usize)
+        .copied()
+        .unwrap_or("__lua__2");
     if unsafe { (*L).nesting_level > 0 } {
         wasm_bindgen::throw_str(msg);
     } else {
@@ -347,7 +353,10 @@ pub unsafe fn luaD_throw(L: *mut lua_State, mut errcode: TStatus) -> ! {
                 setobjs2s(L, (*mainth).top.p, (*L).top.p.sub(1));
                 (*mainth).top.p = (*mainth).top.p.add(1);
             }
-            let msg2 = LUA_THROW_MSGS.get(errcode as usize).copied().unwrap_or("__lua__2");
+            let msg2 = LUA_THROW_MSGS
+                .get(errcode as usize)
+                .copied()
+                .unwrap_or("__lua__2");
             wasm_bindgen::throw_str(msg2);
         } else {
             if let Some(panicf) = unsafe { (*g).panic } {
@@ -369,7 +378,10 @@ pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
 /// WASM 版：抛出 base-level 错误，使用静态字符串避免堆分配。
 #[cfg(target_arch = "wasm32")]
 pub unsafe fn luaD_throwbaselevel(_L: *mut lua_State, errcode: TStatus) -> ! {
-    let msg = LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2");
+    let msg = LUA_THROW_BASE_MSGS
+        .get(errcode as usize)
+        .copied()
+        .unwrap_or("__luabase__2");
     wasm_bindgen::throw_str(msg);
 }
 
@@ -475,7 +487,10 @@ pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void)
             if unsafe { (*L).nesting_level == 0 } {
                 return errcode;
             }
-            let msg = LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2");
+            let msg = LUA_THROW_BASE_MSGS
+                .get(errcode as usize)
+                .copied()
+                .unwrap_or("__luabase__2");
             wasm_bindgen::throw_str(msg);
         }
         Err(js_err) => {
@@ -512,7 +527,12 @@ pub unsafe fn luaD_rawrunprotected(L: *mut lua_State, f: Pfunc, ud: *mut c_void)
                         if unsafe { (*L).nesting_level == 0 } {
                             return errcode;
                         }
-                        msg_static = Some(LUA_THROW_BASE_MSGS.get(errcode as usize).copied().unwrap_or("__luabase__2"));
+                        msg_static = Some(
+                            LUA_THROW_BASE_MSGS
+                                .get(errcode as usize)
+                                .copied()
+                                .unwrap_or("__luabase__2"),
+                        );
                         is_lua_err = true;
                     } else {
                         msg_static = None;

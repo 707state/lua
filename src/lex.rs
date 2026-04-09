@@ -63,7 +63,6 @@ static LUA_X_TOKENS: [&[u8]; (TK_STRING - FIRST_RESERVED + 1) as usize] = [
     b"<string>\0",
 ];
 
-
 #[inline]
 fn lisprint(c: c_int) -> bool {
     (0x20..=0x7e).contains(&c)

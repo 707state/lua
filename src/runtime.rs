@@ -1789,7 +1789,6 @@ pub(crate) unsafe fn luaU_dump(
     unsafe { crate::dump::luaU_dump(L as _, p as _, core::mem::transmute(writer), data, strip) }
 }
 
-
 // Wrapper functions for modules with self-contained type definitions.
 // All structs are #[repr(C)] with identical layouts, so pointer casts are safe.
 
