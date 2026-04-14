@@ -1,4 +1,4 @@
-//! 基于 Yew + lua_rs 的 Web REPL
+//! 基于 Yew + lua_rs 的 Web REPL / DOM Playground
 //!
 //! 构建：trunk serve / trunk build --release
 
@@ -7,10 +7,14 @@ use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::ptr;
 
-use lua_rs::api::{lua_getglobal, lua_gettop, lua_setglobal, lua_settop, lua_tolstring, lua_type};
+use lua_rs::api::{
+    lua_createtable, lua_getglobal, lua_gettop, lua_newuserdatauv, lua_pushlstring,
+    lua_pushnil, lua_setfield, lua_setglobal, lua_settop, lua_tolstring, lua_type,
+};
 use lua_rs::aux_rs::{
-    luaL_callmeta, luaL_checkstack, luaL_checkversion_, luaL_loadbufferx, luaL_newstate,
-    luaL_tolstring, luaL_traceback,
+    luaL_callmeta, luaL_checklstring, luaL_checkstack, luaL_checkudata, luaL_checkversion_,
+    luaL_loadbufferx, luaL_newmetatable, luaL_newstate, luaL_setmetatable, luaL_tolstring,
+    luaL_traceback,
 };
 use lua_rs::init::luaL_openselectedlibs;
 use lua_rs::lua_module::lua_pop;
@@ -19,26 +23,167 @@ use lua_rs::luaffi::{
     lua_pushcfunction, lua_remove,
 };
 use lua_rs::state::lua_close;
-
+use wasm_bindgen::{JsCast, JsValue};
+use web_sys::{Element, HtmlElement, Node};
 use yew::prelude::*;
 
-// ── 常量（参照 lua.rs） ──────────────────────────────────────────────────────
 const LUA_TSTRING: i32 = 4;
 const LUA_MINSTACK: i32 = 20;
 const NON_STRING_ERROR: &[u8] = b"(error object is not a string value)\0";
+const LUA_ELEMENT_METATABLE: &str = "webapp.dom.element";
 
-// ── print 输出捕获缓冲区 ─────────────────────────────────────────────────────
-// 使用 thread_local 在 WASM 单线程环境中安全传递 print 输出。
 thread_local! {
     static PRINT_BUF: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static DOM_BRIDGE: RefCell<DomBridge> = RefCell::new(DomBridge::default());
 }
 
-/// 将一行追加到 print 缓冲区。
+#[derive(Default)]
+struct DomBridge {
+    root: Option<Element>,
+    nodes: Vec<Option<Node>>,
+}
+
+impl DomBridge {
+    fn set_root(&mut self, root: Element) {
+        self.root = Some(root.clone());
+        self.nodes.clear();
+        self.nodes.push(Some(root.into()));
+    }
+
+    fn reset_preview(&mut self) -> Result<(), String> {
+        let root = self
+            .root
+            .clone()
+            .ok_or_else(|| "preview root is not ready".to_string())?;
+        root.set_inner_html("");
+        self.nodes.clear();
+        self.nodes.push(Some(root.into()));
+        Ok(())
+    }
+
+    fn create_element(&mut self, tag_name: &str) -> Result<usize, String> {
+        let root = self
+            .root
+            .clone()
+            .ok_or_else(|| "preview root is not ready".to_string())?;
+        let document = root
+            .owner_document()
+            .ok_or_else(|| "document is not available".to_string())?;
+        let element = document
+            .create_element(tag_name)
+            .map_err(js_error_string)?;
+        Ok(self.register_node(element.into()))
+    }
+
+    fn select(&mut self, selector: &str) -> Result<Option<usize>, String> {
+        let root = self
+            .root
+            .clone()
+            .ok_or_else(|| "preview root is not ready".to_string())?;
+        let found = root.query_selector(selector).map_err(js_error_string)?;
+        Ok(found.map(|element| self.register_node(element.into())))
+    }
+
+    fn clear(&mut self) -> Result<(), String> {
+        self.reset_preview()
+    }
+
+    fn root_handle(&self) -> Result<usize, String> {
+        if self.root.is_none() || self.nodes.is_empty() {
+            return Err("preview root is not ready".to_string());
+        }
+        Ok(0)
+    }
+
+    fn register_node(&mut self, node: Node) -> usize {
+        self.nodes.push(Some(node));
+        self.nodes.len() - 1
+    }
+
+    fn get_node(&self, handle: usize) -> Result<Node, String> {
+        self.nodes
+            .get(handle)
+            .and_then(|node| node.clone())
+            .ok_or_else(|| format!("invalid DOM handle: {handle}"))
+    }
+
+    fn get_element(&self, handle: usize) -> Result<Element, String> {
+        self.get_node(handle)?
+            .dyn_into::<Element>()
+            .map_err(|_| "DOM handle is not an element".to_string())
+    }
+
+    fn append_child(&mut self, parent: usize, child: usize) -> Result<(), String> {
+        let parent_node = self.get_node(parent)?;
+        let child_node = self.get_node(child)?;
+        parent_node
+            .append_child(&child_node)
+            .map_err(js_error_string)?;
+        Ok(())
+    }
+
+    fn remove_node(&mut self, handle: usize) -> Result<(), String> {
+        if handle == 0 {
+            return Err("preview root cannot be removed".to_string());
+        }
+        let node = self.get_node(handle)?;
+        if let Some(parent) = node.parent_node() {
+            parent.remove_child(&node).map_err(js_error_string)?;
+        }
+        if let Some(slot) = self.nodes.get_mut(handle) {
+            *slot = None;
+        }
+        Ok(())
+    }
+
+    fn set_text(&self, handle: usize, text: &str) -> Result<(), String> {
+        let node = self.get_node(handle)?;
+        node.set_text_content(Some(text));
+        Ok(())
+    }
+
+    fn set_attr(&self, handle: usize, name: &str, value: &str) -> Result<(), String> {
+        let element = self.get_element(handle)?;
+        element.set_attribute(name, value).map_err(js_error_string)
+    }
+
+    fn get_attr(&self, handle: usize, name: &str) -> Result<Option<String>, String> {
+        let element = self.get_element(handle)?;
+        Ok(element.get_attribute(name))
+    }
+
+    fn add_class(&self, handle: usize, name: &str) -> Result<(), String> {
+        let element = self.get_element(handle)?;
+        element.class_list().add_1(name).map_err(js_error_string)
+    }
+
+    fn remove_class(&self, handle: usize, name: &str) -> Result<(), String> {
+        let element = self.get_element(handle)?;
+        element.class_list().remove_1(name).map_err(js_error_string)
+    }
+
+    fn set_style(&self, handle: usize, name: &str, value: &str) -> Result<(), String> {
+        let element = self.get_element(handle)?;
+        let html_element = element
+            .dyn_into::<HtmlElement>()
+            .map_err(|_| "DOM handle does not support inline style".to_string())?;
+        html_element
+            .style()
+            .set_property(name, value)
+            .map_err(js_error_string)
+    }
+}
+
+fn js_error_string(error: JsValue) -> String {
+    error
+        .as_string()
+        .unwrap_or_else(|| format!("DOM error: {error:?}"))
+}
+
 fn capture_print_line(line: String) {
     PRINT_BUF.with(|buf| buf.borrow_mut().push(line));
 }
 
-/// 取走当前缓冲区中的所有输出，拼成一个字符串（每行一个 `\n`）。
 fn drain_print_buf() -> String {
     PRINT_BUF.with(|buf| {
         let lines = buf.borrow_mut().drain(..).collect::<Vec<_>>();
@@ -46,8 +191,6 @@ fn drain_print_buf() -> String {
     })
 }
 
-// ── 自定义 print 函数（注入到 Lua） ─────────────────────────────────────────
-/// 替换 Lua 标准库的 `print`，将输出捕获到 PRINT_BUF 而非 stdout。
 unsafe fn lua_print_capture(state: *mut lua_State) -> i32 {
     let n = unsafe { lua_gettop(state) };
     let mut parts = Vec::with_capacity(n as usize);
@@ -69,14 +212,217 @@ unsafe fn lua_print_capture(state: *mut lua_State) -> i32 {
     0
 }
 
-// ── Lua REPL 引擎 ────────────────────────────────────────────────────────────
+#[repr(C)]
+struct LuaElementHandle {
+    handle: usize,
+}
 
-/// 持有 Lua state 的包装，Drop 时自动关闭。
+unsafe fn lua_arg_string(state: *mut lua_State, arg: i32) -> String {
+    let mut len = 0usize;
+    let ptr = luaL_checklstring(state, arg, &mut len);
+    String::from_utf8_lossy(std::slice::from_raw_parts(ptr.cast::<u8>(), len)).into_owned()
+}
+
+fn push_lua_string(state: *mut lua_State, value: &str) {
+    unsafe {
+        lua_pushlstring(
+            state,
+            value.as_bytes().as_ptr().cast(),
+            value.len(),
+        );
+    }
+}
+
+fn lua_error_message(state: *mut lua_State, message: impl AsRef<str>) -> i32 {
+    push_lua_string(state, message.as_ref());
+    unsafe { lua_rs::api::lua_error(state) }
+}
+
+unsafe fn push_element_userdata(state: *mut lua_State, handle: usize) -> i32 {
+    let slot = unsafe { lua_newuserdatauv(state, std::mem::size_of::<LuaElementHandle>(), 0) }
+        as *mut LuaElementHandle;
+    unsafe { (*slot).handle = handle };
+    luaL_setmetatable(state, cstr(LUA_ELEMENT_METATABLE).as_ptr());
+    1
+}
+
+unsafe fn get_element_handle(state: *mut lua_State, arg: i32) -> usize {
+    let ptr =
+        luaL_checkudata(state, arg, cstr(LUA_ELEMENT_METATABLE).as_ptr()) as *mut LuaElementHandle;
+    unsafe { (*ptr).handle }
+}
+
+unsafe fn dom_root(state: *mut lua_State) -> i32 {
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().root_handle()) {
+        Ok(handle) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn dom_create(state: *mut lua_State) -> i32 {
+    let tag_name = unsafe { lua_arg_string(state, 1) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().create_element(&tag_name)) {
+        Ok(handle) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn dom_select(state: *mut lua_State) -> i32 {
+    let selector = unsafe { lua_arg_string(state, 1) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().select(&selector)) {
+        Ok(Some(handle)) => unsafe { push_element_userdata(state, handle) },
+        Ok(None) => {
+            unsafe { lua_pushnil(state) };
+            1
+        }
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn dom_clear(state: *mut lua_State) -> i32 {
+    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().clear()) {
+        Ok(()) => 0,
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_append(state: *mut lua_State) -> i32 {
+    let parent = unsafe { get_element_handle(state, 1) };
+    let child = unsafe { get_element_handle(state, 2) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().append_child(parent, child)) {
+        Ok(()) => unsafe { push_element_userdata(state, parent) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_remove(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().remove_node(handle)) {
+        Ok(()) => 0,
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_set_text(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let text = unsafe { lua_arg_string(state, 2) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_text(handle, &text)) {
+        Ok(()) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_set_attr(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let name = unsafe { lua_arg_string(state, 2) };
+    let value = unsafe { lua_arg_string(state, 3) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_attr(handle, &name, &value)) {
+        Ok(()) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_get_attr(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let name = unsafe { lua_arg_string(state, 2) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().get_attr(handle, &name)) {
+        Ok(Some(value)) => {
+            push_lua_string(state, &value);
+            1
+        }
+        Ok(None) => {
+            unsafe { lua_pushnil(state) };
+            1
+        }
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_add_class(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let name = unsafe { lua_arg_string(state, 2) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().add_class(handle, &name)) {
+        Ok(()) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_remove_class(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let name = unsafe { lua_arg_string(state, 2) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().remove_class(handle, &name)) {
+        Ok(()) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_set_style(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let name = unsafe { lua_arg_string(state, 2) };
+    let value = unsafe { lua_arg_string(state, 3) };
+    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_style(handle, &name, &value)) {
+        Ok(()) => unsafe { push_element_userdata(state, handle) },
+        Err(err) => lua_error_message(state, err),
+    }
+}
+
+unsafe fn element_tostring(state: *mut lua_State) -> i32 {
+    let handle = unsafe { get_element_handle(state, 1) };
+    let label = DOM_BRIDGE.with(|bridge| {
+        let bridge = bridge.borrow();
+        match bridge.get_element(handle) {
+            Ok(element) => format!("<{} #{}>", element.tag_name().to_lowercase(), handle),
+            Err(_) => format!("<dom-element #{}>", handle),
+        }
+    });
+    push_lua_string(state, &label);
+    1
+}
+
+unsafe fn register_dom_api(state: *mut lua_State) {
+    let metatable_name = cstr(LUA_ELEMENT_METATABLE);
+
+    luaL_newmetatable(state, metatable_name.as_ptr());
+    lua_createtable(state, 0, 8);
+
+    lua_pushcfunction(state, Some(element_append));
+    lua_setfield(state, -2, cstr("append").as_ptr());
+    lua_pushcfunction(state, Some(element_remove));
+    lua_setfield(state, -2, cstr("remove").as_ptr());
+    lua_pushcfunction(state, Some(element_set_text));
+    lua_setfield(state, -2, cstr("set_text").as_ptr());
+    lua_pushcfunction(state, Some(element_set_attr));
+    lua_setfield(state, -2, cstr("set_attr").as_ptr());
+    lua_pushcfunction(state, Some(element_get_attr));
+    lua_setfield(state, -2, cstr("get_attr").as_ptr());
+    lua_pushcfunction(state, Some(element_add_class));
+    lua_setfield(state, -2, cstr("add_class").as_ptr());
+    lua_pushcfunction(state, Some(element_remove_class));
+    lua_setfield(state, -2, cstr("remove_class").as_ptr());
+    lua_pushcfunction(state, Some(element_set_style));
+    lua_setfield(state, -2, cstr("set_style").as_ptr());
+
+    lua_setfield(state, -2, cstr("__index").as_ptr());
+    lua_pushcfunction(state, Some(element_tostring));
+    lua_setfield(state, -2, cstr("__tostring").as_ptr());
+    lua_pop(state, 1);
+
+    lua_createtable(state, 0, 4);
+    lua_pushcfunction(state, Some(dom_root));
+    lua_setfield(state, -2, cstr("root").as_ptr());
+    lua_pushcfunction(state, Some(dom_create));
+    lua_setfield(state, -2, cstr("create").as_ptr());
+    lua_pushcfunction(state, Some(dom_select));
+    lua_setfield(state, -2, cstr("select").as_ptr());
+    lua_pushcfunction(state, Some(dom_clear));
+    lua_setfield(state, -2, cstr("clear").as_ptr());
+    lua_setglobal(state, cstr("dom").as_ptr());
+}
+
 struct LuaRepl {
     state: *mut lua_State,
 }
 
-// WASM 是单线程，允许跨 Yew 渲染持有指针。
 unsafe impl Send for LuaRepl {}
 
 impl LuaRepl {
@@ -87,12 +433,12 @@ impl LuaRepl {
         }
         unsafe {
             luaL_checkversion_(state, LUA_VERSION_NUM, LUAL_NUMSIZES);
-            // 开启所有标准库（WASM 下 io/os/package 会因平台限制而受限，但编译侧已处理）
             luaL_openselectedlibs(state, !0, 0);
 
-            // 覆盖 print，将输出重定向到 PRINT_BUF
             lua_pushcfunction(state, Some(lua_print_capture));
             lua_setglobal(state, cstr("print").as_ptr());
+
+            register_dom_api(state);
         }
         Some(Self { state })
     }
@@ -108,7 +454,6 @@ impl LuaRepl {
         }
     }
 
-    // ── 参照 lua.rs 的 add_return ──
     fn add_return(&self, line: &str) -> i32 {
         let source = format!("return {line};");
         let name = cstr("=stdin");
@@ -120,13 +465,11 @@ impl LuaRepl {
             ptr::null(),
         );
         if status != LUA_OK as i32 {
-            // 加 return 失败，弹出错误，返回非 OK 让外层尝试直接执行
             unsafe { lua_pop(self.state, 1) };
         }
         status
     }
 
-    // ── 参照 lua.rs 的 l_print ──
     fn l_print(&self) -> String {
         let n = unsafe { lua_gettop(self.state) };
         if n <= 0 {
@@ -150,18 +493,13 @@ impl LuaRepl {
         drain_print_buf()
     }
 
-    /// 执行一行用户输入，返回（成功的输出 | 错误信息）。
-    /// 参照 lua.rs 的 load_line → do_call → l_print / report 流程。
     fn exec_line(&self, line: &str) -> Result<String, String> {
         unsafe { lua_settop(self.state, 0) };
 
-        // 先尝试 "return <line>" 形式（表达式求值）
         let status = self.add_return(line);
         let status = if status == LUA_OK as i32 {
-            // add_return 成功，直接调用
             self.do_call(0, LUA_MULTRET)
         } else {
-            // 不是合法表达式，改为直接编译执行
             let name = cstr("=stdin");
             let load_status = luaL_loadbufferx(
                 self.state,
@@ -171,7 +509,6 @@ impl LuaRepl {
                 ptr::null(),
             );
             if load_status != LUA_OK as i32 {
-                // 语法错误：如果是 incomplete（多行续行），暂不处理，直接报错
                 let err = unsafe { lua_to_string(self.state, -1) }
                     .unwrap_or_else(|| "syntax error".to_string());
                 unsafe { lua_pop(self.state, 1) };
@@ -181,13 +518,11 @@ impl LuaRepl {
         };
 
         if status == LUA_OK as i32 {
-            let output = self.l_print();
-            Ok(output)
+            Ok(self.l_print())
         } else {
             let err =
                 unsafe { lua_to_string(self.state, -1) }.unwrap_or_else(|| "(error)".to_string());
             unsafe { lua_pop(self.state, 1) };
-            // 同时取走 print buf（执行过程中可能有输出）
             let print_output = drain_print_buf();
             if print_output.is_empty() {
                 Err(err)
@@ -204,7 +539,6 @@ impl Drop for LuaRepl {
     }
 }
 
-// ── 全局 msghandler（参照 lua.rs） ───────────────────────────────────────────
 unsafe fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
@@ -220,7 +554,6 @@ unsafe fn msghandler(state: *mut lua_State) -> i32 {
     1
 }
 
-// ── 辅助函数 ─────────────────────────────────────────────────────────────────
 fn cstr(s: &str) -> CString {
     CString::new(s).expect("interior NUL")
 }
@@ -238,9 +571,6 @@ unsafe fn lua_to_string(state: *mut lua_State, index: i32) -> Option<String> {
     }
 }
 
-// ── Yew 组件 ─────────────────────────────────────────────────────────────────
-
-/// 历史记录条目
 #[derive(Clone, PartialEq)]
 enum HistoryEntry {
     Input(String),
@@ -249,16 +579,107 @@ enum HistoryEntry {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+enum DemoCategory {
+    Dom,
+    Core,
+}
+
+impl DemoCategory {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Dom => "DOM Demo",
+            Self::Core => "Core Lua",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 struct Demo {
     title: &'static str,
     description: &'static str,
+    category: DemoCategory,
     code: &'static str,
 }
 
 const DEMOS: &[Demo] = &[
     Demo {
+        title: "Create Card",
+        description: "创建一个卡片节点树并挂到 preview root。",
+        category: DemoCategory::Dom,
+        code: r##"local root = dom.root()
+local card = dom.create("article")
+card:add_class("demo-card")
+card:set_style("padding", "18px")
+card:set_style("border-radius", "16px")
+card:set_style("background", "linear-gradient(180deg, #172554 0%, #1e293b 100%)")
+card:set_style("color", "#eff6ff")
+card:set_style("border", "1px solid rgba(125, 211, 252, 0.24)")
+
+local title = dom.create("h2")
+title:set_text("Lua created this card")
+title:set_style("margin", "0 0 8px")
+
+local body = dom.create("p")
+body:set_text("The preview stage is a DOM sandbox controlled from Lua.")
+body:set_style("margin", "0")
+body:set_style("line-height", "1.6")
+
+card:append(title)
+card:append(body)
+root:append(card)"##,
+    },
+    Demo {
+        title: "Render List",
+        description: "用 Lua table 渲染列表。",
+        category: DemoCategory::Dom,
+        code: r##"local root = dom.root()
+local items = {"Rust bridge", "Lua runtime", "DOM sandbox", "Preview reset"}
+
+local title = dom.create("h3")
+title:set_text("Implementation notes")
+title:set_style("margin", "0 0 12px")
+root:append(title)
+
+local list = dom.create("ul")
+list:set_style("margin", "0")
+list:set_style("padding-left", "20px")
+list:set_style("color", "#cbd5e1")
+
+for _, item in ipairs(items) do
+    local li = dom.create("li")
+    li:set_text(item)
+    li:set_style("margin-bottom", "8px")
+    list:append(li)
+end
+
+root:append(list)"##,
+    },
+    Demo {
+        title: "Query And Update",
+        description: "创建后通过 selector 查找并更新元素。",
+        category: DemoCategory::Dom,
+        code: r##"local root = dom.root()
+
+local badge = dom.create("div")
+badge:set_attr("data-role", "badge")
+badge:set_text("draft")
+badge:set_style("display", "inline-block")
+badge:set_style("padding", "8px 12px")
+badge:set_style("border-radius", "999px")
+badge:set_style("background", "#334155")
+badge:set_style("color", "#e2e8f0")
+root:append(badge)
+
+local found = dom.select("[data-role='badge']")
+if found then
+    found:set_text("published")
+    found:set_style("background", "#0f766e")
+end"##,
+    },
+    Demo {
         title: "Hello, Lua",
         description: "基础输出、变量和字符串拼接。",
+        category: DemoCategory::Core,
         code: r#"local name = "Lua"
 local version = _VERSION or "unknown"
 
@@ -266,43 +687,9 @@ print("hello, " .. name)
 print("version:", version)"#,
     },
     Demo {
-        title: "Tables",
-        description: "演示数组、字典和遍历。",
-        code: r#"local user = {
-    name = "Ada",
-    skills = {"Lua", "Rust", "Wasm"},
-    visits = 3,
-}
-
-for index, skill in ipairs(user.skills) do
-    print(index, skill)
-end
-
-for key, value in pairs(user) do
-    if type(value) ~= "table" then
-        print(key, value)
-    end
-end"#,
-    },
-    Demo {
-        title: "Functions",
-        description: "闭包与高阶函数。",
-        code: r#"local function make_counter(step)
-    local value = 0
-    return function()
-        value = value + step
-        return value
-    end
-end
-
-local counter = make_counter(2)
-print(counter())
-print(counter())
-print(counter())"#,
-    },
-    Demo {
         title: "Metatable",
         description: "通过 `__add` 自定义对象相加。",
+        category: DemoCategory::Core,
         code: r#"local Vec = {}
 Vec.__index = Vec
 
@@ -322,24 +709,6 @@ local left = Vec.new(1, 2)
 local right = Vec.new(3, 4)
 print(left + right)"#,
     },
-    Demo {
-        title: "Coroutines",
-        description: "演示协程的挂起与恢复。",
-        code: r#"local co = coroutine.create(function()
-    for i = 1, 3 do
-        coroutine.yield("pause-" .. i)
-    end
-    return "done"
-end)
-
-while true do
-    local ok, value = coroutine.resume(co)
-    print(ok, value)
-    if coroutine.status(co) == "dead" then
-        break
-    end
-end"#,
-    },
 ];
 
 fn format_history_input(label: &str, code: &str) -> String {
@@ -354,13 +723,22 @@ fn format_history_input(label: &str, code: &str) -> String {
     rendered.join("\n")
 }
 
-fn run_snippet(repl: &LuaRepl, history: &UseStateHandle<Vec<HistoryEntry>>, label: &str, code: &str) {
+fn run_snippet(
+    repl: &LuaRepl,
+    history: &UseStateHandle<Vec<HistoryEntry>>,
+    label: &str,
+    code: &str,
+) {
     let mut new_history = (**history).clone();
     new_history.push(HistoryEntry::Input(format_history_input(label, code)));
 
-    match repl.exec_line(code) {
-        Ok(output) if !output.is_empty() => new_history.push(HistoryEntry::Output(output)),
-        Ok(_) => {}
+    let result = DOM_BRIDGE.with(|bridge| bridge.borrow_mut().reset_preview());
+    match result {
+        Ok(()) => match repl.exec_line(code) {
+            Ok(output) if !output.is_empty() => new_history.push(HistoryEntry::Output(output)),
+            Ok(_) => {}
+            Err(err) => new_history.push(HistoryEntry::Error(err)),
+        },
         Err(err) => new_history.push(HistoryEntry::Error(err)),
     }
 
@@ -371,26 +749,28 @@ fn run_snippet(repl: &LuaRepl, history: &UseStateHandle<Vec<HistoryEntry>>, labe
 fn app() -> Html {
     let _ = console_log::init_with_level(Level::Debug);
 
-    // 持久化 Lua state
     let repl = use_mut_ref(|| LuaRepl::new().expect("failed to create Lua state"));
-
-    // REPL 历史（输入 + 输出交错）
     let history = use_state(Vec::<HistoryEntry>::new);
-
-    // 当前输入行
     let input = use_state(|| DEMOS[0].code.to_string());
-
     let selected_demo = use_state(|| Some(0usize));
     let demo_sidebar_open = use_state(|| false);
-
-    // 编辑器 ref，用于执行后 focus
     let editor_ref = use_node_ref();
+    let preview_ref = use_node_ref();
+
+    {
+        let preview_ref = preview_ref.clone();
+        use_effect_with(preview_ref.clone(), move |_| {
+            if let Some(element) = preview_ref.cast::<HtmlElement>() {
+                DOM_BRIDGE.with(|bridge| bridge.borrow_mut().set_root(element.into()));
+            }
+            || ()
+        });
+    }
 
     let on_input_change = {
         let input = input.clone();
         Callback::from(move |e: InputEvent| {
-            use web_sys::HtmlTextAreaElement;
-            let target = e.target_unchecked_into::<HtmlTextAreaElement>();
+            let target = e.target_unchecked_into::<web_sys::HtmlTextAreaElement>();
             input.set(target.value());
         })
     };
@@ -420,6 +800,12 @@ fn app() -> Html {
         Callback::from(move |_| history.set(Vec::new()))
     };
 
+    let on_reset_preview = Callback::from(move |_| {
+        DOM_BRIDGE.with(|bridge| {
+            let _ = bridge.borrow_mut().reset_preview();
+        });
+    });
+
     let open_demo_sidebar = {
         let demo_sidebar_open = demo_sidebar_open.clone();
         Callback::from(move |_| demo_sidebar_open.set(true))
@@ -443,9 +829,9 @@ fn app() -> Html {
             <style>
                 {r#"
                     .playground-shell {
-                        max-width: 1240px;
+                        max-width: 1320px;
                         margin: 0 auto;
-                        padding: 32px 20px 40px;
+                        padding: 28px 20px 40px;
                     }
 
                     .playground-grid {
@@ -460,48 +846,60 @@ fn app() -> Html {
                     }
 
                     .demo-column {
-                        flex: 1 1 320px;
+                        flex: 0 0 340px;
                         max-width: 340px;
                         min-width: 0;
                     }
 
                     .workspace-column {
-                        flex: 999 1 560px;
+                        flex: 1 1 640px;
                         min-width: 0;
                     }
 
-                    .demo-card,
+                    .workspace-stack {
+                        display: grid;
+                        gap: 18px;
+                    }
+
                     .panel,
-                    .workspace-column,
-                    .playground-stack {
+                    .demo-card,
+                    .workspace-column {
                         min-width: 0;
                     }
 
                     .demo-actions,
-                    .editor-actions {
+                    .editor-actions,
+                    .preview-actions {
                         display: flex;
-                        gap: 8px;
-                    }
-
-                    .editor-actions {
                         gap: 10px;
-                    }
-
-                    .demo-actions > button,
-                    .editor-actions > button {
-                        min-width: 0;
-                    }
-
-                    .console-panel {
-                        min-height: 360px;
-                        max-height: 620px;
                     }
 
                     .demo-overlay {
                         display: none;
                     }
 
-                    @media (max-width: 900px) {
+                    .preview-stage {
+                        min-height: 240px;
+                        border-radius: 16px;
+                        border: 1px dashed rgba(125, 211, 252, 0.26);
+                        background:
+                            linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.96) 100%);
+                        padding: 18px;
+                        box-sizing: border-box;
+                        overflow: auto;
+                    }
+
+                    .preview-stage > * {
+                        box-sizing: border-box;
+                        max-width: 100%;
+                    }
+
+                    .console-panel {
+                        min-height: 220px;
+                        max-height: 360px;
+                    }
+
+                    @media (max-width: 960px) {
                         .playground-shell {
                             padding: 24px 16px 28px;
                         }
@@ -515,7 +913,7 @@ fn app() -> Html {
                             display: inline-flex;
                             align-items: center;
                             gap: 8px;
-                            margin: 14px 0 0;
+                            margin-top: 14px;
                             padding: 10px 14px;
                             border: 1px solid rgba(125, 211, 252, 0.22);
                             border-radius: 12px;
@@ -563,7 +961,7 @@ fn app() -> Html {
                         }
                     }
 
-                    @media (max-width: 640px) {
+                    @media (max-width: 680px) {
                         .playground-shell {
                             padding: 18px 12px 20px;
                         }
@@ -573,8 +971,7 @@ fn app() -> Html {
                             line-height: 1.2;
                         }
 
-                        .playground-grid,
-                        .playground-stack {
+                        .workspace-stack {
                             gap: 14px !important;
                         }
 
@@ -589,12 +986,13 @@ fn app() -> Html {
                         }
 
                         .demo-actions,
-                        .editor-actions {
+                        .editor-actions,
+                        .preview-actions {
                             flex-direction: column;
                         }
 
                         .console-panel {
-                            min-height: 260px;
+                            min-height: 220px;
                             max-height: none;
                         }
 
@@ -608,13 +1006,12 @@ fn app() -> Html {
                     }
                 "#}
             </style>
+
             <div
-                class={classes!(
-                    "demo-overlay",
-                    (*demo_sidebar_open).then_some("is-open")
-                )}
+                class={classes!("demo-overlay", (*demo_sidebar_open).then_some("is-open"))}
                 onclick={close_demo_sidebar.clone()}
             />
+
             <div class="playground-shell">
                 <div style="margin-bottom: 20px;">
                     <div style="
@@ -626,12 +1023,12 @@ fn app() -> Html {
                         font-size: 12px;
                         letter-spacing: 0.08em;
                         text-transform: uppercase;
-                    ">{ "Lua Playground" }</div>
+                    ">{ "Lua DOM Playground" }</div>
                     <h1 class="playground-title" style="font-size: 34px; margin: 14px 0 8px; color: #f8fafc;">
-                        { "Demo 可直接点击运行" }
+                        { "Lua controls the preview stage" }
                     </h1>
-                    <p style="max-width: 720px; margin: 0; color: #9fb0cc; line-height: 1.7;">
-                        { "左侧选择或直接运行预置 Lua demo，右侧可继续编辑代码并重复执行；下方保留每次运行结果，方便在浏览器里快速验证行为。" }
+                    <p style="max-width: 760px; margin: 0; color: #9fb0cc; line-height: 1.7;">
+                        { "Run Lua on the left, render DOM in the preview sandbox, and keep console output below it. The DOM API is exposed as a small `dom` module instead of raw browser globals." }
                     </p>
                     <button type="button" class="mobile-demo-toggle" onclick={open_demo_sidebar}>
                         { "Browse Lua Demos" }
@@ -640,37 +1037,34 @@ fn app() -> Html {
 
                 <div class="playground-grid">
                     <section
-                        class={classes!(
-                            "demo-column",
-                            "panel",
-                            (*demo_sidebar_open).then_some("is-open")
-                        )}
+                        class={classes!("demo-column", "panel", (*demo_sidebar_open).then_some("is-open"))}
                         style="
-                        background: rgba(15, 23, 42, 0.72);
-                        border: 1px solid rgba(148, 163, 184, 0.18);
-                        border-radius: 18px;
-                        padding: 18px;
-                        backdrop-filter: blur(14px);
-                    ">
+                            background: rgba(15, 23, 42, 0.72);
+                            border: 1px solid rgba(148, 163, 184, 0.18);
+                            border-radius: 18px;
+                            padding: 18px;
+                            backdrop-filter: blur(14px);
+                        "
+                    >
                         <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 14px;">
-                            <h2 style="margin: 0; font-size: 18px; color: #f8fafc;">{ "Lua Demos" }</h2>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-size: 12px; color: #7dd3fc;">{ format!("{} examples", DEMOS.len()) }</span>
-                                <button
-                                    type="button"
-                                    onclick={close_demo_sidebar.clone()}
-                                    style="
-                                        background: rgba(30, 41, 59, 0.9);
-                                        border: 1px solid rgba(148, 163, 184, 0.18);
-                                        border-radius: 999px;
-                                        color: #cbd5e1;
-                                        font-family: inherit;
-                                        font-size: 12px;
-                                        padding: 6px 10px;
-                                        cursor: pointer;
-                                    "
-                                >{ "Close" }</button>
+                            <div>
+                                <h2 style="margin: 0; font-size: 18px; color: #f8fafc;">{ "Lua Demos" }</h2>
+                                <p style="margin: 4px 0 0; color: #94a3b8; font-size: 12px;">{ "DOM demos render into the preview sandbox." }</p>
                             </div>
+                            <button
+                                type="button"
+                                onclick={close_demo_sidebar.clone()}
+                                style="
+                                    background: rgba(30, 41, 59, 0.9);
+                                    border: 1px solid rgba(148, 163, 184, 0.18);
+                                    border-radius: 999px;
+                                    color: #cbd5e1;
+                                    font-family: inherit;
+                                    font-size: 12px;
+                                    padding: 6px 10px;
+                                    cursor: pointer;
+                                "
+                            >{ "Close" }</button>
                         </div>
 
                         <div style="display: grid; gap: 12px;">
@@ -681,6 +1075,7 @@ fn app() -> Html {
                                 } else {
                                     "border: 1px solid rgba(148, 163, 184, 0.14);"
                                 };
+
                                 let on_load = {
                                     let input = input.clone();
                                     let selected_demo = selected_demo.clone();
@@ -692,6 +1087,7 @@ fn app() -> Html {
                                         demo_sidebar_open.set(false);
                                     })
                                 };
+
                                 let on_run_demo = {
                                     let history = history.clone();
                                     let repl = repl.clone();
@@ -714,6 +1110,9 @@ fn app() -> Html {
                                     )}>
                                         <div style="display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 8px;">
                                             <div>
+                                                <div style="font-size: 11px; color: #7dd3fc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
+                                                    { demo.category.label() }
+                                                </div>
                                                 <h3 style="margin: 0 0 6px; font-size: 16px; color: #f8fafc;">{ demo.title }</h3>
                                                 <p style="margin: 0; color: #94a3b8; font-size: 13px; line-height: 1.6;">{ demo.description }</p>
                                             </div>
@@ -735,6 +1134,8 @@ fn app() -> Html {
                                             line-height: 1.5;
                                             white-space: pre-wrap;
                                             word-break: break-word;
+                                            max-height: 180px;
+                                            overflow: auto;
                                         ">{ demo.code }</pre>
                                         <div class="demo-actions">
                                             <button
@@ -774,10 +1175,7 @@ fn app() -> Html {
                         </div>
                     </section>
 
-                    <section class="workspace-column playground-stack" style="
-                        display: grid;
-                        gap: 18px;
-                    ">
+                    <section class="workspace-column workspace-stack">
                         <div class="panel" style="
                             background: rgba(15, 23, 42, 0.72);
                             border: 1px solid rgba(148, 163, 184, 0.18);
@@ -788,9 +1186,9 @@ fn app() -> Html {
                             <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 12px;">
                                 <div>
                                     <h2 style="margin: 0 0 4px; font-size: 18px; color: #f8fafc;">{ "Editor" }</h2>
-                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "预置 demo 可以直接运行，也可以先载入到这里再修改。" }</p>
+                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Use `dom.root()`, `dom.create()`, and element methods to build the preview." }</p>
                                 </div>
-                                <span style="font-size: 12px; color: #fbbf24;">{ "multiline ready" }</span>
+                                <span style="font-size: 12px; color: #fbbf24;">{ "Lua + DOM sandbox" }</span>
                             </div>
 
                             <form onsubmit={on_submit}>
@@ -829,7 +1227,7 @@ fn app() -> Html {
                                             padding: 10px 18px;
                                             cursor: pointer;
                                         "
-                                    >{ "Run Editor Code" }</button>
+                                    >{ "Run Lua" }</button>
                                     <button
                                         type="button"
                                         onclick={on_clear}
@@ -843,9 +1241,49 @@ fn app() -> Html {
                                             padding: 10px 16px;
                                             cursor: pointer;
                                         "
-                                    >{ "Clear Output" }</button>
+                                    >{ "Clear Console" }</button>
                                 </div>
                             </form>
+                        </div>
+
+                        <div class="panel" style="
+                            background: rgba(15, 23, 42, 0.72);
+                            border: 1px solid rgba(148, 163, 184, 0.18);
+                            border-radius: 18px;
+                            padding: 18px;
+                            backdrop-filter: blur(14px);
+                        ">
+                            <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 12px;">
+                                <div>
+                                    <h2 style="margin: 0 0 4px; font-size: 18px; color: #f8fafc;">{ "Preview Stage" }</h2>
+                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Lua can only query and mutate this sandbox root." }</p>
+                                </div>
+                                <div class="preview-actions">
+                                    <button
+                                        type="button"
+                                        onclick={on_reset_preview}
+                                        style="
+                                            background: rgba(30, 41, 59, 0.9);
+                                            border: 1px solid rgba(148, 163, 184, 0.18);
+                                            border-radius: 10px;
+                                            color: #e2e8f0;
+                                            font-family: inherit;
+                                            font-size: 13px;
+                                            padding: 8px 12px;
+                                            cursor: pointer;
+                                        "
+                                    >{ "Reset Preview" }</button>
+                                </div>
+                            </div>
+
+                            <div
+                                ref={preview_ref}
+                                class="preview-stage"
+                            >
+                                <div style="color: #64748b; font-size: 14px; line-height: 1.7;">
+                                    { "Run a DOM demo or your own Lua script. This area is the only DOM sandbox available to Lua." }
+                                </div>
+                            </div>
                         </div>
 
                         <div class="console-panel panel" style="
@@ -879,7 +1317,7 @@ fn app() -> Html {
                                 if history.is_empty() {
                                     html! {
                                         <div style="color: #64748b; padding: 12px 0;">
-                                            { "运行任意 demo 或编辑器代码后，这里会显示输出和错误信息。" }
+                                            { "Console output and Lua errors appear here." }
                                         </div>
                                     }
                                 } else {
@@ -895,15 +1333,6 @@ fn app() -> Html {
 }
 
 fn main() {
-    // 将 lua_rs 导出的 WASM 函数挂到 globalThis.__lua_pfunc_dispatch，
-    // 供 luaD_rawrunprotected 的 JS try/catch 包装器调用。
-    //
-    // 关键：必须使用纯 JS Function（不经过 wasm-bindgen Closure/makeClosure），
-    // 因为 makeClosure 有 try/finally 块，finally 中的 WASM 调用在 JS 异常传播时
-    // 可能触发堆操作，导致内存损坏。
-    //
-    // 这里通过 wasm-bindgen 生成的 JS 胶水层找到导出函数名，
-    // 然后用 Function.prototype.bind 创建一个无包装的直接调用。
     #[cfg(target_arch = "wasm32")]
     {
         use js_sys::Reflect;
@@ -912,24 +1341,6 @@ fn main() {
 
         if let Some(win) = window() {
             let global: JsValue = win.into();
-            // 构造一个纯 JS 函数，直接调用 wasm 模块的导出函数。
-            // wasm-bindgen 将 lua_pfunc_dispatch 导出为 lua_rs_lua_pfunc_dispatch 或类似名称，
-            // 但我们无法在编译时知道确切名称。
-            // 替代方案：用 JS 代码查找 wasm 导出并调用。
-            // 实际上，wasm-bindgen 生成的 JS glue 会把导出函数挂在模块的 exports 对象上，
-            // 可以通过 wasm.__wbg_xxx 访问，但名称是 mangled 的。
-            //
-            // 最简单的方案：直接用 Closure 但立即 forget，接受 finally 块的风险，
-            // 并在 Rust 侧的 Err 分支正确处理。
-            // 这是当前已有的方案，配合 Err 分支的 JsValue 解析。
-            //
-            // 更好的方案：用 js_sys::eval 或 Function::new 构造一个调用 wasm 导出的函数。
-            // trunk 构建后，wasm-bindgen 导出的函数通过 `wasm` 变量可访问（在 webapp.js 中）。
-            // 但从 Rust 侧无法直接访问 `wasm` 变量。
-            //
-            // 当前方案：保持 Closure 方式，依赖 Err 分支解析。
-            // Closure::forget 后 finally 块仍会执行，但由于 Closure 已 forget，
-            // _wbg_cb_unref 中的 cnt 不会归零，不会调用 __wbindgen_destroy_closure。
             let dispatch_fn =
                 wasm_bindgen::closure::Closure::wrap(Box::new(|f: f64, l: f64, ud: f64| {
                     unsafe { lua_rs::lua_pfunc_dispatch(f, l, ud) };

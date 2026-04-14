@@ -20,6 +20,10 @@ web-sys = { version = "0.3", features = [
     "Document",
     "HtmlElement",
     "HtmlTextAreaElement",
+    "Element",
+    "Node",
+    "DomTokenList",
+    "CssStyleDeclaration",
     "console",
 ] }
 js-sys = "0.3"
