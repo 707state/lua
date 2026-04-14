@@ -1244,7 +1244,7 @@ pub(crate) union StkIdRel {
 }
 
 #[repr(C)]
-pub(crate) struct GCObject {
+pub struct GCObject {
     pub(crate) next: *mut GCObject,
     pub(crate) tt: u8,
     pub(crate) marked: u8,
