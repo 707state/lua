@@ -19,6 +19,7 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Document",
     "HtmlElement",
+    "HtmlCanvasElement",
     "HtmlTextAreaElement",
     "Element",
     "Node",
@@ -32,3 +33,6 @@ console_log = "1.0"
 # 引用同 workspace 的 Lua 核心库
 lua = { path = ".." }
 console_error_panic_hook = "0.1"
+wgpu = { version = "29.0.1", features = ["webgl", "serde"] }
+bytemuck = { version = "1", features = ["derive"] }
+wasm-bindgen-futures = "0.4"

@@ -1,20 +1,21 @@
-//! 基于 Yew + lua_rs 的 Web REPL / DOM Playground
+//! 基于 Yew + lua_rs 的 Web REPL / WebGPU Playground
 //!
 //! 构建：trunk serve / trunk build --release
 
 use log::Level;
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
+use std::mem;
 use std::ptr;
 
+use bytemuck::{Pod, Zeroable};
 use lua_rs::api::{
-    lua_createtable, lua_getglobal, lua_gettop, lua_newuserdatauv, lua_pushlstring,
-    lua_pushnil, lua_setfield, lua_setglobal, lua_settop, lua_tolstring, lua_type,
+    lua_createtable, lua_getglobal, lua_gettop, lua_pushnumber, lua_setfield, lua_setglobal,
+    lua_settop, lua_tolstring, lua_type,
 };
 use lua_rs::aux_rs::{
-    luaL_callmeta, luaL_checklstring, luaL_checkstack, luaL_checkudata, luaL_checkversion_,
-    luaL_loadbufferx, luaL_newmetatable, luaL_newstate, luaL_setmetatable, luaL_tolstring,
-    luaL_traceback,
+    luaL_callmeta, luaL_checknumber, luaL_checkstack, luaL_checkversion_, luaL_loadbufferx,
+    luaL_newstate, luaL_optnumber, luaL_tolstring, luaL_traceback,
 };
 use lua_rs::init::luaL_openselectedlibs;
 use lua_rs::lua_module::lua_pop;
@@ -23,161 +24,59 @@ use lua_rs::luaffi::{
     lua_pushcfunction, lua_remove,
 };
 use lua_rs::state::lua_close;
-use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Element, HtmlElement, Node};
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::spawn_local;
+use web_sys::{HtmlCanvasElement, HtmlElement};
+use wgpu::util::DeviceExt;
 use yew::prelude::*;
 
 const LUA_TSTRING: i32 = 4;
 const LUA_MINSTACK: i32 = 20;
 const NON_STRING_ERROR: &[u8] = b"(error object is not a string value)\0";
-const LUA_ELEMENT_METATABLE: &str = "webapp.dom.element";
+const SCENE_WIDTH: f32 = 960.0;
+const SCENE_HEIGHT: f32 = 540.0;
 
 thread_local! {
     static PRINT_BUF: RefCell<Vec<String>> = RefCell::new(Vec::new());
-    static DOM_BRIDGE: RefCell<DomBridge> = RefCell::new(DomBridge::default());
+    static GPU_SCENE: RefCell<GpuScene> = RefCell::new(GpuScene::default());
 }
 
-#[derive(Default)]
-struct DomBridge {
-    root: Option<Element>,
-    nodes: Vec<Option<Node>>,
+#[derive(Clone, Copy, Debug)]
+struct RectPrimitive {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    color: [f32; 4],
 }
 
-impl DomBridge {
-    fn set_root(&mut self, root: Element) {
-        self.root = Some(root.clone());
-        self.nodes.clear();
-        self.nodes.push(Some(root.into()));
-    }
+#[derive(Clone, Debug)]
+struct GpuScene {
+    clear_color: [f32; 4],
+    rects: Vec<RectPrimitive>,
+}
 
-    fn reset_preview(&mut self) -> Result<(), String> {
-        let root = self
-            .root
-            .clone()
-            .ok_or_else(|| "preview root is not ready".to_string())?;
-        root.set_inner_html("");
-        self.nodes.clear();
-        self.nodes.push(Some(root.into()));
-        Ok(())
-    }
-
-    fn create_element(&mut self, tag_name: &str) -> Result<usize, String> {
-        let root = self
-            .root
-            .clone()
-            .ok_or_else(|| "preview root is not ready".to_string())?;
-        let document = root
-            .owner_document()
-            .ok_or_else(|| "document is not available".to_string())?;
-        let element = document
-            .create_element(tag_name)
-            .map_err(js_error_string)?;
-        Ok(self.register_node(element.into()))
-    }
-
-    fn select(&mut self, selector: &str) -> Result<Option<usize>, String> {
-        let root = self
-            .root
-            .clone()
-            .ok_or_else(|| "preview root is not ready".to_string())?;
-        let found = root.query_selector(selector).map_err(js_error_string)?;
-        Ok(found.map(|element| self.register_node(element.into())))
-    }
-
-    fn clear(&mut self) -> Result<(), String> {
-        self.reset_preview()
-    }
-
-    fn root_handle(&self) -> Result<usize, String> {
-        if self.root.is_none() || self.nodes.is_empty() {
-            return Err("preview root is not ready".to_string());
+impl Default for GpuScene {
+    fn default() -> Self {
+        Self {
+            clear_color: [0.043, 0.071, 0.133, 1.0],
+            rects: Vec::new(),
         }
-        Ok(0)
-    }
-
-    fn register_node(&mut self, node: Node) -> usize {
-        self.nodes.push(Some(node));
-        self.nodes.len() - 1
-    }
-
-    fn get_node(&self, handle: usize) -> Result<Node, String> {
-        self.nodes
-            .get(handle)
-            .and_then(|node| node.clone())
-            .ok_or_else(|| format!("invalid DOM handle: {handle}"))
-    }
-
-    fn get_element(&self, handle: usize) -> Result<Element, String> {
-        self.get_node(handle)?
-            .dyn_into::<Element>()
-            .map_err(|_| "DOM handle is not an element".to_string())
-    }
-
-    fn append_child(&mut self, parent: usize, child: usize) -> Result<(), String> {
-        let parent_node = self.get_node(parent)?;
-        let child_node = self.get_node(child)?;
-        parent_node
-            .append_child(&child_node)
-            .map_err(js_error_string)?;
-        Ok(())
-    }
-
-    fn remove_node(&mut self, handle: usize) -> Result<(), String> {
-        if handle == 0 {
-            return Err("preview root cannot be removed".to_string());
-        }
-        let node = self.get_node(handle)?;
-        if let Some(parent) = node.parent_node() {
-            parent.remove_child(&node).map_err(js_error_string)?;
-        }
-        if let Some(slot) = self.nodes.get_mut(handle) {
-            *slot = None;
-        }
-        Ok(())
-    }
-
-    fn set_text(&self, handle: usize, text: &str) -> Result<(), String> {
-        let node = self.get_node(handle)?;
-        node.set_text_content(Some(text));
-        Ok(())
-    }
-
-    fn set_attr(&self, handle: usize, name: &str, value: &str) -> Result<(), String> {
-        let element = self.get_element(handle)?;
-        element.set_attribute(name, value).map_err(js_error_string)
-    }
-
-    fn get_attr(&self, handle: usize, name: &str) -> Result<Option<String>, String> {
-        let element = self.get_element(handle)?;
-        Ok(element.get_attribute(name))
-    }
-
-    fn add_class(&self, handle: usize, name: &str) -> Result<(), String> {
-        let element = self.get_element(handle)?;
-        element.class_list().add_1(name).map_err(js_error_string)
-    }
-
-    fn remove_class(&self, handle: usize, name: &str) -> Result<(), String> {
-        let element = self.get_element(handle)?;
-        element.class_list().remove_1(name).map_err(js_error_string)
-    }
-
-    fn set_style(&self, handle: usize, name: &str, value: &str) -> Result<(), String> {
-        let element = self.get_element(handle)?;
-        let html_element = element
-            .dyn_into::<HtmlElement>()
-            .map_err(|_| "DOM handle does not support inline style".to_string())?;
-        html_element
-            .style()
-            .set_property(name, value)
-            .map_err(js_error_string)
     }
 }
 
-fn js_error_string(error: JsValue) -> String {
-    error
-        .as_string()
-        .unwrap_or_else(|| format!("DOM error: {error:?}"))
+impl GpuScene {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn reset_scene() {
+    GPU_SCENE.with(|scene| scene.borrow_mut().reset());
+}
+
+fn snapshot_scene() -> GpuScene {
+    GPU_SCENE.with(|scene| scene.borrow().clone())
 }
 
 fn capture_print_line(line: String) {
@@ -196,7 +95,7 @@ unsafe fn lua_print_capture(state: *mut lua_State) -> i32 {
     let mut parts = Vec::with_capacity(n as usize);
     for i in 1..=n {
         let mut len = 0usize;
-        let ptr = unsafe { luaL_tolstring(state, i, &mut len) };
+        let ptr = luaL_tolstring(state, i, &mut len);
         let s = if ptr.is_null() {
             String::new()
         } else {
@@ -212,211 +111,67 @@ unsafe fn lua_print_capture(state: *mut lua_State) -> i32 {
     0
 }
 
-#[repr(C)]
-struct LuaElementHandle {
-    handle: usize,
+fn clamp_color(v: f32) -> f32 {
+    v.clamp(0.0, 1.0)
 }
 
-unsafe fn lua_arg_string(state: *mut lua_State, arg: i32) -> String {
-    let mut len = 0usize;
-    let ptr = luaL_checklstring(state, arg, &mut len);
-    String::from_utf8_lossy(std::slice::from_raw_parts(ptr.cast::<u8>(), len)).into_owned()
-}
+unsafe fn gfx_clear(state: *mut lua_State) -> i32 {
+    let r = clamp_color(luaL_checknumber(state, 1) as f32);
+    let g = clamp_color(luaL_checknumber(state, 2) as f32);
+    let b = clamp_color(luaL_checknumber(state, 3) as f32);
+    let a = clamp_color(luaL_optnumber(state, 4, 1.0) as f32);
 
-fn push_lua_string(state: *mut lua_State, value: &str) {
-    unsafe {
-        lua_pushlstring(
-            state,
-            value.as_bytes().as_ptr().cast(),
-            value.len(),
-        );
-    }
-}
-
-fn lua_error_message(state: *mut lua_State, message: impl AsRef<str>) -> i32 {
-    push_lua_string(state, message.as_ref());
-    unsafe { lua_rs::api::lua_error(state) }
-}
-
-unsafe fn push_element_userdata(state: *mut lua_State, handle: usize) -> i32 {
-    let slot = unsafe { lua_newuserdatauv(state, std::mem::size_of::<LuaElementHandle>(), 0) }
-        as *mut LuaElementHandle;
-    unsafe { (*slot).handle = handle };
-    luaL_setmetatable(state, cstr(LUA_ELEMENT_METATABLE).as_ptr());
-    1
-}
-
-unsafe fn get_element_handle(state: *mut lua_State, arg: i32) -> usize {
-    let ptr =
-        luaL_checkudata(state, arg, cstr(LUA_ELEMENT_METATABLE).as_ptr()) as *mut LuaElementHandle;
-    unsafe { (*ptr).handle }
-}
-
-unsafe fn dom_root(state: *mut lua_State) -> i32 {
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().root_handle()) {
-        Ok(handle) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn dom_create(state: *mut lua_State) -> i32 {
-    let tag_name = unsafe { lua_arg_string(state, 1) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().create_element(&tag_name)) {
-        Ok(handle) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn dom_select(state: *mut lua_State) -> i32 {
-    let selector = unsafe { lua_arg_string(state, 1) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().select(&selector)) {
-        Ok(Some(handle)) => unsafe { push_element_userdata(state, handle) },
-        Ok(None) => {
-            unsafe { lua_pushnil(state) };
-            1
-        }
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn dom_clear(state: *mut lua_State) -> i32 {
-    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().clear()) {
-        Ok(()) => 0,
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_append(state: *mut lua_State) -> i32 {
-    let parent = unsafe { get_element_handle(state, 1) };
-    let child = unsafe { get_element_handle(state, 2) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().append_child(parent, child)) {
-        Ok(()) => unsafe { push_element_userdata(state, parent) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_remove(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow_mut().remove_node(handle)) {
-        Ok(()) => 0,
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_set_text(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let text = unsafe { lua_arg_string(state, 2) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_text(handle, &text)) {
-        Ok(()) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_set_attr(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let name = unsafe { lua_arg_string(state, 2) };
-    let value = unsafe { lua_arg_string(state, 3) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_attr(handle, &name, &value)) {
-        Ok(()) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_get_attr(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let name = unsafe { lua_arg_string(state, 2) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().get_attr(handle, &name)) {
-        Ok(Some(value)) => {
-            push_lua_string(state, &value);
-            1
-        }
-        Ok(None) => {
-            unsafe { lua_pushnil(state) };
-            1
-        }
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_add_class(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let name = unsafe { lua_arg_string(state, 2) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().add_class(handle, &name)) {
-        Ok(()) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_remove_class(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let name = unsafe { lua_arg_string(state, 2) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().remove_class(handle, &name)) {
-        Ok(()) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_set_style(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let name = unsafe { lua_arg_string(state, 2) };
-    let value = unsafe { lua_arg_string(state, 3) };
-    match DOM_BRIDGE.with(|bridge| bridge.borrow().set_style(handle, &name, &value)) {
-        Ok(()) => unsafe { push_element_userdata(state, handle) },
-        Err(err) => lua_error_message(state, err),
-    }
-}
-
-unsafe fn element_tostring(state: *mut lua_State) -> i32 {
-    let handle = unsafe { get_element_handle(state, 1) };
-    let label = DOM_BRIDGE.with(|bridge| {
-        let bridge = bridge.borrow();
-        match bridge.get_element(handle) {
-            Ok(element) => format!("<{} #{}>", element.tag_name().to_lowercase(), handle),
-            Err(_) => format!("<dom-element #{}>", handle),
-        }
+    GPU_SCENE.with(|scene| {
+        scene.borrow_mut().clear_color = [r, g, b, a];
     });
-    push_lua_string(state, &label);
-    1
+    0
 }
 
-unsafe fn register_dom_api(state: *mut lua_State) {
-    let metatable_name = cstr(LUA_ELEMENT_METATABLE);
+unsafe fn gfx_rect(state: *mut lua_State) -> i32 {
+    let x = luaL_checknumber(state, 1) as f32;
+    let y = luaL_checknumber(state, 2) as f32;
+    let width = luaL_checknumber(state, 3) as f32;
+    let height = luaL_checknumber(state, 4) as f32;
+    let r = clamp_color(luaL_checknumber(state, 5) as f32);
+    let g = clamp_color(luaL_checknumber(state, 6) as f32);
+    let b = clamp_color(luaL_checknumber(state, 7) as f32);
+    let a = clamp_color(luaL_optnumber(state, 8, 1.0) as f32);
 
-    luaL_newmetatable(state, metatable_name.as_ptr());
-    lua_createtable(state, 0, 8);
+    GPU_SCENE.with(|scene| {
+        scene.borrow_mut().rects.push(RectPrimitive {
+            x,
+            y,
+            width,
+            height,
+            color: [r, g, b, a],
+        });
+    });
+    0
+}
 
-    lua_pushcfunction(state, Some(element_append));
-    lua_setfield(state, -2, cstr("append").as_ptr());
-    lua_pushcfunction(state, Some(element_remove));
-    lua_setfield(state, -2, cstr("remove").as_ptr());
-    lua_pushcfunction(state, Some(element_set_text));
-    lua_setfield(state, -2, cstr("set_text").as_ptr());
-    lua_pushcfunction(state, Some(element_set_attr));
-    lua_setfield(state, -2, cstr("set_attr").as_ptr());
-    lua_pushcfunction(state, Some(element_get_attr));
-    lua_setfield(state, -2, cstr("get_attr").as_ptr());
-    lua_pushcfunction(state, Some(element_add_class));
-    lua_setfield(state, -2, cstr("add_class").as_ptr());
-    lua_pushcfunction(state, Some(element_remove_class));
-    lua_setfield(state, -2, cstr("remove_class").as_ptr());
-    lua_pushcfunction(state, Some(element_set_style));
-    lua_setfield(state, -2, cstr("set_style").as_ptr());
+unsafe fn gfx_reset(state: *mut lua_State) -> i32 {
+    let _ = state;
+    reset_scene();
+    0
+}
 
-    lua_setfield(state, -2, cstr("__index").as_ptr());
-    lua_pushcfunction(state, Some(element_tostring));
-    lua_setfield(state, -2, cstr("__tostring").as_ptr());
-    lua_pop(state, 1);
+unsafe fn gfx_size(state: *mut lua_State) -> i32 {
+    unsafe { lua_pushnumber(state, SCENE_WIDTH as f64) };
+    unsafe { lua_pushnumber(state, SCENE_HEIGHT as f64) };
+    2
+}
 
-    lua_createtable(state, 0, 4);
-    lua_pushcfunction(state, Some(dom_root));
-    lua_setfield(state, -2, cstr("root").as_ptr());
-    lua_pushcfunction(state, Some(dom_create));
-    lua_setfield(state, -2, cstr("create").as_ptr());
-    lua_pushcfunction(state, Some(dom_select));
-    lua_setfield(state, -2, cstr("select").as_ptr());
-    lua_pushcfunction(state, Some(dom_clear));
-    lua_setfield(state, -2, cstr("clear").as_ptr());
-    lua_setglobal(state, cstr("dom").as_ptr());
+unsafe fn register_gfx_api(state: *mut lua_State) {
+    unsafe { lua_createtable(state, 0, 4) };
+    unsafe { lua_pushcfunction(state, Some(gfx_clear)) };
+    unsafe { lua_setfield(state, -2, cstr("clear").as_ptr()) };
+    unsafe { lua_pushcfunction(state, Some(gfx_rect)) };
+    unsafe { lua_setfield(state, -2, cstr("rect").as_ptr()) };
+    unsafe { lua_pushcfunction(state, Some(gfx_reset)) };
+    unsafe { lua_setfield(state, -2, cstr("reset").as_ptr()) };
+    unsafe { lua_pushcfunction(state, Some(gfx_size)) };
+    unsafe { lua_setfield(state, -2, cstr("size").as_ptr()) };
+    unsafe { lua_setglobal(state, cstr("gfx").as_ptr()) };
 }
 
 struct LuaRepl {
@@ -438,7 +193,7 @@ impl LuaRepl {
             lua_pushcfunction(state, Some(lua_print_capture));
             lua_setglobal(state, cstr("print").as_ptr());
 
-            register_dom_api(state);
+            register_gfx_api(state);
         }
         Some(Self { state })
     }
@@ -543,14 +298,13 @@ unsafe fn msghandler(state: *mut lua_State) -> i32 {
     let mut msg = unsafe { lua_tolstring(state, 1, ptr::null_mut()) };
     if msg.is_null() {
         let event = cstr("__tostring");
-        if unsafe { luaL_callmeta(state, 1, event.as_ptr()) } != 0
-            && unsafe { lua_type(state, -1) } == LUA_TSTRING
+        if luaL_callmeta(state, 1, event.as_ptr()) != 0 && unsafe { lua_type(state, -1) } == LUA_TSTRING
         {
             return 1;
         }
         msg = NON_STRING_ERROR.as_ptr().cast();
     }
-    unsafe { luaL_traceback(state, state, msg, 1) };
+    luaL_traceback(state, state, msg, 1);
     1
 }
 
@@ -571,6 +325,298 @@ unsafe fn lua_to_string(state: *mut lua_State, index: i32) -> Option<String> {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Vertex {
+    position: [f32; 2],
+    color: [f32; 4],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x4];
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+struct GpuRenderer {
+    canvas: HtmlCanvasElement,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl GpuRenderer {
+    async fn new(canvas: HtmlCanvasElement) -> Result<Self, String> {
+        let instance = wgpu::util::new_instance_with_webgpu_detection(
+            wgpu::InstanceDescriptor::new_without_display_handle().with_env(),
+        )
+        .await;
+
+        let surface = instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
+            .map_err(|err| err.to_string())?;
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+            })
+            .await
+            .map_err(|err| err.to_string())?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("webapp-wgpu-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(|err| err.to_string())?;
+
+        let mut config = surface
+            .get_default_config(&adapter, SCENE_WIDTH as u32, SCENE_HEIGHT as u32)
+            .ok_or_else(|| "surface does not expose a default configuration".to_string())?;
+
+        config.format = preferred_surface_format(&surface, &adapter);
+        surface.configure(&device, &config);
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("webapp-wgsl"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("webapp-pipeline-layout"),
+            bind_group_layouts: &[],
+            immediate_size: 0,
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("webapp-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let mut renderer = Self {
+            canvas,
+            surface,
+            device,
+            queue,
+            config,
+            pipeline,
+        };
+        renderer.sync_surface_size();
+        Ok(renderer)
+    }
+
+    fn sync_surface_size(&mut self) {
+        let html: HtmlElement = self.canvas.clone().unchecked_into();
+        let dpr = web_sys::window()
+            .map(|window| window.device_pixel_ratio())
+            .unwrap_or(1.0)
+            .max(1.0);
+
+        let width = ((html.client_width().max(1) as f64) * dpr).round() as u32;
+        let height = ((html.client_height().max(1) as f64) * dpr).round() as u32;
+
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        if self.config.width != width || self.config.height != height {
+            self.canvas.set_width(width);
+            self.canvas.set_height(height);
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    fn render_current_scene(&mut self) -> Result<(), String> {
+        self.sync_surface_size();
+        let scene = snapshot_scene();
+        self.render_scene(&scene)
+    }
+
+    fn render_scene(&mut self, scene: &GpuScene) -> Result<(), String> {
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface.configure(&self.device, &self.config);
+                match self.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    other => {
+                        return Err(format!("failed to acquire surface texture after reconfigure: {other:?}"));
+                    }
+                }
+            }
+            other => return Err(format!("failed to acquire surface texture: {other:?}")),
+        };
+
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("webapp-render-encoder"),
+            });
+
+        let vertices = scene_to_vertices(scene);
+        let vertex_buffer = if vertices.is_empty() {
+            None
+        } else {
+            Some(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("webapp-rect-buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }))
+        };
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("webapp-render-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: scene.clear_color[0] as f64,
+                            g: scene.clear_color[1] as f64,
+                            b: scene.clear_color[2] as f64,
+                            a: scene.clear_color[3] as f64,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            if let Some(vertex_buffer) = vertex_buffer.as_ref() {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.draw(0..vertices.len() as u32, 0..1);
+            }
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        frame.present();
+        Ok(())
+    }
+}
+
+fn preferred_surface_format(surface: &wgpu::Surface<'_>, adapter: &wgpu::Adapter) -> wgpu::TextureFormat {
+    let capabilities = surface.get_capabilities(adapter);
+    capabilities
+        .formats
+        .iter()
+        .copied()
+        .find(wgpu::TextureFormat::is_srgb)
+        .unwrap_or(capabilities.formats[0])
+}
+
+fn scene_to_vertices(scene: &GpuScene) -> Vec<Vertex> {
+    let mut vertices = Vec::with_capacity(scene.rects.len() * 6);
+
+    for rect in &scene.rects {
+        let x0 = ((rect.x / SCENE_WIDTH) * 2.0) - 1.0;
+        let y0 = 1.0 - ((rect.y / SCENE_HEIGHT) * 2.0);
+        let x1 = (((rect.x + rect.width) / SCENE_WIDTH) * 2.0) - 1.0;
+        let y1 = 1.0 - (((rect.y + rect.height) / SCENE_HEIGHT) * 2.0);
+
+        let color = rect.color;
+        vertices.extend_from_slice(&[
+            Vertex {
+                position: [x0, y0],
+                color,
+            },
+            Vertex {
+                position: [x1, y0],
+                color,
+            },
+            Vertex {
+                position: [x1, y1],
+                color,
+            },
+            Vertex {
+                position: [x0, y0],
+                color,
+            },
+            Vertex {
+                position: [x1, y1],
+                color,
+            },
+            Vertex {
+                position: [x0, y1],
+                color,
+            },
+        ]);
+    }
+
+    vertices
+}
+
+const SHADER: &str = r#"
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+) -> VsOut {
+    var out: VsOut;
+    out.position = vec4<f32>(position, 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
+
 #[derive(Clone, PartialEq)]
 enum HistoryEntry {
     Input(String),
@@ -580,14 +626,14 @@ enum HistoryEntry {
 
 #[derive(Clone, Copy, PartialEq)]
 enum DemoCategory {
-    Dom,
+    Gpu,
     Core,
 }
 
 impl DemoCategory {
     fn label(self) -> &'static str {
         match self {
-            Self::Dom => "DOM Demo",
+            Self::Gpu => "WebGPU Demo",
             Self::Core => "Core Lua",
         }
     }
@@ -603,78 +649,61 @@ struct Demo {
 
 const DEMOS: &[Demo] = &[
     Demo {
-        title: "Create Card",
-        description: "创建一个卡片节点树并挂到 preview root。",
-        category: DemoCategory::Dom,
-        code: r##"local root = dom.root()
-local card = dom.create("article")
-card:add_class("demo-card")
-card:set_style("padding", "18px")
-card:set_style("border-radius", "16px")
-card:set_style("background", "linear-gradient(180deg, #172554 0%, #1e293b 100%)")
-card:set_style("color", "#eff6ff")
-card:set_style("border", "1px solid rgba(125, 211, 252, 0.24)")
+        title: "Sunset Bands",
+        description: "设置清屏色并叠加多层矩形，展示最小绘制 API。",
+        category: DemoCategory::Gpu,
+        code: r##"gfx.clear(0.03, 0.05, 0.10, 1.0)
+gfx.rect(0,   0, 960, 540, 0.06, 0.09, 0.18, 1.0)
+gfx.rect(0,  90, 960, 150, 0.89, 0.40, 0.23, 0.85)
+gfx.rect(0, 220, 960, 120, 0.96, 0.66, 0.22, 0.72)
+gfx.rect(0, 340, 960, 200, 0.05, 0.08, 0.18, 1.0)
 
-local title = dom.create("h2")
-title:set_text("Lua created this card")
-title:set_style("margin", "0 0 8px")
-
-local body = dom.create("p")
-body:set_text("The preview stage is a DOM sandbox controlled from Lua.")
-body:set_style("margin", "0")
-body:set_style("line-height", "1.6")
-
-card:append(title)
-card:append(body)
-root:append(card)"##,
-    },
-    Demo {
-        title: "Render List",
-        description: "用 Lua table 渲染列表。",
-        category: DemoCategory::Dom,
-        code: r##"local root = dom.root()
-local items = {"Rust bridge", "Lua runtime", "DOM sandbox", "Preview reset"}
-
-local title = dom.create("h3")
-title:set_text("Implementation notes")
-title:set_style("margin", "0 0 12px")
-root:append(title)
-
-local list = dom.create("ul")
-list:set_style("margin", "0")
-list:set_style("padding-left", "20px")
-list:set_style("color", "#cbd5e1")
-
-for _, item in ipairs(items) do
-    local li = dom.create("li")
-    li:set_text(item)
-    li:set_style("margin-bottom", "8px")
-    list:append(li)
+for i = 0, 7 do
+    local x = 80 + i * 100
+    local h = 140 + (i % 3) * 50
+    gfx.rect(x, 540 - h, 58, h, 0.08, 0.12, 0.20, 0.95)
 end
 
-root:append(list)"##,
+print("rendered layered skyline")"##,
     },
     Demo {
-        title: "Query And Update",
-        description: "创建后通过 selector 查找并更新元素。",
-        category: DemoCategory::Dom,
-        code: r##"local root = dom.root()
+        title: "Tile Grid",
+        description: "用 Lua 循环批量生成色块。",
+        category: DemoCategory::Gpu,
+        code: r##"gfx.clear(0.04, 0.06, 0.11, 1.0)
 
-local badge = dom.create("div")
-badge:set_attr("data-role", "badge")
-badge:set_text("draft")
-badge:set_style("display", "inline-block")
-badge:set_style("padding", "8px 12px")
-badge:set_style("border-radius", "999px")
-badge:set_style("background", "#334155")
-badge:set_style("color", "#e2e8f0")
-root:append(badge)
+for row = 0, 5 do
+    for col = 0, 9 do
+        local x = 52 + col * 84
+        local y = 52 + row * 72
+        local r = 0.18 + col * 0.05
+        local g = 0.24 + row * 0.06
+        local b = 0.40 + (row + col) * 0.02
+        gfx.rect(x, y, 64, 52, r, g, b, 0.95)
+    end
+end
 
-local found = dom.select("[data-role='badge']")
-if found then
-    found:set_text("published")
-    found:set_style("background", "#0f766e")
-end"##,
+print("tile count:", 6 * 10)"##,
+    },
+    Demo {
+        title: "HUD Layout",
+        description: "组合面板、状态条和高亮块，模拟游戏 UI。",
+        category: DemoCategory::Gpu,
+        code: r##"gfx.clear(0.02, 0.04, 0.08, 1.0)
+
+gfx.rect(36, 36, 888, 468, 0.05, 0.08, 0.13, 0.92)
+gfx.rect(60, 60, 280, 180, 0.08, 0.12, 0.20, 0.95)
+gfx.rect(360, 60, 540, 180, 0.08, 0.12, 0.20, 0.95)
+gfx.rect(60, 264, 840, 216, 0.06, 0.10, 0.17, 0.95)
+
+gfx.rect(84, 92, 232, 18, 0.10, 0.16, 0.28, 1.0)
+gfx.rect(84, 92, 172, 18, 0.15, 0.69, 0.96, 1.0)
+
+for i = 0, 4 do
+    gfx.rect(390 + i * 94, 96, 68, 60, 0.93, 0.58 - i * 0.08, 0.18 + i * 0.04, 0.96)
+end
+
+print("hud blocks ready")"##,
     },
     Demo {
         title: "Hello, Lua",
@@ -728,40 +757,80 @@ fn run_snippet(
     history: &UseStateHandle<Vec<HistoryEntry>>,
     label: &str,
     code: &str,
+    render_nonce: &UseStateHandle<u64>,
 ) {
     let mut new_history = (**history).clone();
     new_history.push(HistoryEntry::Input(format_history_input(label, code)));
 
-    let result = DOM_BRIDGE.with(|bridge| bridge.borrow_mut().reset_preview());
-    match result {
-        Ok(()) => match repl.exec_line(code) {
-            Ok(output) if !output.is_empty() => new_history.push(HistoryEntry::Output(output)),
-            Ok(_) => {}
-            Err(err) => new_history.push(HistoryEntry::Error(err)),
-        },
+    reset_scene();
+    match repl.exec_line(code) {
+        Ok(output) if !output.is_empty() => new_history.push(HistoryEntry::Output(output)),
+        Ok(_) => {}
         Err(err) => new_history.push(HistoryEntry::Error(err)),
     }
 
     history.set(new_history);
+    render_nonce.set(**render_nonce + 1);
 }
 
 #[function_component(App)]
 fn app() -> Html {
     let _ = console_log::init_with_level(Level::Debug);
+    console_error_panic_hook::set_once();
 
     let repl = use_mut_ref(|| LuaRepl::new().expect("failed to create Lua state"));
+    let renderer = use_mut_ref(|| None::<GpuRenderer>);
+
     let history = use_state(Vec::<HistoryEntry>::new);
     let input = use_state(|| DEMOS[0].code.to_string());
     let selected_demo = use_state(|| Some(0usize));
     let demo_sidebar_open = use_state(|| false);
+    let render_nonce = use_state(|| 0u64);
+    let renderer_status = use_state(|| "initializing WebGPU renderer...".to_string());
+
     let editor_ref = use_node_ref();
-    let preview_ref = use_node_ref();
+    let canvas_ref = use_node_ref();
 
     {
-        let preview_ref = preview_ref.clone();
-        use_effect_with(preview_ref.clone(), move |_| {
-            if let Some(element) = preview_ref.cast::<HtmlElement>() {
-                DOM_BRIDGE.with(|bridge| bridge.borrow_mut().set_root(element.into()));
+        let canvas_ref = canvas_ref.clone();
+        let renderer = renderer.clone();
+        let renderer_status = renderer_status.clone();
+        use_effect_with(canvas_ref.clone(), move |_| {
+            if renderer.borrow().is_none() {
+                if let Some(canvas) = canvas_ref.cast::<HtmlCanvasElement>() {
+                    let renderer = renderer.clone();
+                    let renderer_status = renderer_status.clone();
+                    spawn_local(async move {
+                        match GpuRenderer::new(canvas).await {
+                            Ok(mut ready) => {
+                                let render_result = ready.render_current_scene();
+                                *renderer.borrow_mut() = Some(ready);
+                                match render_result {
+                                    Ok(()) => renderer_status.set("WebGPU renderer ready.".to_string()),
+                                    Err(err) => renderer_status.set(format!("renderer ready, first frame failed: {err}")),
+                                }
+                            }
+                            Err(err) => {
+                                renderer_status.set(format!("failed to initialize WebGPU: {err}"));
+                            }
+                        }
+                    });
+                }
+            }
+            || ()
+        });
+    }
+
+    {
+        let renderer = renderer.clone();
+        let renderer_status = renderer_status.clone();
+        let nonce = *render_nonce;
+        use_effect_with(nonce, move |_| {
+            if let Some(renderer) = renderer.borrow_mut().as_mut() {
+                match renderer.render_current_scene() {
+                    Ok(()) => renderer_status.set("WebGPU renderer ready.".to_string()),
+                    Err(err) => renderer_status.set(format!("render failed: {err}")),
+                }
             }
             || ()
         });
@@ -780,6 +849,7 @@ fn app() -> Html {
         let history = history.clone();
         let input = input.clone();
         let editor_ref = editor_ref.clone();
+        let render_nonce = render_nonce.clone();
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
             let code = (*input).trim().to_string();
@@ -787,7 +857,7 @@ fn app() -> Html {
                 return;
             }
 
-            run_snippet(&repl.borrow(), &history, "Editor", &code);
+            run_snippet(&repl.borrow(), &history, "Editor", &code, &render_nonce);
 
             if let Some(el) = editor_ref.cast::<web_sys::HtmlTextAreaElement>() {
                 let _ = el.focus();
@@ -795,16 +865,18 @@ fn app() -> Html {
         })
     };
 
-    let on_clear = {
+    let on_clear_console = {
         let history = history.clone();
         Callback::from(move |_| history.set(Vec::new()))
     };
 
-    let on_reset_preview = Callback::from(move |_| {
-        DOM_BRIDGE.with(|bridge| {
-            let _ = bridge.borrow_mut().reset_preview();
-        });
-    });
+    let on_reset_preview = {
+        let render_nonce = render_nonce.clone();
+        Callback::from(move |_| {
+            reset_scene();
+            render_nonce.set(*render_nonce + 1);
+        })
+    };
 
     let open_demo_sidebar = {
         let demo_sidebar_open = demo_sidebar_open.clone();
@@ -878,20 +950,19 @@ fn app() -> Html {
                         display: none;
                     }
 
-                    .preview-stage {
-                        min-height: 240px;
+                    .preview-shell {
                         border-radius: 16px;
                         border: 1px dashed rgba(125, 211, 252, 0.26);
-                        background:
-                            linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.96) 100%);
-                        padding: 18px;
-                        box-sizing: border-box;
-                        overflow: auto;
+                        background: linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.96) 100%);
+                        padding: 14px;
                     }
 
-                    .preview-stage > * {
-                        box-sizing: border-box;
-                        max-width: 100%;
+                    .preview-canvas {
+                        width: 100%;
+                        aspect-ratio: 16 / 9;
+                        display: block;
+                        border-radius: 12px;
+                        background: #020617;
                     }
 
                     .console-panel {
@@ -1023,12 +1094,12 @@ fn app() -> Html {
                         font-size: 12px;
                         letter-spacing: 0.08em;
                         text-transform: uppercase;
-                    ">{ "Lua DOM Playground" }</div>
+                    ">{ "Lua WebGPU Playground" }</div>
                     <h1 class="playground-title" style="font-size: 34px; margin: 14px 0 8px; color: #f8fafc;">
-                        { "Lua controls the preview stage" }
+                        { "Lua drives a wgpu preview canvas" }
                     </h1>
                     <p style="max-width: 760px; margin: 0; color: #9fb0cc; line-height: 1.7;">
-                        { "Run Lua on the left, render DOM in the preview sandbox, and keep console output below it. The DOM API is exposed as a small `dom` module instead of raw browser globals." }
+                        { "The preview stage is now a WebGPU surface. Lua scripts build a tiny draw list through `gfx.clear()` and `gfx.rect()`, and the canvas is rendered by `wgpu` instead of DOM mutations." }
                     </p>
                     <button type="button" class="mobile-demo-toggle" onclick={open_demo_sidebar}>
                         { "Browse Lua Demos" }
@@ -1049,7 +1120,7 @@ fn app() -> Html {
                         <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 14px;">
                             <div>
                                 <h2 style="margin: 0; font-size: 18px; color: #f8fafc;">{ "Lua Demos" }</h2>
-                                <p style="margin: 4px 0 0; color: #94a3b8; font-size: 12px;">{ "DOM demos render into the preview sandbox." }</p>
+                                <p style="margin: 4px 0 0; color: #94a3b8; font-size: 12px;">{ "GPU demos emit draw commands into the scene list." }</p>
                             </div>
                             <button
                                 type="button"
@@ -1094,13 +1165,14 @@ fn app() -> Html {
                                     let input = input.clone();
                                     let selected_demo = selected_demo.clone();
                                     let demo_sidebar_open = demo_sidebar_open.clone();
+                                    let render_nonce = render_nonce.clone();
                                     let title = demo.title;
                                     let code = demo.code.to_string();
                                     Callback::from(move |_| {
                                         input.set(code.clone());
                                         selected_demo.set(Some(index));
                                         demo_sidebar_open.set(false);
-                                        run_snippet(&repl.borrow(), &history, title, &code);
+                                        run_snippet(&repl.borrow(), &history, title, &code, &render_nonce);
                                     })
                                 };
 
@@ -1186,9 +1258,9 @@ fn app() -> Html {
                             <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 12px;">
                                 <div>
                                     <h2 style="margin: 0 0 4px; font-size: 18px; color: #f8fafc;">{ "Editor" }</h2>
-                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Use `dom.root()`, `dom.create()`, and element methods to build the preview." }</p>
+                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Use `gfx.clear(r, g, b, a)` and `gfx.rect(x, y, w, h, r, g, b, a)` to push draw commands." }</p>
                                 </div>
-                                <span style="font-size: 12px; color: #fbbf24;">{ "Lua + DOM sandbox" }</span>
+                                <span style="font-size: 12px; color: #fbbf24;">{ "WebGPU scene list" }</span>
                             </div>
 
                             <form onsubmit={on_submit}>
@@ -1230,7 +1302,7 @@ fn app() -> Html {
                                     >{ "Run Lua" }</button>
                                     <button
                                         type="button"
-                                        onclick={on_clear}
+                                        onclick={on_clear_console}
                                         style="
                                             background: rgba(30, 41, 59, 0.9);
                                             border: 1px solid rgba(148, 163, 184, 0.18);
@@ -1256,7 +1328,7 @@ fn app() -> Html {
                             <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 12px;">
                                 <div>
                                     <h2 style="margin: 0 0 4px; font-size: 18px; color: #f8fafc;">{ "Preview Stage" }</h2>
-                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Lua can only query and mutate this sandbox root." }</p>
+                                    <p style="margin: 0; color: #94a3b8; font-size: 13px;">{ "Canvas rendering is handled by `wgpu`; Lua only emits scene commands." }</p>
                                 </div>
                                 <div class="preview-actions">
                                     <button
@@ -1276,13 +1348,16 @@ fn app() -> Html {
                                 </div>
                             </div>
 
-                            <div
-                                ref={preview_ref}
-                                class="preview-stage"
-                            >
-                                <div style="color: #64748b; font-size: 14px; line-height: 1.7;">
-                                    { "Run a DOM demo or your own Lua script. This area is the only DOM sandbox available to Lua." }
-                                </div>
+                            <div class="preview-shell">
+                                <canvas
+                                    ref={canvas_ref}
+                                    width="960"
+                                    height="540"
+                                    class="preview-canvas"
+                                />
+                            </div>
+                            <div style="margin-top: 10px; color: #64748b; font-size: 12px; line-height: 1.6;">
+                                { (*renderer_status).clone() }
                             </div>
                         </div>
 
@@ -1354,5 +1429,6 @@ fn main() {
             dispatch_fn.forget();
         }
     }
+
     yew::Renderer::<App>::new().render();
 }
