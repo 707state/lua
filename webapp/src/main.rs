@@ -2,6 +2,8 @@
 //!
 //! 构建：trunk serve / trunk build --release
 
+mod audio_player;
+
 use log::Level;
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
@@ -29,6 +31,8 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlCanvasElement, HtmlElement};
 use wgpu::util::DeviceExt;
 use yew::prelude::*;
+
+use audio_player::AudioPlayer;
 
 const LUA_TSTRING: i32 = 4;
 const LUA_MINSTACK: i32 = 20;
@@ -1403,6 +1407,20 @@ fn app() -> Html {
                     </section>
                 </div>
             </div>
+
+            <div style="
+                max-width: 1320px;
+                margin: 0 auto;
+                padding: 0 20px;
+            ">
+                <hr style="
+                    border: none;
+                    border-top: 1px solid rgba(148, 163, 184, 0.12);
+                    margin: 0 0 32px;
+                " />
+            </div>
+
+            <AudioPlayer />
         </div>
     }
 }

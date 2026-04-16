@@ -26,6 +26,20 @@ web-sys = { version = "0.3", features = [
     "DomTokenList",
     "CssStyleDeclaration",
     "console",
+    # Audio player features
+    "AudioContext",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "BaseAudioContext",
+    "Blob",
+    "File",
+    "FileList",
+    "HtmlInputElement",
+    "Event",
+    "EventTarget",
 ] }
 js-sys = "0.3"
 log = "0.4"
