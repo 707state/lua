@@ -372,13 +372,7 @@ static int pmain (lua_State *L) {
   return 0;
 }
 
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/raw_ostream.h"
 int main (int argc, char **argv) {
-    llvm::LLVMContext context;
-    llvm::Module module("lua", context);
-    module.print(llvm::outs(), nullptr);
   int status;
   struct Smain s;
   lua_State *L = lua_open();  /* create state */

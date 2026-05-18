@@ -18,6 +18,7 @@
 #include "ldo.h"
 #include "lfunc.h"
 #include "lgc.h"
+#include "ljit.h"
 #include "lobject.h"
 #include "lopcodes.h"
 #include "lstate.h"
@@ -381,6 +382,8 @@ void luaV_execute (lua_State *L, int nexeccalls) {
   const Instruction *pc;
  reentry:  /* entry point */
   lua_assert(isLua(L->ci));
+  if (nexeccalls == 1 && luaJIT_execute(L))
+    return;
   pc = L->savedpc;
   cl = &clvalue(L->ci->func)->l;
   base = L->base;
@@ -764,4 +767,3 @@ void luaV_execute (lua_State *L, int nexeccalls) {
     }
   }
 }
-

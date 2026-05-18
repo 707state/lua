@@ -27,6 +27,7 @@ set(LUA_SRC
     src/ldump.cc
     src/lfunc.cc
     src/lgc.cc
+    src/ljit.cc
     src/linit.cc
     src/liolib.cc
     src/llex.cc
@@ -51,6 +52,15 @@ set(LUA_SRC
 
 add_library(lua_llvm_config INTERFACE)
 
+set(LUA_LLVM_NATIVE_CODEGEN_TARGET "")
+if(DEFINED LLVM_NATIVE_ARCH AND TARGET LLVM${LLVM_NATIVE_ARCH}CodeGen)
+    set(LUA_LLVM_NATIVE_CODEGEN_TARGET LLVM${LLVM_NATIVE_ARCH}CodeGen)
+elseif(TARGET LLVMAArch64CodeGen)
+    set(LUA_LLVM_NATIVE_CODEGEN_TARGET LLVMAArch64CodeGen)
+elseif(TARGET LLVMX86CodeGen)
+    set(LUA_LLVM_NATIVE_CODEGEN_TARGET LLVMX86CodeGen)
+endif()
+
 target_include_directories(lua_llvm_config
     INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -72,6 +82,10 @@ target_link_libraries(lua_llvm_config
         LLVMRuntimeDyld
         LLVMMC
         LLVMExecutionEngine
+        LLVMTarget
+        ${LUA_LLVM_NATIVE_CODEGEN_TARGET}
+        LLVMOrcTargetProcess
+        LLVMOrcShared
 )
 
 add_library(lua_static STATIC ${LUA_SRC})
